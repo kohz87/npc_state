@@ -1,4 +1,32 @@
-# NPC State v0.2.8 Code Review
+# NPC State v0.2.9 Code Review
+
+## v0.2.9 relationship-inertia findings
+
+### High: valid relationship deltas accumulated too quickly in long-form RP
+
+**Previous risk:** stock caps allowed `+4` ordinary and `+8` meaningful movement per scored exchange, with linear accumulation and no resistance near established extremes. Several moderately emotional scenes could move a relationship across behavioral thresholds quickly.
+
+**Resolution:** stock caps are `1/3/8/20`; ordinary/meaningful events are axis-limited; deepening established polarity receives score-dependent inertia, while contrary evidence remains able to move toward neutral at full tier strength.
+
+### High: relationship context remained too prominent during generation
+
+**Previous risk:** every essential NPC block carried raw four-axis stats plus up to 430 characters of generated player-directed behavior, while durable Relationship Summary could be added early as optional continuity. This could make the player relationship the dominant narrative lens even though identity technically appeared first.
+
+**Resolution:** generation order is now Identity, Agency/non-player bonds, Current State, then a <=160-character secondary relationship modifier. Low-score axes collapse to one neutral/unsettled cue. Mood/Status are essential; Relationship Summary is late optional context. Relationship magnitude was removed from relevance scoring.
+
+### High: one relationship event could be rewarded repeatedly across its aftermath
+
+**Resolution:** focused evaluation receives the last scored event and explicitly treats routine aftermath as zero. The merge layer independently rejects recent semantically duplicate reasons. Dedupe requires reason similarity plus recency; message ID equality alone is insufficient because a swipe/edit may materially change the same message.
+
+### Medium: removing relationship salience exposed partial-name relevance
+
+**Finding:** an established `Falia Rendel` could fail runtime selection when prose referred only to `Falia` and no other relevance signal existed.
+
+**Resolution:** grounded first-token matching is allowed for multi-token canonical names when the first token is at least four characters, keeping relationship score out of salience.
+
+### Compatibility
+
+Settings schema advances to v21. Untouched v0.2.8 stock caps and relationship/impact/behavior rubrics migrate to the v0.2.9 defaults. Customized caps/rubrics remain unchanged. Existing dossier relationship scores are not rescaled or reset.
 
 ## v0.2.8 canon-hygiene findings
 
@@ -24,7 +52,7 @@
 
 ### Medium: durable Importance and runtime relevance were conflated
 
-**Resolution:** scanner output cannot rewrite stored Importance. Runtime selection scores contextual salience from mentions, role/goal/memory relevance, relationship magnitude, and recency instead of manual Importance.
+**Resolution:** scanner output cannot rewrite stored Importance. Runtime selection scores contextual salience from mentions, role/goal/memory relevance, grounded name references, and recency instead of manual Importance; v0.2.9 deliberately removes relationship magnitude from salience.
 
 ### Actual Noctis export verification
 

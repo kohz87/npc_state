@@ -1,4 +1,4 @@
-/* NPC State v0.2.8 - standalone SillyTavern extension */
+/* NPC State v0.2.9 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';
 import {
@@ -10,6 +10,11 @@ import {
     DEFAULT_MEMORY_CRITERIA,
     DEFAULT_BEHAVIOR_CRITERIA,
     isLegacyStockBehaviorCriteriaV024,
+    isLegacyStockRelationshipCapsV028,
+    isLegacyStockRelationshipCriteriaV028,
+    isLegacyStockImpactCriteriaV028,
+    isLegacyStockBehaviorCriteriaV028,
+    relationshipChangeLooksDuplicate,
     IMPORTANT_MEMORY_LIMIT,
     KEY_RELATIONSHIP_LIMIT,
     BEHAVIOR_PROFILE_LIMIT,
@@ -140,7 +145,7 @@ const PORTRAIT_THEME_PRESETS = Object.freeze({
 const DURABLE_COMPACTION_VERSION = 1;
 
 const DEFAULTS = Object.freeze({
-    schemaVersion: 20,
+    schemaVersion: 21,
     enabled: true,
     autoScan: true,
     fullScanEveryTurn: false,
@@ -239,6 +244,14 @@ function getSettings() {
     if (previousSchema < 19 && isLegacyStockBehaviorCriteriaV024(settings.behaviorCriteria)) {
         // Upgrade only the untouched v0.2.4 stock rubric. User-customized rubrics are preserved.
         assign('behaviorCriteria', DEFAULT_BEHAVIOR_CRITERIA);
+    }
+    if (previousSchema < 21) {
+        // v0.2.9 deliberately slows relationship progression. Migrate only untouched v0.2.8
+        // defaults; explicit user tuning remains authoritative.
+        if (isLegacyStockRelationshipCapsV028(settings.relationshipCaps)) assign('relationshipCaps', DEFAULT_RELATIONSHIP_CAPS, sameJson);
+        if (isLegacyStockRelationshipCriteriaV028(settings.relationshipCriteria)) assign('relationshipCriteria', DEFAULT_RELATIONSHIP_CRITERIA);
+        if (isLegacyStockImpactCriteriaV028(settings.relationshipImpactCriteria)) assign('relationshipImpactCriteria', DEFAULT_IMPACT_CRITERIA);
+        if (isLegacyStockBehaviorCriteriaV028(settings.behaviorCriteria)) assign('behaviorCriteria', DEFAULT_BEHAVIOR_CRITERIA);
     }
 
     // Canonicalize every current setting. This also repairs malformed values from
@@ -1558,7 +1571,11 @@ function applyFocusedRelationshipDecisions(state, decisions, caps, sourceMessage
         const npc = state.npcs.find(item => item.id === id);
         if (!npc) continue;
         const requestedHasDelta = Object.values(decision.relationshipDelta || {}).some(value => Number(value) !== 0);
-        const validReason = !requestedHasDelta || relationshipChangeReasonGrounded(decision.relationshipChangeReason, '');
+        const duplicateAward = requestedHasDelta && relationshipChangeLooksDuplicate(npc.lastRelationshipChange, decision.relationshipChangeReason, {
+            sourceMessageId,
+            turn: state.turn,
+        });
+        const validReason = !requestedHasDelta || (relationshipChangeReasonGrounded(decision.relationshipChangeReason, '') && !duplicateAward);
         const update = applyRelationshipDelta(
             npc.relationship || DEFAULT_RELATIONSHIP,
             validReason ? decision.relationshipDelta : { trust: 0, affection: 0, desire: 0, tension: 0 },
@@ -1584,6 +1601,7 @@ function applyFocusedRelationshipDecisions(state, decisions, caps, sourceMessage
                 delta: update.appliedDelta,
                 reason: decision.relationshipChangeReason || '',
                 sourceMessageId: Number.isInteger(sourceMessageId) ? sourceMessageId : null,
+                turn: Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
             };
         }
         if (changed || summaryChanged) {
@@ -3304,6 +3322,7 @@ function saveNpcEditor(npcId, { close = true, silent = false } = {}) {
             delta: relationshipDelta,
             reason: 'Manual dossier adjustment by player.',
             sourceMessageId: latestMessageId(false),
+            turn: Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
         };
     }
     const stableKeys = ['name', 'role', 'species', 'age', 'apparentAge', 'personality', 'speech', 'behaviorProfile', 'appearance', 'background', 'mannerisms', 'keyRelationships'];

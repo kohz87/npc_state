@@ -1,4 +1,4 @@
-export const NPC_STATE_VERSION = '0.2.8';
+export const NPC_STATE_VERSION = '0.2.9';
 
 export const NPC_LIFE_STATES = Object.freeze(['unknown', 'alive', 'deceased']);
 export const NPC_ARCHIVE_REASONS = Object.freeze(['', 'manual', 'deceased', 'stale']);
@@ -45,28 +45,65 @@ export const DEFAULT_RELATIONSHIP = Object.freeze({
 export const RELATIONSHIP_KEYS = Object.freeze(['trust', 'affection', 'desire', 'tension']);
 export const RELATIONSHIP_IMPACT_LEVELS = Object.freeze(['none', 'ordinary', 'meaningful', 'major', 'extreme']);
 export const DEFAULT_RELATIONSHIP_CAPS = Object.freeze({
-    ordinary: 4,
-    meaningful: 8,
-    major: 15,
-    extreme: 25,
+    ordinary: 1,
+    meaningful: 3,
+    major: 8,
+    extreme: 20,
 });
-export const DEFAULT_RELATIONSHIP_CRITERIA = `All relationship stats use a bipolar -100 to +100 scale with 0 as neutral. Positive and negative values are meaningful states, not percentages. Do not move a stat away from 0 without story evidence, and do not treat the mere absence of a positive feeling as a negative feeling.
+export const DEFAULT_RELATIONSHIP_CRITERIA = `All relationship stats use a bipolar -100 to +100 scale with 0 as neutral. Positive and negative values are durable relationship states, not percentages or per-turn rewards. Routine continuation of an already-established dynamic normally causes NO numeric movement; change scores only when the current exchange adds genuinely new relationship evidence.
+Trust: 0 is neutral/undetermined. Positive values mean growing confidence, reliance, safety, and willingness to be vulnerable with the player. Negative values mean active distrust, suspicion, guardedness, or expectation of harm/deception. Increase for newly demonstrated dependability, kept promises, costly protection, honest support, or entrusted vulnerability. Decrease below 0 only for supported distrust, betrayal, deception, abandonment, unreliability, or violated confidence. Repeating expected help does not automatically keep raising Trust.
+Affection: 0 is emotionally neutral. Positive values mean fondness, attachment, warmth, and personal care. Negative values mean active dislike, resentment, hostility, or emotional aversion. Increase for newly meaningful kindness, companionship, shared vulnerability, comfort, or bonding. Decrease below 0 only for supported dislike/resentment such as cruelty, rejection, humiliation, neglect, or emotional injury. Familiar warmth that merely continues the existing bond is usually no change.
+Desire: 0 means no established attraction or desire. Positive values mean wanting the player's closeness, attention, intimacy, romance, or physical/sexual contact when the story supports it. Negative values mean active aversion to that kind of closeness or attraction, not merely lack of interest. Do not infer positive desire from friendliness, gratitude, admiration, affection, proximity, or repeated contact alone; do not infer negative desire merely because attraction is absent.
+Tension: 0 is neutral/settled. Positive values mean interpersonal strain, conflict, fear, suspicion, awkward pressure, rivalry, resentment, or unresolved charged friction. Negative values mean unusually strong ease, safety, comfort, or release of interpersonal pressure. Change Tension only when the current exchange actually changes unresolved pressure; simply continuing an already-tense or already-comfortable interaction is normally no change.
+Most ordinary events affect zero or one axis. A meaningful event may affect two axes when each has separate evidence. Three or four axes should be rare and reserved for major/extreme events with distinct support for every moved axis.`;
+export const DEFAULT_IMPACT_CRITERIA = `none: no NEW relationship-relevant evidence, insufficient evidence, or routine continuation of an already-established dynamic; all deltas must be 0.
+ordinary: a new but modest relationship-relevant beat that changes one aspect of the relationship slightly. Routine conversation, expected companionship, ordinary joking, repeated care, normal transactions, or consequences of an already-scored event are usually none.
+meaningful: clearly new relationship evidence with noticeable emotional weight, such as consequential help, a sincere confession, a real argument, or a personal boundary being respected/violated. Usually one axis, sometimes two with separate evidence.
+major: important turning point with lasting relationship consequences, such as serious betrayal, rescue at substantial cost, explicit romantic advance/rejection, major reconciliation, or a deeply personal revelation. Multiple axes may move when separately supported.
+extreme: rare life-changing or relationship-defining event. Reserve for extraordinary cases such as catastrophic betrayal, self-sacrifice, irreversible loss, or an explicit decisive commitment. Do not use extreme merely because a scene is dramatic.`;
+export const DEFAULT_MEMORY_CRITERIA = `Store only durable, story-relevant events the NPC would reasonably recall in a later scene and that could affect future decisions, attitude, relationship, goals, obligations, fears, knowledge, or circumstances. Prefer concrete events such as promises, betrayals, rescues, confessions, consequential discoveries, major conflicts, meaningful gifts or favors, losses, or commitments. Do not store routine dialogue, ordinary transactions, repeated summaries of existing dossier facts, transient emotions, moment-to-moment NPC Inner Chatter, or trivial scene details. A memory should say what happened and why it matters in one short grounded sentence. Avoid duplicates or near-duplicates of memories already stored for that NPC.`;
+export const DEFAULT_BEHAVIOR_CRITERIA = `IDENTITY DOMINANCE: First determine behavior from personality, values, morality, speech, mannerisms, goals, duties, current mood/status, independence, and other bonds. Only then let the player relationship make a secondary adjustment. Relationship scores are a tint on established behavior, never the character's main personality.
+RELATIONSHIP SCOPE: Scores modify how the NPC weighs and responds to the player only; they do not replace the person, make the player a universal priority, reduce kindness/empathy toward others, or need to surface in every scene.
+Trust: confidence, safety, reliance, and willingness to expose vulnerability. Trust can permit candor or reliance when context calls for it; it is not obedience.
+Affection: emotional importance, fondness, attachment, and care. Affection may bias attention, patience, interpretation, or willingness to accept some inconvenience through the NPC's established care style. It is not devotion, clinginess, jealousy, softness, or self-erasure.
+Desire: attraction or pull toward romantic/intimate/physical closeness when established. Desire does not prescribe flirting, blushing, stammering, possessiveness, sexual behavior, or constant romantic attention; expression passes through personality, expressiveness, consent, and context.
+Tension: unresolved interpersonal pressure. It may be conflict, awkwardness, fear, rivalry, uncertainty, resentment, or charged restraint only when context supports that form. Never infer jealousy, embarrassment, hostility, or tsundere-style denial from tension alone.
+Strong feelings should usually alter small choices, interpretation, openness, attention, or willingness before altering voice or overt behavior. A duty-bound, reserved, kind, blunt, proud, or independent NPC remains recognizably so at every relationship score.`;
+
+const LEGACY_V028_RELATIONSHIP_CAPS = Object.freeze({ ordinary: 4, meaningful: 8, major: 15, extreme: 25 });
+const LEGACY_V028_RELATIONSHIP_CRITERIA = `All relationship stats use a bipolar -100 to +100 scale with 0 as neutral. Positive and negative values are meaningful states, not percentages. Do not move a stat away from 0 without story evidence, and do not treat the mere absence of a positive feeling as a negative feeling.
 Trust: 0 is neutral/undetermined. Positive values mean growing confidence, reliance, safety, and willingness to be vulnerable with the player. Negative values mean active distrust, suspicion, guardedness, or expectation of harm/deception. Increase for dependable help, kept promises, protection, honest support, or entrusted vulnerability. Decrease below 0 only when the story supports distrust, betrayal, deception, abandonment, unreliability, or violated confidence.
 Affection: 0 is emotionally neutral. Positive values mean fondness, attachment, warmth, and personal care. Negative values mean active dislike, resentment, hostility, or emotional aversion. Increase for meaningful kindness, companionship, shared vulnerability, comfort, or bonding. Decrease below 0 only for supported dislike/resentment such as cruelty, rejection, humiliation, neglect, or emotional injury.
 Desire: 0 means no established attraction or desire. Positive values mean wanting the player's closeness, attention, intimacy, romance, or physical/sexual contact when the story supports it. Negative values mean active aversion to that kind of closeness or attraction, not merely lack of interest. Do not infer positive desire from friendliness, gratitude, admiration, or affection alone, and do not infer negative desire merely because attraction is absent.
 Tension: 0 is neutral/settled. Positive values mean interpersonal strain, conflict, fear, suspicion, awkward pressure, rivalry, resentment, or unresolved charged friction. Negative values mean unusually strong ease, safety, comfort, or release of interpersonal pressure. Increase for arguments, threats, distrust, jealousy, embarrassment under pressure, hostility, or unresolved conflict. Decrease below 0 only when the story specifically establishes exceptional ease, reassurance, reconciliation, safety, or relaxed comfort.`;
-export const DEFAULT_IMPACT_CRITERIA = `none: no relationship-relevant event or insufficient evidence; all deltas must be 0.
+const LEGACY_V028_IMPACT_CRITERIA = `none: no relationship-relevant event or insufficient evidence; all deltas must be 0.
 ordinary: routine interaction or small emotional beat; subtle movement only.
 meaningful: clearly relationship-relevant event with noticeable emotional weight, such as meaningful help, a sincere confession, a real argument, or a personal boundary being respected/violated.
 major: important turning point with lasting relationship consequences, such as serious betrayal, rescue at substantial cost, explicit romantic advance/rejection, major reconciliation, or a deeply personal revelation.
 extreme: rare life-changing or relationship-defining event. Reserve for extraordinary cases such as catastrophic betrayal, self-sacrifice, irreversible loss, or an explicit decisive commitment. Do not use extreme merely because a scene is dramatic.`;
-export const DEFAULT_MEMORY_CRITERIA = `Store only durable, story-relevant events the NPC would reasonably recall in a later scene and that could affect future decisions, attitude, relationship, goals, obligations, fears, knowledge, or circumstances. Prefer concrete events such as promises, betrayals, rescues, confessions, consequential discoveries, major conflicts, meaningful gifts or favors, losses, or commitments. Do not store routine dialogue, ordinary transactions, repeated summaries of existing dossier facts, transient emotions, moment-to-moment NPC Inner Chatter, or trivial scene details. A memory should say what happened and why it matters in one short grounded sentence. Avoid duplicates or near-duplicates of memories already stored for that NPC.`;
-export const DEFAULT_BEHAVIOR_CRITERIA = `RELATIONSHIP SCOPE: Identity, values, morality, ordinary regard for other people, speech, mannerisms, goals, duties, and boundaries remain authoritative. Relationship scores modify how the NPC weighs and responds to the player; they do not replace the person, make the player a universal priority, or reduce kindness/empathy toward everyone else.
+const LEGACY_V028_BEHAVIOR_CRITERIA = `RELATIONSHIP SCOPE: Identity, values, morality, ordinary regard for other people, speech, mannerisms, goals, duties, and boundaries remain authoritative. Relationship scores modify how the NPC weighs and responds to the player; they do not replace the person, make the player a universal priority, or reduce kindness/empathy toward everyone else.
 Trust: measures confidence, safety, reliance, and willingness to expose vulnerability. Positive trust may permit candor or reliance; negative trust supports suspicion and guardedness. Trust is not obedience.
 Affection: measures emotional importance, fondness, attachment, and care. Positive affection may increase attention, patience, concern, voluntary companionship, or willingness to accept some inconvenience through the NPC's established care style. Affection is not devotion, clinginess, jealousy, softness, or self-erasure.
 Desire: measures attraction or pull toward romantic/intimate/physical closeness when established. It does not prescribe flirting, blushing, stammering, possessiveness, or sexual behavior; expression must pass through personality, expressiveness, consent, and context.
 Tension: measures unresolved interpersonal pressure. Positive tension may be conflict, awkwardness, fear, rivalry, uncertainty, resentment, or charged restraint only when context supports that form. Never infer jealousy, embarrassment, hostility, or tsundere-style denial from tension alone.
 Interpret combinations rather than each stat in isolation. Strong feelings should usually change attention, openness, willingness, interpretation, and small choices before they change voice or identity. Relationship-specific behavior stays relationship-specific unless narration independently establishes a broader lasting character change.`;
+
+export function isLegacyStockRelationshipCapsV028(value) {
+    const caps = normalizeRelationshipCaps(value || {});
+    return Object.keys(LEGACY_V028_RELATIONSHIP_CAPS).every(key => caps[key] === LEGACY_V028_RELATIONSHIP_CAPS[key]);
+}
+
+export function isLegacyStockRelationshipCriteriaV028(value) {
+    return String(value ?? '').trim() === String(LEGACY_V028_RELATIONSHIP_CRITERIA).trim();
+}
+
+export function isLegacyStockImpactCriteriaV028(value) {
+    return String(value ?? '').trim() === String(LEGACY_V028_IMPACT_CRITERIA).trim();
+}
+
+export function isLegacyStockBehaviorCriteriaV028(value) {
+    return String(value ?? '').trim() === String(LEGACY_V028_BEHAVIOR_CRITERIA).trim();
+}
 
 export function isLegacyStockBehaviorCriteriaV024(value) {
     const text = String(value ?? '').trim();
@@ -177,6 +214,32 @@ function normalizeRelationshipAuditDelta(value = {}) {
     }));
 }
 
+function relationshipInertiaFactor(currentValue, proposedDelta, impact = 'ordinary') {
+    const current = Number(currentValue) || 0;
+    const delta = Number(proposedDelta) || 0;
+    if (!delta) return 0;
+    // Inertia slows DEEPENING an established polarity. Evidence that challenges an
+    // established relationship is allowed to move toward neutral at full tier strength.
+    if (current !== 0 && Math.sign(current) !== Math.sign(delta)) return 1;
+    const magnitude = Math.abs(current);
+    let factor = magnitude < 30 ? 1
+        : magnitude < 50 ? 0.75
+            : magnitude < 70 ? 0.5
+                : magnitude < 85 ? 0.35
+                    : 0.2;
+    if (impact === 'major') factor = Math.max(factor, 0.65);
+    if (impact === 'extreme') factor = Math.max(factor, 0.9);
+    return factor;
+}
+
+function relationshipAxisLimit(impact) {
+    if (impact === 'ordinary') return 1;
+    if (impact === 'meaningful') return 2;
+    if (impact === 'major') return 3;
+    if (impact === 'extreme') return 4;
+    return 0;
+}
+
 export function applyRelationshipDelta(current, proposedDelta, impact, caps = DEFAULT_RELATIONSHIP_CAPS) {
     const baseline = normalizeRelationshipBaseline(current || DEFAULT_RELATIONSHIP);
     const delta = normalizeRelationshipDelta(proposedDelta);
@@ -184,14 +247,46 @@ export function applyRelationshipDelta(current, proposedDelta, impact, caps = DE
     const level = normalizeRelationshipImpact(impact, hasDelta);
     const limits = normalizeRelationshipCaps(caps);
     const cap = level === 'none' ? 0 : Number(limits[level] || 0);
+    const axisLimit = relationshipAxisLimit(level);
+    const rankedAxes = RELATIONSHIP_KEYS
+        .filter(key => delta[key] !== 0)
+        .sort((a, b) => Math.abs(delta[b]) - Math.abs(delta[a]) || RELATIONSHIP_KEYS.indexOf(a) - RELATIONSHIP_KEYS.indexOf(b));
+    const allowedAxes = new Set(rankedAxes.slice(0, axisLimit));
     const appliedDelta = {};
     const relationship = {};
     for (const key of RELATIONSHIP_KEYS) {
-        appliedDelta[key] = Math.max(-cap, Math.min(cap, delta[key]));
-        relationship[key] = Math.round(clamp(baseline[key] + appliedDelta[key], -100, 100));
+        const capped = allowedAxes.has(key) ? Math.max(-cap, Math.min(cap, delta[key])) : 0;
+        const factor = relationshipInertiaFactor(baseline[key], capped, level);
+        const adjusted = capped === 0 ? 0 : Math.sign(capped) * Math.max(1, Math.round(Math.abs(capped) * factor));
+        appliedDelta[key] = adjusted;
+        relationship[key] = Math.round(clamp(baseline[key] + adjusted, -100, 100));
     }
-    return { relationship, appliedDelta, impact: level, cap };
+    return { relationship, appliedDelta, impact: level, cap, axisLimit };
 }
+
+function relationshipReasonSimilarity(a, b) {
+    const left = cleanText(a, 500);
+    const right = cleanText(b, 500);
+    if (!left || !right) return 0;
+    if (normalizeName(left) === normalizeName(right)) return 1;
+    return durableSemanticSimilarity(left, right);
+}
+
+export function relationshipChangeLooksDuplicate(previousChange, reason, { sourceMessageId = null, turn = null } = {}) {
+    const previous = previousChange && typeof previousChange === 'object' ? previousChange : {};
+    if (String(previous.impact || '').toLowerCase() === 'manual') return false;
+    const currentReason = cleanText(reason, 500);
+    const priorReason = cleanText(previous.reason, 500);
+    if (!currentReason || !priorReason) return false;
+    const priorTurn = Number(previous.turn);
+    const currentTurn = Number(turn);
+    const recentByTurn = Number.isFinite(priorTurn) && Number.isFinite(currentTurn) && Math.abs(currentTurn - priorTurn) <= 3;
+    const recentByMessage = Number.isInteger(sourceMessageId) && Number.isInteger(previous.sourceMessageId)
+        && Math.abs(sourceMessageId - previous.sourceMessageId) <= 4;
+    if (!recentByTurn && !recentByMessage) return false;
+    return relationshipReasonSimilarity(priorReason, currentReason) >= 0.72;
+}
+
 
 export function relationshipChangeReasonGrounded(reason, context = '') {
     const explanation = cleanText(reason, 500);
@@ -206,7 +301,7 @@ export function calibrateRelationshipSummary(value, relationship = DEFAULT_RELAT
     if (!summary) return '';
     const rel = normalizeRelationshipBaseline(relationship || DEFAULT_RELATIONSHIP);
     const positiveStrength = Math.max(0, rel.trust, rel.affection, rel.desire);
-    if (positiveStrength < 60) {
+    if (positiveStrength < 70) {
         summary = summary
             .replace(/\bindispensable\b/gi, 'important')
             .replace(/\butterly\s+dependent\s+on\b/gi, 'increasingly reliant on')
@@ -215,7 +310,7 @@ export function calibrateRelationshipSummary(value, relationship = DEFAULT_RELAT
             .replace(/\bwould\s+do\s+anything\s+for\b/gi, 'cares deeply for')
             .replace(/\beverything\s+to\s+(her|him|them)\b/gi, 'deeply important to $1');
     }
-    if (positiveStrength < 40) {
+    if (positiveStrength < 45) {
         summary = summary
             .replace(/\ban important source of physical comfort and survival\b/gi, 'a growing source of practical support and comfort')
             .replace(/\ban important source of survival and physical comfort\b/gi, 'a growing source of practical support and comfort')
@@ -2139,6 +2234,7 @@ export function normalizeNpcRecord(raw = {}) {
             delta: normalizedAuditDelta,
             reason: auditReason,
             sourceMessageId: Number.isInteger(lastChange.sourceMessageId) ? lastChange.sourceMessageId : null,
+            ...(Number.isFinite(Number(lastChange.turn)) ? { turn: Number(lastChange.turn) } : {}),
         };
     npc.present = normalizeBoolean(raw.present);
     npc.worldActive = normalizeBoolean(raw.worldActive) && !npc.present;
@@ -2639,7 +2735,8 @@ function applyIncoming(existing, incoming, turn, relationshipCaps = DEFAULT_RELA
         }
 
         const proposedHasDelta = RELATIONSHIP_KEYS.some(key => Number(proposedRelationshipDelta?.[key] || 0) !== 0);
-        if (proposedHasDelta && !relationshipChangeReasonGrounded(incoming.relationshipChangeReason, lifecycleOptions.developmentContext)) {
+        const duplicateAward = proposedHasDelta && relationshipChangeLooksDuplicate(existing.lastRelationshipChange, incoming.relationshipChangeReason, { sourceMessageId, turn });
+        if (proposedHasDelta && (!relationshipChangeReasonGrounded(incoming.relationshipChangeReason, lifecycleOptions.developmentContext) || duplicateAward)) {
             proposedRelationshipDelta = { trust: 0, affection: 0, desire: 0, tension: 0 };
             proposedRelationshipImpact = 'none';
         }
@@ -2657,6 +2754,7 @@ function applyIncoming(existing, incoming, turn, relationshipCaps = DEFAULT_RELA
                 delta: relationshipUpdate.appliedDelta,
                 reason: incoming.relationshipChangeReason || '',
                 sourceMessageId: Number.isInteger(sourceMessageId) ? sourceMessageId : null,
+                turn: Number.isFinite(Number(turn)) ? Number(turn) : null,
             }
             : structuredClone(existing.lastRelationshipChange || { impact: 'none', delta: { trust: 0, affection: 0, desire: 0, tension: 0 }, reason: '', sourceMessageId: null });
     } else {
@@ -2727,8 +2825,15 @@ export function buildRelationshipPassPrompt({
         relationshipSummary: cleanText(npc?.relationshipSummary, 220),
         personality: cleanText(npc?.personality, 180),
         behaviorProfile: orderedBehaviorProfile(npc?.behaviorProfile).slice(0, 4).map(item => cleanText(item, 120)),
+        speech: cleanText(npc?.speech, 120),
+        mannerisms: cleanList(npc?.mannerisms, 2, 100),
         goal: cleanText(npc?.goal, 140),
         keyRelationships: cleanList(npc?.keyRelationships, 3, 140),
+        lastRelationshipChange: npc?.lastRelationshipChange ? {
+            impact: cleanText(npc.lastRelationshipChange.impact, 20),
+            reason: cleanText(npc.lastRelationshipChange.reason, 180),
+            sourceMessageId: Number.isInteger(npc.lastRelationshipChange.sourceMessageId) ? npc.lastRelationshipChange.sourceMessageId : null,
+        } : null,
     })).filter(npc => npc.id);
     const relationshipRubric = compactRelationshipRubric(relationshipCriteria);
     const impactRubric = compactImpactRubric(impactCriteria);
@@ -2738,9 +2843,9 @@ Rules:
 1. Return exactly one result for EACH target id. Never omit a target.
 2. currentRelationship is read-only. Output signed DELTAS, never absolute scores.
 3. relationshipDelta is REQUIRED with ALL FOUR numeric keys: trust, affection, desire, tension. Evaluate each axis independently.
-4. Count actions and consequences, not just dialogue. If the NPC witnesses, experiences, or clearly learns what ${userName} did, that can change the relationship even if the NPC says nothing.
-5. Use relationshipImpact none|ordinary|meaningful|major|extreme. none requires four zeros. Any non-zero delta requires a non-none impact. Drastic betrayal, rescue, sacrifice, decisive rejection/commitment, or comparable turning points should not be flattened to ordinary when supported.
-6. Keep the axes semantically narrow: Trust is not obedience; Affection is not devotion; Desire is not implied by affection; Tension is not automatically jealousy or embarrassment. High scores do not imply a generic romance archetype. Interpret changes through each target's supplied personality/behaviorProfile/goal/other bonds; the player is not their only motive or relationship.
+4. Count actions and consequences, not just dialogue, but score NEW relationship evidence only. Routine continuation, expected friendliness/care, ordinary companionship, or ongoing aftermath of lastRelationshipChange are normally ZERO. Do not reward the same rescue, confession, bargain, intimacy, argument, or favor again just because later messages continue it.
+5. Use relationshipImpact none|ordinary|meaningful|major|extreme. none requires four zeros. ordinary means a NEW modest beat, not normal interaction. Most events move 0-1 axes; meaningful may move 2 only with separate evidence; 3-4 axes require major/extreme and distinct support for every axis.
+6. IDENTITY FIRST: personality/behaviorProfile/speech/mannerisms/goal/other bonds remain the person; the player is not their only motive or relationship. Trust is not obedience; Affection is not devotion; Desire is not implied by affection; Tension is not automatically jealousy/embarrassment. High scores are secondary and need not surface every scene.
 7. relationshipSummary is REQUIRED: durable prose Relationship field toward ${userName}, not event log/personality replacement. If still accurate, COPY IT EXACTLY; otherwise rewrite concisely. Keep intensity proportional to current scores/evidence; avoid absolute devotion/dependence language unless truly established. major/extreme turning point MUST rewrite an old summary.
 8. Keep deltas within cap. Every non-zero change needs one short grounded reason from CURRENT exchange; if no grounded reason, return four zeros + impact none. Empty reason only for none.
 9. JSON only, no markdown: {"npcs":[{"id":"...","relationshipImpact":"major","relationshipDelta":{"trust":-15,"affection":-10,"desire":0,"tension":15},"relationshipSummary":"She feels deeply betrayed and no longer trusts the player, though their former closeness still complicates her feelings.","relationshipChangeReason":"brief evidence"}]}
@@ -3158,10 +3263,10 @@ export function mergeScanResult(state, scanResult, options = {}) {
 
 function relationshipBand(value) {
     const n = Math.round(clamp(value, -100, 100));
-    if (n <= -60) return 'strongly negative';
-    if (n <= -20) return 'negative';
-    if (n < 20) return 'neutral';
-    if (n < 60) return 'positive';
+    if (n <= -70) return 'strongly negative';
+    if (n <= -30) return 'negative';
+    if (n < 30) return 'neutral/unsettled';
+    if (n < 70) return 'positive';
     return 'strongly positive';
 }
 
@@ -3172,39 +3277,41 @@ function signedScore(value) {
 
 export function buildBehaviorGuidance(npc) {
     const rel = normalizeRelationshipBaseline(npc?.relationship || DEFAULT_RELATIONSHIP);
+    const material = RELATIONSHIP_KEYS
+        .map(key => ({ key, value: rel[key], magnitude: Math.abs(rel[key]) }))
+        .filter(item => item.magnitude >= 30)
+        .sort((a, b) => b.magnitude - a.magnitude || RELATIONSHIP_KEYS.indexOf(a.key) - RELATIONSHIP_KEYS.indexOf(b.key));
+    if (!material.length) return 'relationship remains mostly neutral or unsettled; let identity, goals, and current state drive behavior';
+
     const cues = [];
-
-    if (rel.trust <= -60) cues.push('actively distrustful; suspicion and self-protection should be prominent');
-    else if (rel.trust <= -20) cues.push('guarded and skeptical about relying on the player');
-    else if (rel.trust < 20) cues.push('trust is neutral or unsettled; avoid assuming either confidence or distrust');
-    else if (rel.trust < 60) cues.push('growing trust permits measured candor and reliance');
-    else cues.push('strong trust permits reliance and genuine vulnerability in forms compatible with established reserve and voice');
-
-    if (rel.affection <= -60) cues.push('strong dislike or resentment should cool or sharpen their emotional delivery');
-    else if (rel.affection <= -20) cues.push('some dislike, resentment, or emotional distance is established');
-    else if (rel.affection < 20) cues.push('affection is neutral; do not invent warmth or hostility');
-    else if (rel.affection < 60) cues.push('clear fondness and personal concern may influence attention and choices');
-    else cues.push('strong affection means high emotional importance; express care through the NPC\'s established care style rather than generic devotion');
-
-    if (rel.desire <= -60) cues.push('strong aversion to romantic/intimate/physical closeness is established');
-    else if (rel.desire <= -20) cues.push('avoid attraction cues and preserve the established aversion to intimate closeness');
-    else if (rel.desire < 20) cues.push('no meaningful attraction is established; do not add desire cues');
-    else if (rel.desire < 60) cues.push('attraction may subtly color attention and delivery when context supports it');
-    else cues.push('strong desire may shape attention, proximity, or restraint only through established expressiveness, consent, and context');
-
-    if (rel.tension <= -60) cues.push('interaction is exceptionally relaxed, safe, and low-pressure');
-    else if (rel.tension <= -20) cues.push('interaction carries noticeable ease and reduced interpersonal pressure');
-    else if (rel.tension < 20) cues.push('interpersonal tension is neutral or settled');
-    else if (rel.tension < 60) cues.push('noticeable unresolved pressure may affect delivery in the form actually supported by the scene');
-    else cues.push('strong unresolved pressure should affect reactions, but do not invent jealousy, embarrassment, hostility, or denial without separate support');
-
-    if (rel.trust >= 60 && rel.tension >= 60) cues.push('combine familiarity with strain: they know the player well but are not emotionally at ease');
-    if (rel.affection >= 60 && rel.trust <= -20) cues.push('care is present, but distrust prevents easy reliance');
-    if (rel.desire >= 60 && rel.trust <= -20) cues.push('attraction does not imply safety or trust; keep caution or conflict visible');
-    if (rel.desire >= 60 && rel.tension >= 60) cues.push('the interaction may feel charged or restrained, but never default to blushing, stammering, possessiveness, or tsundere-style denial');
-    if (rel.affection >= 60 && rel.trust >= 60 && rel.tension <= -20) cues.push('deep ease or openness is plausible, but preserve established formality, restraint, independence, and speech identity');
-    if (rel.affection >= 40 && rel.desire <= -40) cues.push('fondness does not imply attraction; keep intimate/romantic aversion distinct from emotional care');
-    return `trust ${signedScore(rel.trust)} (${relationshipBand(rel.trust)}), affection ${signedScore(rel.affection)} (${relationshipBand(rel.affection)}), desire ${signedScore(rel.desire)} (${relationshipBand(rel.desire)}), tension ${signedScore(rel.tension)} (${relationshipBand(rel.tension)}). ${cues.join('; ')}.`;
+    for (const { key, value } of material) {
+        if (key === 'trust') {
+            if (value <= -70) cues.push('strong distrust: protect self and verify claims');
+            else if (value <= -30) cues.push('distrust: remain guarded about reliance');
+            else if (value < 70) cues.push('trust: some extra candor/reliance is plausible');
+            else cues.push('strong trust: vulnerability/reliance is permitted when identity and context allow');
+        } else if (key === 'affection') {
+            if (value <= -70) cues.push('strong resentment/dislike may cool treatment');
+            else if (value <= -30) cues.push('dislike/resentment is established');
+            else if (value < 70) cues.push('affection: modest extra concern/attention may appear through established care style');
+            else cues.push('strong affection: high emotional importance, not devotion or self-erasure');
+        } else if (key === 'desire') {
+            if (value <= -70) cues.push('strong aversion to intimate/romantic closeness');
+            else if (value <= -30) cues.push('aversion to intimate/romantic closeness is established');
+            else if (value < 70) cues.push('attraction may subtly color attention only when context supports it');
+            else cues.push('strong desire may affect attention/proximity only through established expressiveness and consent');
+        } else if (key === 'tension') {
+            if (value <= -70) cues.push('exceptional ease/safety may lower interpersonal pressure');
+            else if (value <= -30) cues.push('noticeable ease/reduced pressure is established');
+            else if (value < 70) cues.push('unresolved pressure may affect delivery only in the form the scene supports');
+            else cues.push('strong unresolved pressure matters, but does not imply jealousy, embarrassment, hostility, or denial');
+        }
+    }
+    const combinations = [];
+    if (rel.trust >= 70 && rel.tension >= 70) combinations.push('familiarity and strain coexist');
+    if (rel.affection >= 70 && rel.trust <= -30) combinations.push('care does not erase distrust');
+    if (rel.desire >= 70 && rel.trust <= -30) combinations.push('attraction does not imply safety or trust');
+    return [...combinations, ...cues].join('; ');
 }
 
 export function scoreNpcRelevance(npc, text, turn = 0) {
@@ -3214,6 +3321,8 @@ export function scoreNpcRelevance(npc, text, turn = 0) {
         const needle = normalizeName(label);
         if (needle && countNormalizedPhrase(haystack, needle) > 0) score += label === npc.name ? 8 : 5;
     }
+    const canonicalTokens = normalizeName(npc.name).split(/\s+/).filter(Boolean);
+    if (canonicalTokens.length > 1 && canonicalTokens[0].length >= 4 && countNormalizedPhrase(haystack, canonicalTokens[0]) > 0) score += 6;
     const role = normalizeName(npc.role);
     if (role && countNormalizedPhrase(haystack, role) > 0) score += 3;
     for (const entry of cleanList(npc.keyRelationships, KEY_RELATIONSHIP_LIMIT, DURABLE_PROFILE_LIMITS.keyRelationship)) {
@@ -3225,9 +3334,6 @@ export function scoreNpcRelevance(npc, text, turn = 0) {
     const memoryMatch = cleanList(npc.memories, IMPORTANT_MEMORY_LIMIT, DURABLE_PROFILE_LIMITS.memory)
         .some(memory => durableSemanticSimilarity(memory, text) >= 0.42);
     if (memoryMatch) score += 1;
-    const rel = normalizeRelationshipBaseline(npc.relationship || DEFAULT_RELATIONSHIP);
-    const relationshipSalience = Math.max(...RELATIONSHIP_KEYS.map(key => Math.abs(rel[key] || 0)));
-    score += relationshipSalience >= 70 ? 2 : (relationshipSalience >= 35 ? 1 : 0);
     const age = Math.max(0, Number(turn) - Number(npc.lastSeenTurn || 0));
     score += Math.max(0, 4 - age);
     // Importance remains durable/manual metadata. Runtime prompt-space selection uses
@@ -3333,26 +3439,41 @@ function injectionAgencyCore(npc, agencyCap = 260) {
     return fairInjectionParts(parts, agencyCap) || 'no additional agency facts established';
 }
 
-function injectionEssentialBlock(npc, behaviorCap = 430, identityCap = 540, agencyCap = 260) {
-    const rel = npc.relationship || DEFAULT_RELATIONSHIP;
-    const stats = `relationship stats (-100..+100, 0 neutral): trust ${signedScore(rel.trust)}, affection ${signedScore(rel.affection)}, desire ${signedScore(rel.desire)}, tension ${signedScore(rel.tension)}`;
-    const behavior = truncateInjectionText(buildBehaviorGuidance(npc), behaviorCap);
+function injectionCurrentStateCore(npc, stateCap = 180) {
+    const parts = [
+        npc.mood && `mood: ${npc.mood}`,
+        npc.status && `status: ${npc.status}`,
+    ].filter(Boolean);
+    return fairInjectionParts(parts, stateCap) || 'no overriding live emotional/condition state established';
+}
+
+function compactRelationshipModifier(npc, behaviorCap = 160) {
+    const rel = normalizeRelationshipBaseline(npc?.relationship || DEFAULT_RELATIONSHIP);
+    const materialStats = RELATIONSHIP_KEYS
+        .filter(key => Math.abs(rel[key]) >= 30)
+        .map(key => `${key} ${signedScore(rel[key])}`);
+    const guidance = buildBehaviorGuidance(npc);
+    if (!materialStats.length) return truncateInjectionText(guidance, behaviorCap);
+    return truncateInjectionText(`${materialStats.join(', ')}: ${guidance}`, behaviorCap);
+}
+
+function injectionEssentialBlock(npc, behaviorCap = 160, identityCap = 620, agencyCap = 300, stateCap = 180) {
     const identity = injectionIdentityCore(npc, identityCap);
     const agency = injectionAgencyCore(npc, agencyCap);
-    return `- ${npc.name}: identity core: ${identity}; agency core: ${agency}; ${stats}; behavior toward player: ${behavior}`;
+    const currentState = injectionCurrentStateCore(npc, stateCap);
+    const relationship = compactRelationshipModifier(npc, behaviorCap);
+    return `- ${npc.name}: IDENTITY (authoritative): ${identity}; AGENCY/OTHER BONDS: ${agency}; CURRENT STATE: ${currentState}; PLAYER RELATIONSHIP (secondary modifier): ${relationship}`;
 }
 
 function injectionOptionalFields(npc) {
     const importantMemories = cleanList(npc.memories, IMPORTANT_MEMORY_LIMIT, 220);
     return [
         importantMemories.length && `important memories: ${importantMemories.join(' | ')}`,
-        npc.relationshipSummary && `relationship: ${npc.relationshipSummary}`,
-        npc.mood && `mood: ${npc.mood}`,
-        npc.status && `status: ${npc.status}`,
         npc.species && `species/race: ${npc.species}`,
         npc.age && `chronological age: ${npc.age}`,
         npc.apparentAge && `apparent age: ${npc.apparentAge}`,
         npc.location && `location: ${npc.location}`,
+        npc.relationshipSummary && `durable relationship context: ${npc.relationshipSummary}`,
     ].filter(Boolean);
 }
 
@@ -3360,7 +3481,7 @@ function compactInjectionBehaviorRubric(criteria, maxChars) {
     const raw = String(criteria || '').trim();
     if (!raw) return '';
     if (raw === DEFAULT_BEHAVIOR_CRITERIA) {
-        return truncateInjectionText('Trust=reliance/candor, Affection=emotional importance, Desire=attraction, Tension=unresolved pressure. Each axis stays distinct. Scores modify player-directed weighting through established identity; they never imply obedience, devotion, romance tropes, or reduced empathy toward others.', maxChars);
+        return truncateInjectionText('Identity/current state decide behavior first. Relationship only biases player-directed weighting; it need not surface every scene and never implies obedience, devotion, romance tropes, or reduced empathy toward others.', maxChars);
     }
     return truncateInjectionText(raw, maxChars);
 }
@@ -3374,26 +3495,28 @@ export function buildInjection(npcs, text, turn = 0, limit = 3, behaviorCriteria
     const budgetChars = budget * APPROX_CHARS_PER_TOKEN;
     const header = [
         'NPC STATE DOSSIER. Only confirmed-present NPCs are included. Treat these as established story facts; never mention the dossier or numeric values.',
-        'IDENTITY FIRST: personality, behavioral profile, speech, mannerisms, goals, duties, morality, independence, and other bonds constrain every relationship expression.',
-        'PLAYER RELATIONSHIP: scores modify treatment of the player only. High scores never mean obedience, universal prioritization, clinginess, jealousy, tsundere behavior, or cruelty toward other NPCs; target-general kindness/empathy remain intact unless explicitly changed.',
+        'IDENTITY FIRST / DOMINATES: personality, behavioral profile, speech, mannerisms, goals, duties, morality, independence, other bonds, and CURRENT mood/status determine behavior first.',
+        'PLAYER RELATIONSHIP IS SECONDARY: it may bias attention, interpretation, openness, tolerance, or willingness toward the player, but need not surface every scene. High scores never mean obedience, universal prioritization, clinginess, jealousy, tsundere behavior, or cruelty toward others.',
         'Temporary mood, stress, intimacy, or player-specific behavior is not global identity. Durable identity changes gradually unless narration explicitly establishes lasting development or a developmental time skip.',
     ].join('\n');
 
     // Identity and agency are structural, not optional enrichment. Drop lower-ranked NPCs before
     // sacrificing the top NPC's personality/voice/mannerisms or non-player goals and bonds.
-    let behaviorCap = 430;
-    let identityCap = 540;
-    let agencyCap = 260;
-    const renderEssentials = () => relevant.map(npc => injectionEssentialBlock(npc, behaviorCap, identityCap, agencyCap));
+    let behaviorCap = 160;
+    let identityCap = 620;
+    let agencyCap = 300;
+    let stateCap = 180;
+    const renderEssentials = () => relevant.map(npc => injectionEssentialBlock(npc, behaviorCap, identityCap, agencyCap, stateCap));
     while (relevant.length > 1 && (header.length + 1 + renderEssentials().join('\n').length) > budgetChars) {
         relevant = relevant.slice(0, -1);
     }
     let essentialBlocks = renderEssentials();
     while ((header.length + 1 + essentialBlocks.join('\n').length) > budgetChars
-        && (behaviorCap > 110 || identityCap > 220 || agencyCap > 120)) {
-        behaviorCap = Math.max(110, behaviorCap - 40);
-        identityCap = Math.max(220, identityCap - 50);
-        agencyCap = Math.max(120, agencyCap - 30);
+        && (behaviorCap > 80 || identityCap > 260 || agencyCap > 140 || stateCap > 100)) {
+        behaviorCap = Math.max(80, behaviorCap - 20);
+        identityCap = Math.max(260, identityCap - 50);
+        agencyCap = Math.max(140, agencyCap - 30);
+        stateCap = Math.max(100, stateCap - 20);
         essentialBlocks = renderEssentials();
     }
 
@@ -3408,7 +3531,7 @@ export function buildInjection(npcs, text, turn = 0, limit = 3, behaviorCriteria
 
     // Relationship rubric is useful, but subordinate to the actual NPC. Stock wording is compiled
     // to a tiny semantic rubric; custom user criteria are retained only as space permits.
-    const rubricAllowance = Math.min(1200, Math.max(180, Math.floor(budgetChars * 0.16)));
+    const rubricAllowance = Math.min(600, Math.max(100, Math.floor(budgetChars * 0.08)));
     const rubricText = compactInjectionBehaviorRubric(behaviorCriteria, rubricAllowance);
     if (rubricText) {
         const fullRubric = `RELATIONSHIP-TO-BEHAVIOR RUBRIC: ${rubricText}`;
@@ -3420,7 +3543,7 @@ export function buildInjection(npcs, text, turn = 0, limit = 3, behaviorCriteria
     }
 
     // Optional continuity then fills remaining room round-robin so one verbose dossier cannot
-    // starve another. Important memories and relationship summary precede transient metadata.
+    // starve another. Relationship summary is deliberately late: live identity/state already won priority.
     const optionalByNpc = relevant.map(injectionOptionalFields);
     const enriched = essentialBlocks.slice();
     const maxPriority = Math.max(0, ...optionalByNpc.map(fields => fields.length));
@@ -3501,7 +3624,7 @@ function compactRelationshipRubric(value) {
     const configured = compactScannerWhitespace(value);
     const stock = compactScannerWhitespace(DEFAULT_RELATIONSHIP_CRITERIA);
     if (!configured || configured === stock) {
-        return 'Trust/Affection/Desire/Tension independently; all supported axes; 0 neutral. Trust +reliance/safety,-distrust. Affection +warmth/care,-hostility. Desire +established romantic/intimate wanting,-aversion; never infer from friendliness/gratitude. Tension +strain/fear/suspicion/rivalry,-ease/safety.';
+        return 'Axes independent; 0 neutral; unsupported axes stay 0. Trust=reliance/safety, Affection=care, Desire=established attraction, Tension=pressure. Routine continuation is no change.';
     }
     return configured;
 }
@@ -3510,7 +3633,7 @@ function compactImpactRubric(value) {
     const configured = compactScannerWhitespace(value);
     const stock = compactScannerWhitespace(DEFAULT_IMPACT_CRITERIA);
     if (!configured || configured === stock) {
-        return 'none=no change; ordinary=small beat; meaningful=clear event; major=lasting turning point; extreme=rare defining event.';
+        return 'none=no new evidence/continuation; ordinary=new modest beat; meaningful=clear new event; major=lasting turning point; extreme=rare defining event.';
     }
     return configured;
 }
@@ -3884,7 +4007,7 @@ Rules:
 9. DEVELOPMENT SPEED: ordinary identity change is gradual across separate scans. Gradual evidence uses stable concept labels reused later. developmentScale=gradual|explicit|batch; explicit=direct lasting change; batch=time skip explicitly summarizing sustained development. Mere passage changes nothing; time skip alone invents nothing. Include developmentReason.
 10. SOCIAL: grounded non-player kin/friend/rival/mentor/partner => ALWAYS top-level keyRelationshipEdges {aId,a,bId,b,aToB,bToA,reason}; one unambiguous counterpart entry. Use late/surviving, never dangling "(deceased)". Social change may evolve+reason; omission NEVER erases other bonds.
 11. Age/ApparentAge separate: age=chronology only; apparentAge=visual cue, compact ~N, never prose; species literal; no species-aging inference. Birthday/exact elapsed=>ageState:"advance"+reason; correction=>ageState:"correct"+reason; visual aging/growth/rejuvenation=>apparentAgeState:"evolve"+reason. Appearance must not repeat explicit age. Vague time skip insufficient.
-12. Relationships bipolar -100..+100, DELTA-ONLY; currentRelationship is read-only; never return relationship/currentRelationship. Evaluate ALL FOUR axes independently; one event may move 2-4 axes. EVERY supported non-zero relationshipDelta key: non-zero requires non-none impact + grounded reason; otherwise zeros. Summary intensity proportional to evidence/scores, never automatic devotion/dependence. Trust!=obedience; Affection!=devotion; Desire!=behavior; Tension!=jealousy.
+12. Relationships -100..+100 DELTA-ONLY; currentRelationship is read-only; never return relationship/currentRelationship. Evaluate ALL FOUR axes independently; unsupported axes=0. NEW evidence only: routine continuation/expected care/already-scored aftermath=>zero. Most events move 0-1 axes; meaningful max2; 3-4 only major/extreme. EVERY supported non-zero relationshipDelta key requires non-none impact + grounded current-exchange reason. High scores stay secondary to identity/current state and need not surface every scene. Trust!=obedience; Affection!=devotion; Desire!=behavior; Tension!=jealousy.
 13. lifeState unknown|alive|deceased; deceased+explicit=death; explicit alive=reactivate.
 14. Memories: max3 NEW, Cap=5 stored; no duplicate/paraphrased stored memories. If crowded use memoryRetention=top5 consequential/durable; recency=tiebreak only. CAPS appearance500/personality280/speech240/behaviorProfile 6x180/background320/relationshipSummary280/mannerism140/keyRelationship-memory180. Importance manual; do not infer/change. COMPRESS; never invent.
 15. JSON only: {"npcs":[...],"profileUpdates":[...],"keyRelationshipEdges":[...]}. profileUpdates example: {"id":"npc_myla","evidence":{"speech":["uses honorifics"]},"speechState":"refine","speech":"Soft, formal; uses honorifics."}. Existing relationship delta example: {"id":"npc_myla","relationshipImpact":"meaningful","relationshipDelta":{"trust":-6,"affection":0,"desire":0,"tension":8},"relationshipChangeReason":"grounded cause"}.

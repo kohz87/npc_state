@@ -1,6 +1,22 @@
 # NPC State Changelog
 
 
+## v0.2.9
+
+### Relationship inertia / identity dominance
+
+- Slowed stock relationship caps from `4/8/15/25` to `1/3/8/20` for ordinary/meaningful/major/extreme events. Existing customized caps are preserved during migration.
+- Routine continuation, expected friendliness/care, ordinary companionship, and aftermath of an already-scored event now default to no numeric relationship change.
+- Added axis-count limits: ordinary events affect at most one relationship axis, meaningful at most two, major at most three, and extreme at most four.
+- Added relationship inertia when deepening an already-established polarity; high scores grow progressively harder to push toward ±100, while contrary evidence can still pull a score back toward neutral at full tier strength. Major/extreme events bypass much of that inertia.
+- Added recent-event deduplication using grounded reason similarity plus recency, preventing the same rescue/confession/favor/intimacy/argument from being rewarded across its immediate aftermath. Same message IDs alone are never treated as duplicates, preserving swipe/edit correctness.
+- Raised runtime relationship behavior thresholds from ±20/±60 to ±30/±70 and stopped emitting four neutral-axis explanations for low-score relationships.
+- Reworked generation injection order to `Identity -> Agency/other bonds -> Current state -> Player relationship`, with player relationship explicitly marked as a secondary modifier. Relationship guidance budget was reduced while identity/agency/live-state budgets were increased.
+- Moved durable Relationship Summary later in optional injection and removed relationship magnitude from runtime NPC salience so high-affection NPCs do not win prompt space merely because of their scores.
+- Added first-name relevance for established multi-token names so `Falia` still finds `Falia Rendel` without restoring relationship-score salience.
+- Focused relationship evaluation now receives Speech, Mannerisms, and last scored relationship event in addition to Personality, Behavioral Profile, Goal, and non-player bonds.
+- Settings schema advanced to v21; untouched v0.2.8 stock relationship caps/rubrics migrate to the slower defaults while customized tuning remains authoritative.
+
 ## v0.2.8
 
 ### Canon hygiene / semantic consistency

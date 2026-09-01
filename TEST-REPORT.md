@@ -1,4 +1,4 @@
-# NPC State v0.2.8 Test Report
+# NPC State v0.2.9 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
@@ -8,14 +8,27 @@ Target: SillyTavern 1.18.0 extension contract.
 
 The reviewed working tree completed:
 
-- **242/242 Node tests passed**
+- **248/248 Node tests passed**
 - SillyTavern 1.18 compatibility/import/event contract passed
 - Megumin Suite isolation and master-block integration checks passed
 - Mocked browser/runtime smoke passed
 - Legacy settings and sidecar migration smoke passed
 - One-level extension package-layout check passed
 
-The bounded routine scanner fixture measured **7,127 non-story prompt characters**, below the existing 7,200-character ceiling.
+The bounded routine scanner fixture measured **7,159 non-story prompt characters**, below the existing 7,200-character ceiling.
+
+## v0.2.9 relationship-inertia coverage
+
+- Stock relationship caps validate at `1/3/8/20`; customized legacy-sized caps remain supported.
+- Ordinary events are limited to one axis and meaningful events to two axes even when a model proposes movement on all four.
+- Deepening Trust at +85 is strongly inertial, while equally strong contrary evidence moves back toward neutral at full tier strength; major events bypass much of the inertia.
+- Recent semantically duplicate relationship reasons are rejected across immediate aftermath scans, while distinct later events remain eligible.
+- Same source-message ID does not by itself suppress a genuinely different relationship event, preserving update/swipe semantics.
+- High Trust/Affection/Desire/Tension injection keeps Personality, Behavioral Profile, Speech, Mannerisms, Goal, non-player bonds, Mood, and Status ahead of the relationship modifier.
+- Low relationship scores inject one compact neutral/unsettled cue instead of four neutral-axis explanations.
+- Full-name NPCs remain selectable from grounded first-name narration without adding relationship magnitude back into salience.
+- Runtime focused relationship repair still handles drastic betrayal under custom caps and updates the durable Relationship Summary.
+- Legacy migration advances to schema v21 and adopts the new stock caps while preserving existing live relationship scores.
 
 ## v0.2.8 canon-hygiene coverage
 
@@ -30,7 +43,7 @@ The bounded routine scanner fixture measured **7,127 non-story prompt characters
 - Ambiguous `(deceased)` Key Relationship wording is rewritten with an explicit surviving/deceased subject.
 - Scanner importance cannot change durable Importance; new scanned dossiers keep neutral 50 while contextual salience controls prompt selection.
 - Runtime smoke fixtures now require narrated evidence for relationship changes rather than silently accepting ungrounded deltas.
-- Package version/schema expectations validate v0.2.8 / schema v20.
+- v0.2.8 canon-hygiene behavior remains covered under the current v0.2.9 / schema v21 package.
 
 ## v0.2.7 final hard-pass coverage
 
@@ -45,7 +58,7 @@ The bounded routine scanner fixture measured **7,127 non-story prompt characters
 - First Mannerisms require recurrence or repeated cross-scan evidence.
 - Repeated evidence can seed an empty trait only when it supports the proposed trait.
 - Runtime smoke covers stale in-flight scan discard after dossier state mutation.
-- Historical v0.2.7 migration/persistence contracts remain covered; current package version is v0.2.8 with schema v20.
+- Historical v0.2.7 migration/persistence contracts remain covered; current package version is v0.2.9 with schema v21.
 
 ## v0.2.6 hard-pass coverage
 

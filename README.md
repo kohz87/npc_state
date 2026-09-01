@@ -1,4 +1,4 @@
-# NPC State v0.2.8
+# NPC State v0.2.9
 
 NPC State is a standalone SillyTavern extension that maintains persistent, branch-aware NPC dossiers for roleplay. It tracks identity, durable characterization, live state, player relationships, important memories, portraits, and present-scene visibility without depending on Megumin Suite's NPC Bank.
 
@@ -143,6 +143,16 @@ v0.2.5 makes durable identity authoritative over relationship scores. Personalit
 
 Kindness/empathy are target-general by default. A kind NPC may still use necessary lethal force, refuse the player, prioritize another duty, or dislike a particular person without becoming generically cruel. Relationship-specific behavior is kept relationship-specific instead of being learned back into global Personality/Speech/Mannerisms.
 
+## v0.2.9 relationship inertia and identity dominance
+
+v0.2.9 makes the runtime relationship layer deliberately quieter. Stock relationship caps are now `ordinary 1`, `meaningful 3`, `major 8`, and `extreme 20`. Routine continuation of an existing dynamic normally scores zero; ordinary events affect at most one axis and meaningful events at most two. Major/extreme turning points can still move several axes when each has separate evidence.
+
+Deepening an already-high positive or negative score now meets increasing inertia, so moving from 80 toward 100 is much harder than moving from 0 toward 20. Contrary evidence is not similarly muffled: betrayal, rejection, reassurance, or reconciliation can still pull an established score back toward neutral at the full allowed tier strength. Recent semantically duplicate event reasons are also suppressed so the same rescue, confession, bargain, intimate encounter, argument, or favor is not re-awarded merely because its aftermath spans several messages.
+
+Generation injection now follows `Identity -> Agency/other bonds -> Current state -> Player relationship`. Relationship context is explicitly secondary, receives a smaller budget, and low-score neutral axes are not individually explained. Mood/Status are essential current-state context, Relationship Summary is optional/later continuity, and relationship magnitude no longer raises runtime NPC salience. A reserved, duty-bound, kind, blunt, proud, or independent NPC should therefore remain recognizably that person even at very high Trust/Affection/Desire/Tension.
+
+The default behavior thresholds are also wider: relationship scores remain mostly neutral/unsettled inside roughly `-29..+29`, become materially positive/negative around `±30`, and become strongly positive/negative around `±70`. These bands guide expression only; the raw scores remain continuous `-100..+100` state.
+
 ## v0.2.8 canon hygiene and semantic consistency
 
 v0.2.8 keeps the v0.2.7 schema and identity-first architecture, but adds a final canon-hygiene layer before scanner output becomes durable dossier state. Apparent Age is canonicalized to compact `~N` form even when weaker models return word forms such as `around six`, `Twenties`, or `mid thirties`; equivalent decade wording uses a stable seeded estimate. Unlocked Appearance text drops redundant leading explicit-age phrases so Apparent Age remains the visual-age authority.
@@ -178,15 +188,15 @@ The four player-facing axes are:
 - Desire
 - Tension
 
-The scanner proposes deltas. NPC State applies and clamps them in code using the selected impact tier:
+The scanner proposes deltas. NPC State applies deterministic tier caps, axis-count limits, and relationship inertia in code:
 
-- none
-- ordinary
-- meaningful
-- major
-- extreme
+- none: `0`
+- ordinary: stock cap `1`, at most 1 axis
+- meaningful: stock cap `3`, at most 2 axes
+- major: stock cap `8`, at most 3 axes
+- extreme: stock cap `20`, at most 4 axes
 
-A focused relationship repair pass runs only when the primary scan is incomplete or a major/extreme change lacks required relationship prose. Full-window scans never replay historical numeric deltas.
+Routine continuation is normally `none`. High-score inertia slows further deepening toward ±100; contrary evidence can still move toward neutral at full tier strength. Customized caps remain supported. A focused relationship repair pass runs only when the primary scan is incomplete or a major/extreme change lacks required relationship prose. Full-window scans never replay historical numeric deltas.
 
 ## Important Memories
 
@@ -342,6 +352,10 @@ NPCState.dataFile()
 v0.2.4 treats durable fields as **current summaries**, not running observation logs. Equivalent/paraphrased traits are collapsed, Mannerisms stay at four distinct habits, Key Relationships keep one entry per counterpart, and Important Memories/profile evidence semantically deduplicate repeated events or observations.
 
 Auto-managed durable fields are bounded before storage and receive tighter bounds again when supplied to the scanner. Explicit manual profile locks remain authoritative and are not semantically rewritten.
+
+## Upgrade notes for v0.2.9
+
+Settings schema advances to v21. Existing dossier scores are preserved exactly; NPC State does not rescale old Trust/Affection/Desire/Tension values. If the saved v0.2.8 relationship caps are exactly the untouched stock `4/8/15/25`, they migrate to `1/3/8/20`. Customized caps are preserved. Untouched v0.2.8 stock relationship, impact-tier, and relationship-to-behavior rubrics migrate to the new slower/identity-dominant defaults; customized text remains authoritative.
 
 ## Upgrade notes for v0.2.5
 
