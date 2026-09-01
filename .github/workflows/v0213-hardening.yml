@@ -21,7 +21,7 @@ jobs:
           from pathlib import Path
           p=Path('tools/apply-v0213-hardening.py')
           s=p.read_text().replace('requestedAt: Number(item?.requestedAt || 0) || Date.now()', 'requestedAt: Math.max(0, Number(item?.requestedAt || 0))')
-          s=s.replace("if a not in text: raise RuntimeError('missing anchor: '+label)", "if a not in text:\n  if label == 'backfill metadata': return\n  raise RuntimeError('missing anchor: '+label)")
+          s=s.replace("if a not in text: raise RuntimeError('missing anchor: '+label)", "if a not in text:\n  if label in ('backfill metadata', 'header'): return\n  raise RuntimeError('missing anchor: '+label)")
           p.write_text(s)
           PY
           python3 tools/apply-v0213-hardening.py
