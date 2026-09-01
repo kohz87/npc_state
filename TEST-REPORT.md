@@ -1,4 +1,4 @@
-# NPC State v0.2.9 Test Report
+# NPC State v0.2.10 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
@@ -8,14 +8,29 @@ Target: SillyTavern 1.18.0 extension contract.
 
 The reviewed working tree completed:
 
-- **248/248 Node tests passed**
+- **258/258 Node tests passed**
 - SillyTavern 1.18 compatibility/import/event contract passed
 - Megumin Suite isolation and master-block integration checks passed
 - Mocked browser/runtime smoke passed
 - Legacy settings and sidecar migration smoke passed
 - One-level extension package-layout check passed
 
-The bounded routine scanner fixture measured **7,159 non-story prompt characters**, below the existing 7,200-character ceiling.
+The bounded routine scanner fixture measured **7,115 non-story prompt characters**, below the existing 7,200-character ceiling.
+
+## v0.2.10 relationship-weighting coverage
+
+- Stock raw relationship weights validate at `1/2/5/10`; 10 is the stock single-event ceiling before resistance.
+- Fractional accumulation proves four ordinary +1 events at score 90 do not move the visible meter; the fifth does. At 95+, ten ordinary +1 events are required for one visible point.
+- Extreme +10 at score 90 is weighted to roughly +2 while extreme contrary -10 can still punch through established resilience.
+- Minor contrary evidence at high Trust accumulates fractionally rather than immediately removing a visible point.
+- Per-axis evidence is mandatory for every moved axis; Desire fails on rescue-only narration and succeeds only with explicit attraction/intimacy narration.
+- A-B-A replay is caught by the six-event history, and duplicate/rejected events cannot rewrite Relationship Summary.
+- Unsupported `madly in love`, sexual-attraction, possessive, obsessive, and would-kill style summary claims are rejected when state/evidence do not support them.
+- Equal-sized multi-axis overflow is rejected instead of deterministically favoring Trust/Affection.
+- RP injection contains no raw Trust/Affection/Desire/Tension numbers and emits the qualitative relationship context only once, after Identity/Agency/Current State.
+- Bundle/import and branch rollback preserve fractional relationship progress plus recent evidence history.
+- v0.2.9 stock migration moves to schema v22 `1/2/5/10`; custom caps and even stock-prefix custom rubrics remain untouched.
+- Natural evidence inflections such as `trusts` are accepted without loosening Desire or other axis-specific grounding.
 
 ## v0.2.9 relationship-inertia coverage
 
@@ -43,7 +58,7 @@ The bounded routine scanner fixture measured **7,159 non-story prompt characters
 - Ambiguous `(deceased)` Key Relationship wording is rewritten with an explicit surviving/deceased subject.
 - Scanner importance cannot change durable Importance; new scanned dossiers keep neutral 50 while contextual salience controls prompt selection.
 - Runtime smoke fixtures now require narrated evidence for relationship changes rather than silently accepting ungrounded deltas.
-- v0.2.8 canon-hygiene behavior remains covered under the current v0.2.9 / schema v21 package.
+- v0.2.8 canon-hygiene behavior remains covered under the current v0.2.10 / schema v22 package.
 
 ## v0.2.7 final hard-pass coverage
 
@@ -58,7 +73,7 @@ The bounded routine scanner fixture measured **7,159 non-story prompt characters
 - First Mannerisms require recurrence or repeated cross-scan evidence.
 - Repeated evidence can seed an empty trait only when it supports the proposed trait.
 - Runtime smoke covers stale in-flight scan discard after dossier state mutation.
-- Historical v0.2.7 migration/persistence contracts remain covered; current package version is v0.2.9 with schema v21.
+- Historical v0.2.7 migration/persistence contracts remain covered; current package version is v0.2.10 with schema v22.
 
 ## v0.2.6 hard-pass coverage
 

@@ -176,3 +176,33 @@ test('branch checkpoints preserve and roll back lightweight NPC candidates', () 
     assert.equal(result.state.pendingBackfills.length, 1);
     assert.equal(result.state.pendingBackfills[0].label, 'receptionist');
 });
+
+test('v0.2.10 branch rollback restores fractional relationship progress and recent evidence history', () => {
+    const chat = [user('Stay careful.'), assistant('Myla nods.', 0)];
+    const state = baseState();
+    const myla = createNpcRecord('Myla');
+    myla.relationship.trust = 95;
+    myla.relationshipProgress.trust = 0.7;
+    myla.relationshipEventHistory = [{
+        impact: 'ordinary', reason: 'The player returned Myla\'s medicine.',
+        evidence: { trust: 'Returning the medicine proved the player dependable.', affection: '', desire: '', tension: '' },
+        sourceMessageId: 0, turn: 1,
+    }];
+    state.npcs = [myla];
+    recordBranchCheckpoint(state, chat, 0, 'scan');
+
+    state.npcs[0].relationshipProgress.trust = 0.2;
+    state.npcs[0].relationshipEventHistory.push({
+        impact: 'ordinary', reason: 'A later unrelated promise.',
+        evidence: { trust: 'The later promise was kept.', affection: '', desire: '', tension: '' },
+        sourceMessageId: 1, turn: 2,
+    });
+    recordBranchCheckpoint(state, chat, 1, 'scan');
+
+    const swiped = structuredClone(chat);
+    swiped[1] = assistant('Myla refuses.', 1);
+    const result = reconcileBranchState(state, swiped, { explicitDivergence: 1 });
+    assert.equal(result.state.npcs[0].relationshipProgress.trust, 0.7);
+    assert.equal(result.state.npcs[0].relationshipEventHistory.length, 1);
+    assert.match(result.state.npcs[0].relationshipEventHistory[0].reason, /medicine/i);
+});

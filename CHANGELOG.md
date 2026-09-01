@@ -1,6 +1,22 @@
 # NPC State Changelog
 
 
+## v0.2.10
+
+### Relationship weighting / evidence accumulation
+
+- Reduced stock raw event weights to `1/2/5/10` for ordinary/meaningful/major/extreme; `10` is the absolute stock single-event evidence ceiling, not a guaranteed visible gain.
+- Replaced forced minimum-one-point inertia with per-axis fractional evidence accumulation. Deepening established scores now genuinely slows from 100% weight below 30 to 10% at 95+, while the displayed meter remains integer.
+- Added resilience to small contrary events at established scores; extreme contrary evidence can still apply at full raw tier strength.
+- Added per-axis `relationshipEvidence`; every moved axis must be grounded in the current exchange. Desire additionally requires explicit attraction/romantic/intimate/physical evidence in the narration itself.
+- Added a six-event relationship evidence history so semantic deduplication survives intervening events instead of remembering only the most recent award.
+- Rejected ambiguous tied overflow when a weak model proposes more equal-sized axes than the impact tier allows, avoiding fixed Trust/Affection tie bias.
+- Relationship Summary updates now require a newly accepted relationship event once a summary already exists; duplicate/rejected events cannot advance prose. Unsupported romance/possessive/obsessive/dependency claims are rejected when the state does not support them.
+- Removed raw relationship meter numbers and duplicate Relationship Summary injection from RP generation. Generation receives one compact qualitative relationship lens after Identity, Agency/other bonds, and Current State.
+- Fractional progress and recent evidence history persist through dossiers, sidecars, bundles, imports, and branch checkpoints. Manual relationship edits clear stale fractional remainder on edited axes.
+- Corrected relationship prompt examples to the `1/2/5/10` scale and broadened natural evidence inflections such as `trusts`, `relies`, `cares`, and `loves` without weakening axis grounding.
+- Settings schema advanced to v22. Untouched v0.2.8/v0.2.9 stock caps/rubrics migrate forward; customized tuning and existing visible relationship scores remain unchanged.
+
 ## v0.2.9
 
 ### Relationship inertia / identity dominance

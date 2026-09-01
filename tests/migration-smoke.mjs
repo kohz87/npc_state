@@ -85,7 +85,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 50));
     await globalThis.NPCState.flush();
     const settings = mock.extensionSettings.npc_state;
-    assert.equal(settings.schemaVersion, 21);
+    assert.equal(settings.schemaVersion, 22);
     assert.equal(settings.admissionMode, 'conservative', 'legacy settings should adopt conservative dossier admission');
     assert.equal(settings.maxNpcs, 40);
     assert.equal(settings.scanEvery, 1);
@@ -101,7 +101,7 @@ try {
     assert.equal(settings.portraitSaveToGallery, false);
     assert.equal(settings.injectBudgetTokens, 1800);
     assert.deepEqual(settings.relationshipBaseline, { trust: 0, affection: 0, desire: 0, tension: 0 }, 'old stock baseline should migrate to neutral zero');
-    assert.deepEqual(settings.relationshipCaps, { ordinary: 1, meaningful: 3, major: 8, extreme: 20 });
+    assert.deepEqual(settings.relationshipCaps, { ordinary: 1, meaningful: 2, major: 5, extreme: 10 });
     assert.match(settings.relationshipCriteria, /Trust:/);
     assert.match(settings.memoryCriteria, /durable, story-relevant events/i);
     assert.match(settings.behaviorCriteria, /IDENTITY DOMINANCE/);
@@ -143,8 +143,8 @@ try {
     assert.equal(rewritten.state.durableCompactionVersion, 1);
     assert.equal((rewritten.state.npcs[0].personality.match(/telepath/gi) || []).length, 1);
 
-    // v0.2.9 relationship migration: untouched v0.2.8 stock caps slow down, while
-    // explicit user tuning remains authoritative.
+    // v0.2.10 relationship migration: untouched v0.2.8/v0.2.9 stock caps slow down, while
+    // explicit user tuning remains authoritative and existing visible scores are never rescaled.
     mock.extensionSettings.npc_state = {
         schemaVersion: 20,
         enabled: true,
@@ -154,8 +154,8 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v028stock=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 21);
-    assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 1, meaningful: 3, major: 8, extreme: 20 }, 'untouched v0.2.8 caps should migrate to slower stock defaults');
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 22);
+    assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 1, meaningful: 2, major: 5, extreme: 10 }, 'untouched v0.2.8 caps should migrate through to v0.2.10 stock defaults');
 
     mock.extensionSettings.npc_state = {
         schemaVersion: 20,
@@ -166,10 +166,42 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v028custom=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 21);
-    assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 2, meaningful: 6, major: 12, extreme: 24 }, 'custom relationship caps must survive the v0.2.9 migration');
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 22);
+    assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 2, meaningful: 6, major: 12, extreme: 24 }, 'custom relationship caps must survive the v0.2.8→v0.2.10 migration');
 
-    console.log('Migration smoke: legacy state moved into JSON sidecar, durable profile bloat compacted once, v0.2.8 stock caps slowed, custom caps preserved, live scores preserved, and canonical state reloaded from disk pointer.');
+
+    mock.extensionSettings.npc_state = {
+        schemaVersion: 21,
+        enabled: true,
+        relationshipCaps: { ordinary: 1, meaningful: 3, major: 8, extreme: 20 },
+        relationshipBaseline: { trust: 0, affection: 0, desire: 0, tension: 0 },
+        dataFiles: {},
+    };
+    await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v029stock=${Date.now()}`);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 22);
+    assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 1, meaningful: 2, major: 5, extreme: 10 }, 'untouched v0.2.9 caps should migrate to v0.2.10 weights');
+
+    const customV029Criteria = 'All relationship stats use a bipolar -100 to +100 scale with 0 as neutral. Positive and negative values are durable relationship states, not percentages or per-turn rewards. CUSTOM: my campaign deliberately changes progression.';
+    mock.extensionSettings.npc_state = {
+        schemaVersion: 21,
+        enabled: true,
+        relationshipCaps: { ordinary: 2, meaningful: 4, major: 7, extreme: 9 },
+        relationshipBaseline: { trust: 0, affection: 0, desire: 0, tension: 0 },
+        relationshipCriteria: customV029Criteria,
+        relationshipImpactCriteria: 'CUSTOM IMPACT RUBRIC',
+        behaviorCriteria: 'CUSTOM BEHAVIOR RUBRIC',
+        dataFiles: {},
+    };
+    await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v029custom=${Date.now()}`);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 22);
+    assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 2, meaningful: 4, major: 7, extreme: 9 }, 'custom v0.2.9 caps must survive schema22 migration');
+    assert.equal(mock.extensionSettings.npc_state.relationshipCriteria, customV029Criteria, 'custom v0.2.9 relationship rubric must not be mistaken for stock by prefix');
+    assert.equal(mock.extensionSettings.npc_state.relationshipImpactCriteria, 'CUSTOM IMPACT RUBRIC');
+    assert.equal(mock.extensionSettings.npc_state.behaviorCriteria, 'CUSTOM BEHAVIOR RUBRIC');
+
+    console.log('Migration smoke: schema22 preserves live scores/custom tuning, migrates v0.2.8/v0.2.9 stock relationship weights, and keeps canonical sidecars compatible.');
 } finally {
     delete globalThis.__npcMock;
     fs.rmSync(tempRoot, { recursive: true, force: true });

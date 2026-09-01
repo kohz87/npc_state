@@ -1,4 +1,4 @@
-/* NPC State v0.2.9 - standalone SillyTavern extension */
+/* NPC State v0.2.10 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';
 import {
@@ -14,15 +14,25 @@ import {
     isLegacyStockRelationshipCriteriaV028,
     isLegacyStockImpactCriteriaV028,
     isLegacyStockBehaviorCriteriaV028,
-    relationshipChangeLooksDuplicate,
+    isLegacyStockRelationshipCapsV029,
+    isLegacyStockRelationshipCriteriaV029,
+    isLegacyStockImpactCriteriaV029,
+    isLegacyStockBehaviorCriteriaV029,
+    relationshipHistoryLooksDuplicate,
     IMPORTANT_MEMORY_LIMIT,
     KEY_RELATIONSHIP_LIMIT,
     BEHAVIOR_PROFILE_LIMIT,
     inferNpcIdentityKind,
     normalizeRelationshipBaseline,
     normalizeRelationshipCaps,
+    normalizeRelationshipProgress,
+    normalizeRelationshipEvidence,
+    normalizeRelationshipEventHistory,
+    appendRelationshipEvent,
     applyRelationshipDelta,
     relationshipChangeReasonGrounded,
+    relationshipAxisEvidenceGrounded,
+    relationshipSummaryConsistent,
     calibrateRelationshipSummary,
     normalizeNpcAdmissionMode,
     buildInjection,
@@ -145,7 +155,7 @@ const PORTRAIT_THEME_PRESETS = Object.freeze({
 const DURABLE_COMPACTION_VERSION = 1;
 
 const DEFAULTS = Object.freeze({
-    schemaVersion: 21,
+    schemaVersion: 22,
     enabled: true,
     autoScan: true,
     fullScanEveryTurn: false,
@@ -252,6 +262,14 @@ function getSettings() {
         if (isLegacyStockRelationshipCriteriaV028(settings.relationshipCriteria)) assign('relationshipCriteria', DEFAULT_RELATIONSHIP_CRITERIA);
         if (isLegacyStockImpactCriteriaV028(settings.relationshipImpactCriteria)) assign('relationshipImpactCriteria', DEFAULT_IMPACT_CRITERIA);
         if (isLegacyStockBehaviorCriteriaV028(settings.behaviorCriteria)) assign('behaviorCriteria', DEFAULT_BEHAVIOR_CRITERIA);
+    }
+    if (previousSchema < 22) {
+        // v0.2.10 adds fractional evidence accumulation and lowers the untouched v0.2.9 stock
+        // tier weights to 1/2/5/10. User-customized caps/rubrics remain authoritative.
+        if (isLegacyStockRelationshipCapsV029(settings.relationshipCaps)) assign('relationshipCaps', DEFAULT_RELATIONSHIP_CAPS, sameJson);
+        if (isLegacyStockRelationshipCriteriaV029(settings.relationshipCriteria)) assign('relationshipCriteria', DEFAULT_RELATIONSHIP_CRITERIA);
+        if (isLegacyStockImpactCriteriaV029(settings.relationshipImpactCriteria)) assign('relationshipImpactCriteria', DEFAULT_IMPACT_CRITERIA);
+        if (isLegacyStockBehaviorCriteriaV029(settings.behaviorCriteria)) assign('behaviorCriteria', DEFAULT_BEHAVIOR_CRITERIA);
     }
 
     // Canonicalize every current setting. This also repairs malformed values from
@@ -1434,6 +1452,12 @@ function hasCompletePrimaryRelationshipDecision(raw, transcript = '') {
     if (hasNonZero) {
         const reason = raw.relationshipChangeReason ?? raw.relationship_change_reason ?? raw.relationshipReason ?? '';
         if (!relationshipChangeReasonGrounded(reason, transcript)) return false;
+        const evidenceSource = raw.relationshipEvidence ?? raw.relationship_evidence;
+        if (!evidenceSource || typeof evidenceSource !== 'object') return false;
+        const evidence = normalizeRelationshipEvidence(evidenceSource);
+        for (const key of ['trust', 'affection', 'desire', 'tension']) {
+            if (Number(delta[key]) !== 0 && !relationshipAxisEvidenceGrounded(key, evidence[key], transcript)) return false;
+        }
     }
     if (hasNonZero && ['major', 'extreme'].includes(rawImpact)) {
         const summary = raw.relationshipSummary ?? raw.relationship_summary;
@@ -1481,6 +1505,7 @@ async function runFocusedRelationshipPass(ctx, parsed, existingNpcs, transcript,
             const normalized = normalizeScanNpc(rawDecision);
             const hasNonZeroNormalizedDelta = Object.values(normalized.relationshipDelta).some(value => value !== 0);
             if (hasNonZeroNormalizedDelta && !relationshipChangeReasonGrounded(normalized.relationshipChangeReason, transcript)) continue;
+            if (hasNonZeroNormalizedDelta && !Object.entries(normalized.relationshipDelta).every(([key, value]) => value === 0 || relationshipAxisEvidenceGrounded(key, normalized.relationshipEvidence?.[key], transcript))) continue;
             const rawSummary = rawDecision.relationshipSummary ?? rawDecision.relationship_summary;
             const explicitSummaryProvided = typeof rawSummary === 'string';
             const explicitSummary = explicitSummaryProvided ? String(rawSummary).trim().slice(0, 700) : '';
@@ -1494,6 +1519,7 @@ async function runFocusedRelationshipPass(ctx, parsed, existingNpcs, transcript,
             decisions.set(target.id, {
                 relationshipDelta: normalized.relationshipDelta,
                 relationshipImpact: normalized.relationshipImpact,
+                relationshipEvidence: normalized.relationshipEvidence,
                 relationshipChangeReason: normalized.relationshipChangeReason,
                 relationshipSummary,
                 relationshipSummaryDecisionProvided,
@@ -1532,11 +1558,14 @@ function prepareFullWindowRelationshipEvaluation(parsed, existingNpcs) {
             delete evalRaw.relationship_impact;
             delete evalRaw.relationshipChangeReason;
             delete evalRaw.relationship_change_reason;
+            delete evalRaw.relationshipEvidence;
+            delete evalRaw.relationship_evidence;
         }
         delete safeRaw.relationship;
         delete safeRaw.relationship_delta;
         safeRaw.relationshipImpact = 'none';
         safeRaw.relationshipDelta = { trust: 0, affection: 0, desire: 0, tension: 0 };
+        safeRaw.relationshipEvidence = { trust: '', affection: '', desire: '', tension: '' };
         safeRaw.relationshipChangeReason = '';
     }
     return { evaluation, mergeSafe };
@@ -1560,6 +1589,7 @@ function suppressPrimaryRelationshipForFocusedDecisions(parsed, decisions) {
         }
         raw.relationshipImpact = 'none';
         raw.relationshipDelta = { trust: 0, affection: 0, desire: 0, tension: 0 };
+        raw.relationshipEvidence = { trust: '', affection: '', desire: '', tension: '' };
         raw.relationshipChangeReason = '';
     }
     return clone;
@@ -1571,9 +1601,11 @@ function applyFocusedRelationshipDecisions(state, decisions, caps, sourceMessage
         const npc = state.npcs.find(item => item.id === id);
         if (!npc) continue;
         const requestedHasDelta = Object.values(decision.relationshipDelta || {}).some(value => Number(value) !== 0);
-        const duplicateAward = requestedHasDelta && relationshipChangeLooksDuplicate(npc.lastRelationshipChange, decision.relationshipChangeReason, {
+        const evidence = normalizeRelationshipEvidence(decision.relationshipEvidence);
+        const duplicateAward = requestedHasDelta && relationshipHistoryLooksDuplicate(npc.relationshipEventHistory, decision.relationshipChangeReason, {
             sourceMessageId,
             turn: state.turn,
+            evidence,
         });
         const validReason = !requestedHasDelta || (relationshipChangeReasonGrounded(decision.relationshipChangeReason, '') && !duplicateAward);
         const update = applyRelationshipDelta(
@@ -1581,30 +1613,39 @@ function applyFocusedRelationshipDecisions(state, decisions, caps, sourceMessage
             validReason ? decision.relationshipDelta : { trust: 0, affection: 0, desire: 0, tension: 0 },
             validReason ? decision.relationshipImpact : 'none',
             caps,
+            npc.relationshipProgress,
         );
         npc.relationship = update.relationship;
-        const changed = Object.values(update.appliedDelta).some(value => value !== 0);
+        npc.relationshipProgress = update.relationshipProgress;
+        const eventAccepted = Boolean(validReason && update.evidenceAccepted);
         let summaryChanged = false;
-        if (decision.relationshipSummaryDecisionProvided
+        if (eventAccepted
+            && decision.relationshipSummaryDecisionProvided
             && !(Array.isArray(npc.manualProfileFields) && npc.manualProfileFields.includes('relationshipSummary'))) {
-            const proposedSummary = calibrateRelationshipSummary(String(decision.relationshipSummary || '').trim().slice(0, 700), npc.relationship);
-            // Empty output is treated as malformed/no-op rather than erasing an established summary.
-            // A genuinely empty relationship field can remain empty until the evaluator has grounded prose.
-            if (proposedSummary && proposedSummary !== String(npc.relationshipSummary || '').trim()) {
-                npc.relationshipSummary = proposedSummary;
-                summaryChanged = true;
+            const proposedSummary = String(decision.relationshipSummary || '').trim().slice(0, 700);
+            if (relationshipSummaryConsistent(proposedSummary, npc.relationship)) {
+                const calibrated = calibrateRelationshipSummary(proposedSummary, npc.relationship);
+                if (calibrated && calibrated !== String(npc.relationshipSummary || '').trim()) {
+                    npc.relationshipSummary = calibrated;
+                    summaryChanged = true;
+                }
             }
         }
-        if (changed) {
-            npc.lastRelationshipChange = {
+        if (eventAccepted) {
+            const event = {
                 impact: update.impact,
                 delta: update.appliedDelta,
+                evidence,
                 reason: decision.relationshipChangeReason || '',
                 sourceMessageId: Number.isInteger(sourceMessageId) ? sourceMessageId : null,
                 turn: Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
             };
+            npc.lastRelationshipChange = event;
+            npc.relationshipEventHistory = appendRelationshipEvent(npc.relationshipEventHistory, event);
+        } else {
+            npc.relationshipEventHistory = normalizeRelationshipEventHistory(npc.relationshipEventHistory);
         }
-        if (changed || summaryChanged) {
+        if (eventAccepted || update.progressChanged || summaryChanged) {
             npc.updatedAt = Date.now();
             if (report?.updated && !report.updated.includes(id)) report.updated.push(id);
         }
@@ -3317,9 +3358,13 @@ function saveNpcEditor(npcId, { close = true, silent = false } = {}) {
     };
     const relationshipDelta = Object.fromEntries(['trust', 'affection', 'desire', 'tension'].map(key => [key, next.relationship[key] - Number(oldRelationship[key] || 0)]));
     if (Object.values(relationshipDelta).some(value => value !== 0)) {
+        const progress = normalizeRelationshipProgress(current.relationshipProgress);
+        for (const key of ['trust', 'affection', 'desire', 'tension']) if (relationshipDelta[key] !== 0) progress[key] = 0;
+        next.relationshipProgress = progress;
         next.lastRelationshipChange = {
             impact: 'manual',
             delta: relationshipDelta,
+            evidence: normalizeRelationshipEvidence(),
             reason: 'Manual dossier adjustment by player.',
             sourceMessageId: latestMessageId(false),
             turn: Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
