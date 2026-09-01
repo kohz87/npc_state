@@ -9,7 +9,7 @@ const sourceRoot = path.resolve(here, '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'npc-state-migration-'));
 const extRoot = path.join(tempRoot, 'public', 'scripts', 'extensions', 'third-party', 'npc_state');
 fs.mkdirSync(extRoot, { recursive: true });
-for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'storage.js']) fs.copyFileSync(path.join(sourceRoot, name), path.join(extRoot, name));
+for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js']) fs.copyFileSync(path.join(sourceRoot, name), path.join(extRoot, name));
 fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ type: 'module' }));
 
 const legacyNpc = {
@@ -85,7 +85,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 50));
     await globalThis.NPCState.flush();
     const settings = mock.extensionSettings.npc_state;
-    assert.equal(settings.schemaVersion, 23);
+    assert.equal(settings.schemaVersion, 24);
     assert.equal(settings.admissionMode, 'conservative', 'legacy settings should adopt conservative dossier admission');
     assert.equal(settings.maxNpcs, 40);
     assert.equal(settings.scanEvery, 1);
@@ -160,7 +160,7 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v028stock=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 23);
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 24);
     assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 1, meaningful: 2, major: 5, extreme: 10 }, 'untouched v0.2.8 caps should migrate through to v0.2.10 stock defaults');
 
     mock.extensionSettings.npc_state = {
@@ -172,7 +172,7 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v028custom=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 23);
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 24);
     assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 2, meaningful: 6, major: 12, extreme: 24 }, 'custom relationship caps must survive the v0.2.8→v0.2.10 migration');
 
 
@@ -185,7 +185,7 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v029stock=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 23);
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 24);
     assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 1, meaningful: 2, major: 5, extreme: 10 }, 'untouched v0.2.9 caps should migrate to v0.2.10 weights');
 
     const customV029Criteria = 'All relationship stats use a bipolar -100 to +100 scale with 0 as neutral. Positive and negative values are durable relationship states, not percentages or per-turn rewards. CUSTOM: my campaign deliberately changes progression.';
@@ -201,13 +201,13 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v029custom=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 23);
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 24);
     assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 2, meaningful: 4, major: 7, extreme: 9 }, 'custom v0.2.9 caps must survive schema23 migration');
     assert.equal(mock.extensionSettings.npc_state.relationshipCriteria, customV029Criteria, 'custom v0.2.9 relationship rubric must not be mistaken for stock by prefix');
     assert.equal(mock.extensionSettings.npc_state.relationshipImpactCriteria, 'CUSTOM IMPACT RUBRIC');
     assert.equal(mock.extensionSettings.npc_state.behaviorCriteria, 'CUSTOM BEHAVIOR RUBRIC');
 
-    console.log('Migration smoke: schema23 preserves live scores/custom tuning, infers already-passed directional milestones, migrates v0.2.8/v0.2.9 stock weights, and keeps canonical sidecars compatible.');
+    console.log('Migration smoke: schema24 preserves live scores/custom tuning, infers already-passed directional milestones, migrates v0.2.8/v0.2.9 stock weights, adds conservative Social Graph state, and keeps canonical sidecars compatible.');
 } finally {
     delete globalThis.__npcMock;
     fs.rmSync(tempRoot, { recursive: true, force: true });

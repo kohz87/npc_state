@@ -148,3 +148,22 @@ test('v0.2.11 bundle/import preserves hidden relationship weight progress, miles
     assert.match(merged.npcs[0].relationshipMilestones.find(item => item.threshold === 90).reason, /irreversible personal risk/i);
     assert.match(merged.npcs[0].relationshipEventHistory[0].reason, /medicine/i);
 });
+
+test('v0.2.12 bundle round-trips social graph and remaps imported graph ids onto an existing stable dossier id', () => {
+    const existingBrina = createNpcRecord('Brina');
+    const importedBrina = createNpcRecord('Brina');
+    importedBrina.id = 'npc_imported_brina';
+    const liza = createNpcRecord('Liza', [importedBrina.id]);
+    const importedState = {
+        npcs: [importedBrina, liza], dismissed: [],
+        socialGraph: { version: 1, edges: [{ aId: importedBrina.id, bId: liza.id, aToB: 'daughter', bToA: 'parent', confidence: 'explicit' }], unresolved: [] },
+    };
+    const bytes = encodeNpcStateBundle(importedState, { appVersion: '0.2.12', chatKey: 'chat:test' });
+    const decoded = decodeNpcStateBundle(bytes);
+    assert.equal(decoded.state.socialGraph.edges.length, 1);
+    const merged = mergeImportedDossierState({ npcs: [existingBrina], dismissed: [], socialGraph: { version: 1, edges: [], unresolved: [] } }, decoded.state, { maxNpcs: 40 });
+    const savedBrina = merged.npcs.find(npc => npc.name === 'Brina');
+    assert.equal(savedBrina.id, existingBrina.id);
+    assert.ok(merged.socialGraph.edges.some(edge => edge.aId === existingBrina.id || edge.bId === existingBrina.id));
+    assert.equal(merged.socialGraph.edges.some(edge => edge.aId === importedBrina.id || edge.bId === importedBrina.id), false);
+});

@@ -1,4 +1,5 @@
 import { normalizeName, normalizeNpcRecord } from './core.js';
+import { normalizeSocialGraph, remapSocialGraphNpcId } from './social.js';
 
 const MAGIC = new Uint8Array([0x4e, 0x50, 0x43, 0x53, 0x54, 0x42, 0x30, 0x31]); // NPCSTB01
 const HEADER_SIZE = 12;
@@ -90,6 +91,7 @@ export function encodeNpcStateBundle(state, { appVersion = 'unknown', chatKey = 
         sourceChatKey: String(chatKey || ''),
         state: {
             npcs,
+            socialGraph: normalizeSocialGraph(source.socialGraph),
             dismissed: Array.isArray(source.dismissed) ? [...source.dismissed] : [],
         },
     };
@@ -165,6 +167,7 @@ export function decodeNpcStateBundle(input) {
         },
         state: {
             npcs,
+            socialGraph: normalizeSocialGraph(manifest.state.socialGraph),
             dismissed: Array.isArray(manifest.state.dismissed) ? [...manifest.state.dismissed] : [],
         },
     };
@@ -190,6 +193,7 @@ export function mergeImportedDossierState(currentState, importedState, { maxNpcs
     const imported = (Array.isArray(incoming.npcs) ? incoming.npcs : []).map(normalizeNpcRecord)
         .filter(npc => !npcKeys(npc).some(key => excluded.has(key)));
     const usedExisting = new Set();
+    const importedIdMap = new Map();
     const merged = [];
 
     for (const npc of imported) {
@@ -197,9 +201,12 @@ export function mergeImportedDossierState(currentState, importedState, { maxNpcs
         if (index >= 0) {
             usedExisting.add(index);
             const old = existing[index];
+            importedIdMap.set(npc.id, old.id);
             merged.push({
                 ...old,
                 ...structuredClone(npc),
+                id: old.id,
+                aliases: [...new Set([...(old.aliases || []), ...(npc.aliases || []), ...(old.name !== npc.name ? [old.name] : [])])].filter(alias => normalizeName(alias) !== normalizeName(npc.name)).slice(0, 8),
                 portrait: npc.portrait?.dataUrl ? structuredClone(npc.portrait) : old.portrait || npc.portrait || null,
             });
         } else {
@@ -228,9 +235,18 @@ export function mergeImportedDossierState(currentState, importedState, { maxNpcs
         ...(Array.isArray(incoming.dismissed) ? incoming.dismissed : []),
     ].map(normalizeName).filter(Boolean))].filter(name => !activeNames.has(name));
 
+    let importedGraph = normalizeSocialGraph(incoming.socialGraph);
+    for (const [fromId, toId] of importedIdMap.entries()) importedGraph = remapSocialGraphNpcId(importedGraph, fromId, toId);
+    const currentGraph = normalizeSocialGraph(current.socialGraph);
+    const socialGraph = normalizeSocialGraph({
+        edges: [...currentGraph.edges, ...importedGraph.edges],
+        unresolved: [...currentGraph.unresolved, ...importedGraph.unresolved],
+    });
+
     return {
         ...current,
         npcs,
+        socialGraph,
         dismissed,
         processedOocMessageId: null,
         lastScannedMessageId: null,
