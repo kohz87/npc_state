@@ -27,7 +27,13 @@ jobs:
           node --check branch.js
           node --check bundle.js
       - name: Full repository test suite
-        run: npm test
+        run: |
+          npm test > /tmp/npc-state-test.log 2>&1 || {
+            grep -A 24 -B 6 '^not ok' /tmp/npc-state-test.log || true
+            tail -n 40 /tmp/npc-state-test.log
+            exit 1
+          }
+          tail -n 25 /tmp/npc-state-test.log
       - name: Remove temporary patch helpers and workflow
         run: |
           rm -f tools/apply-hardening.py tools/apply-remaining-hardening-tests.py .github/workflows/hardening-apply.yml trigger-hardening
