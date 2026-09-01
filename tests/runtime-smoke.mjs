@@ -360,7 +360,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.8');
+    assert.equal(globalThis.NPCState?.version, '0.2.9');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');
@@ -651,7 +651,7 @@ try {
     assert.doesNotMatch(livePrompt, /current thoughts/i);
     assert.match(livePrompt, /personality: proud but earnest/);
     assert.match(livePrompt, /established speech: formal when nervous/);
-    assert.match(livePrompt, /behavior toward player:/);
+    assert.match(livePrompt, /PLAYER RELATIONSHIP \(secondary modifier\):/);
     assert.match(livePrompt, /Yunyun/);
     assert.doesNotMatch(livePrompt, /- Wiz:/, 'off-screen NPC must not be injected into generation');
 
