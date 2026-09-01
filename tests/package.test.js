@@ -15,5 +15,5 @@ test('install folder has SillyTavern-discoverable one-level layout', () => {
     assert.equal(fs.existsSync(path.join(root, 'npc_state', 'manifest.json')), false, 'must not contain a second nested npc_state folder');
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
     assert.equal(manifest.display_name, 'NPC State');
-    assert.equal(manifest.version, '0.2.13');
+    assert.equal(manifest.version, '0.2.14');
 });

@@ -1,4 +1,4 @@
-/* NPC State v0.2.13 - standalone SillyTavern extension */
+/* NPC State v0.2.14 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';
 import {
@@ -98,6 +98,7 @@ import {
 } from './social.js';
 import {
     deleteNpcStateDataFile,
+    makeNpcStateDataFileName,
     readNpcStateDataFile,
     writeNpcStateDataFile,
 } from './storage.js';
@@ -114,10 +115,12 @@ let inlineObserverChat = null;
 let inlineWatchdogTimer = null;
 let uiCaptureBridgeInstalled = false;
 let activeEditorPopup = null;
+let activeEditorChatKey = '';
 let activeNpcViewerOverlay = null;
 let activeNpcViewerId = '';
 let activeNpcViewerOpenedAt = 0;
 let activePortraitGeneratorOverlay = null;
+let activePortraitGeneratorChatKey = '';
 let activePortraitGeneratorNpcId = '';
 let activePortraitGenerationUrl = '';
 let portraitGenerationBusy = false;
@@ -155,6 +158,11 @@ const scanOperations = createScanOperationRegistry({
             if (npcId && operation.metadata?.indicator === 'dossier') setNpcDossierScanIndicator(npcId, false);
             if (npcId && operation.metadata?.indicator === 'refresh') setNpcChatRefreshIndicator(npcId, false);
             updateInjection();
+            if (pendingAutoScans.has(operation.key)) {
+                setTimeout(() => {
+                    if (getChatKey() === operation.key && !isHostSwipeActive()) void drainPendingAutoScan(operation.key);
+                }, 0);
+            }
         } catch (error) {
             console.debug('[NPC State] scan-timeout indicator cleanup skipped', error);
         }
@@ -403,6 +411,8 @@ function normalizeChatState(raw = {}) {
         label: String(item?.label || '').trim().slice(0, 120),
         requestedMessageId: Number.isInteger(item?.requestedMessageId) ? item.requestedMessageId : null,
         requestedAt: Number(item?.requestedAt || 0) || Date.now(),
+        attempts: Math.max(0, Math.min(BACKFILL_MAX_ATTEMPTS, Math.round(Number(item?.attempts) || 0))),
+        lastAttemptAt: Math.max(0, Number(item?.lastAttemptAt || 0) || 0),
     })).filter(item => item.npcId && item.label) : [];
     state.dismissed = Array.isArray(state.dismissed) ? [...state.dismissed] : [];
     state.userDismissedGroups = normalizeUserDismissedGroups(state.userDismissedGroups);
@@ -451,7 +461,7 @@ function getChatState(key = getChatKey()) {
     return chatStateCache.get(key);
 }
 
-function setChatState(key, state, { markLoaded = true } = {}) {
+function setChatState(key, state, { markLoaded = false } = {}) {
     if (!key || key === 'no-chat') return state;
     const normalized = normalizeChatState(state);
     chatStateCache.set(key, normalized);
@@ -470,6 +480,34 @@ function assertChatHydratedForWrite(key = getChatKey()) {
     if (!key || key === 'no-chat') return;
     const pointer = getSettings().dataFiles?.[key];
     if (pointer?.path && !loadedChatKeys.has(key)) throw new Error('Refusing to overwrite unhydrated NPC State sidecar for ' + key + '.');
+}
+
+function requireReadyChatMutation(action = 'modify NPC State', key = getChatKey(), { notify = true } = {}) {
+    if (!key || key === 'no-chat') {
+        if (notify) globalThis.toastr?.warning?.(`NPC State: open a chat before attempting to ${action}.`);
+        return false;
+    }
+    if (chatHydrationStatus(key) === 'ready') return true;
+    const error = hydrationErrors.get(key);
+    if (notify) globalThis.toastr?.warning?.(`NPC State: cannot ${action} until this chat dossier loads successfully.${error?.message ? ` ${error.message}` : ''}`);
+    return false;
+}
+
+async function retryCurrentChatHydration() {
+    const key = getChatKey();
+    if (!key || key === 'no-chat') return false;
+    try {
+        await ensureChatStateLoaded(key);
+        if (getChatKey() !== key) return false;
+        renderDossier();
+        updateInjection();
+        globalThis.toastr?.success?.('NPC State: chat dossier loaded successfully.');
+        return true;
+    } catch (error) {
+        if (getChatKey() === key) { renderDossier(); updateInjection(); }
+        globalThis.toastr?.error?.(`NPC State still cannot load this chat dossier: ${error?.message || error}`);
+        return false;
+    }
 }
 
 function requestHeaders() {
@@ -510,7 +548,7 @@ async function ensureChatStateLoaded(key = getChatKey()) {
         const sourceState = loaded || legacy || freshChatState();
         const needsDurableCompactionWrite = Boolean(loaded)
             && Number(sourceState?.durableCompactionVersion || 0) < DURABLE_COMPACTION_VERSION;
-        const state = setChatState(key, sourceState);
+        const state = setChatState(key, sourceState, { markLoaded: true });
         if ((!loaded && legacy) || needsDurableCompactionWrite) {
             try {
                 await flushStateFile(key);
@@ -556,6 +594,10 @@ function markStateDirty(key = getChatKey()) {
 
 function queueStateFileWrite(key = getChatKey(), delay = STATE_WRITE_DELAY) {
     if (!key || key === 'no-chat' || !chatStateCache.has(key)) return;
+    if (chatHydrationStatus(key) !== 'ready') {
+        console.warn(`[NPC State] refused to queue an unhydrated state write for ${key}.`);
+        return;
+    }
     markStateDirty(key);
     if (stateWriteTimers.has(key)) clearTimeout(stateWriteTimers.get(key));
     stateWriteTimers.set(key, setTimeout(() => {
@@ -622,8 +664,14 @@ async function settleStateFileWrite(key, { flush = false } = {}) {
 }
 
 function persist() {
+    const key = getChatKey();
+    if (!requireReadyChatMutation('save chat dossier changes', key, { notify: false })) {
+        console.warn(`[NPC State] refused to persist unhydrated chat state for ${key}.`);
+        return false;
+    }
     persistSettings();
-    queueStateFileWrite();
+    queueStateFileWrite(key);
+    return true;
 }
 
 function commitBranchCheckpoint(state, messageId, reason = 'state') {
@@ -875,48 +923,60 @@ async function moveRenamedChatState(eventData = {}) {
     const newId = String(eventData.newFileName || '').replace(/\.jsonl$/i, '');
     if (!oldId || !newId || oldId === newId) return false;
     const settings = getSettings();
-    let changed = false;
-
     const currentPrefix = getChatKey().startsWith('group:') ? 'group:' : 'chat:';
-    for (const prefix of [currentPrefix]) {
-        const oldKey = `${prefix}${oldId}`;
-        const newKey = `${prefix}${newId}`;
-        const hasOld = Boolean(settings.dataFiles?.[oldKey] || settings.chats?.[oldKey] || chatStateCache.has(oldKey));
-        if (!hasOld) continue;
-
-        await ensureChatStateLoaded(oldKey).catch(() => null);
-        await settleStateFileWrite(oldKey, { flush: true }).catch(error => console.warn(`[NPC State] Could not settle renamed chat state for ${oldKey}.`, error));
-        await settleStateFileWrite(newKey).catch(() => null);
-
-        const oldPointer = settings.dataFiles?.[oldKey] || null;
-        if (oldPointer) {
-            settings.dataFiles[newKey] = oldPointer;
-            delete settings.dataFiles[oldKey];
-        }
-        if (settings.chats?.[oldKey]) {
-            settings.chats[newKey] = settings.chats[oldKey];
-            delete settings.chats[oldKey];
-        }
-        if (chatStateCache.has(oldKey)) {
-            const state = chatStateCache.get(oldKey);
-            chatStateCache.delete(oldKey);
-            loadedChatKeys.delete(oldKey);
-            loadingChatStates.delete(oldKey);
-            stateVersions.delete(oldKey);
-            persistedVersions.delete(oldKey);
-            stateWritePromises.delete(oldKey);
-            setChatState(newKey, state);
-            changed = true;
-        } else {
-            changed = Boolean(oldPointer || settings.chats?.[newKey]);
-        }
-
-        if (chatStateCache.has(newKey)) {
-            await flushStateFile(newKey).catch(error => console.warn('[NPC State] renamed chat data-file refresh failed', error));
-        }
+    const oldKey = `${currentPrefix}${oldId}`;
+    const newKey = `${currentPrefix}${newId}`;
+    const hasOld = Boolean(settings.dataFiles?.[oldKey] || settings.chats?.[oldKey] || chatStateCache.has(oldKey));
+    if (!hasOld) return false;
+    if (settings.dataFiles?.[newKey] || settings.chats?.[newKey] || chatStateCache.has(newKey)) {
+        console.warn(`[NPC State] refused to rename ${oldKey} onto existing state ${newKey}.`);
+        return false;
     }
-    if (changed) persistSettings();
-    return changed;
+
+    try {
+        await ensureChatStateLoaded(oldKey);
+        await settleStateFileWrite(oldKey, { flush: true });
+        const state = structuredClone(getChatState(oldKey));
+        const oldPointer = settings.dataFiles?.[oldKey] || null;
+        const newName = makeNpcStateDataFileName(newKey);
+        if (oldPointer?.name === newName) throw new Error('NPC State rename filename collision detected.');
+
+        // Phase 1: write and verify the new-key sidecar while the old mapping is still authoritative.
+        const newPointer = await writeNpcStateDataFile({
+            chatKey: newKey,
+            state,
+            appVersion: NPC_STATE_VERSION,
+            pointer: { name: newName },
+            headers: requestHeaders(),
+        });
+        await readNpcStateDataFile(newPointer, { expectedChatKey: newKey });
+
+        // Phase 2: switch ownership only after the new sidecar can be read under the new key.
+        settings.dataFiles[newKey] = newPointer;
+        delete settings.dataFiles[oldKey];
+        if (settings.chats?.[oldKey]) delete settings.chats[oldKey];
+        chatStateCache.delete(oldKey);
+        loadedChatKeys.delete(oldKey);
+        loadingChatStates.delete(oldKey);
+        hydrationErrors.delete(oldKey);
+        stateVersions.delete(oldKey);
+        persistedVersions.delete(oldKey);
+        stateWritePromises.delete(oldKey);
+        pendingAutoScans.delete(oldKey);
+        const installed = setChatState(newKey, state, { markLoaded: true });
+        persistedVersions.set(newKey, Number(stateVersions.get(newKey) || 0));
+        persistSettings();
+
+        // Phase 3: old storage becomes cleanup only; failure here cannot invalidate the rename.
+        if (oldPointer?.path && oldPointer.path !== newPointer.path) {
+            try { await deleteNpcStateDataFile(oldPointer, { headers: requestHeaders() }); }
+            catch (error) { console.warn(`[NPC State] renamed state is safe, but the old sidecar could not be deleted for ${oldKey}.`, error); }
+        }
+        return Boolean(installed);
+    } catch (error) {
+        console.warn(`[NPC State] transactional rename failed for ${oldKey}; original mapping was preserved.`, error);
+        return false;
+    }
 }
 
 function flushCurrentChatOnPageHide() {
@@ -1006,6 +1066,8 @@ function queueNpcBackfillInState(state, npcId, label, requestedMessageId = null)
         label: cleanLabel,
         requestedMessageId: Number.isInteger(requestedMessageId) ? requestedMessageId : null,
         requestedAt: Date.now(),
+        attempts: 0,
+        lastAttemptAt: 0,
     });
     if (state.pendingBackfills.length > 8) state.pendingBackfills.splice(0, state.pendingBackfills.length - 8);
     return state;
@@ -1104,7 +1166,7 @@ async function scanNpcDossier(npcId) {
     const id = String(npcId || '').trim();
     const ctx = getContext();
     const chatKey = getChatKey();
-    if (!id || chatKey === 'no-chat') return false;
+    if (!id || chatKey === 'no-chat' || !requireReadyChatMutation('scan a dossier', chatKey)) return false;
     if (isScanBusy(chatKey)) {
         globalThis.toastr?.info?.('NPC State: another dossier scan is already running in this chat.');
         return false;
@@ -1255,7 +1317,7 @@ async function refreshNpcFromChat(npcId) {
     const id = String(npcId || '').trim();
     const ctx = getContext();
     const chatKey = getChatKey();
-    if (!id || chatKey === 'no-chat') return false;
+    if (!id || chatKey === 'no-chat' || !requireReadyChatMutation('refresh a dossier', chatKey)) return false;
     if (isScanBusy(chatKey)) {
         globalThis.toastr?.info?.('NPC State: another dossier scan is already running in this chat.');
         return false;
@@ -1418,6 +1480,8 @@ const SCAN_RESPONSE_LENGTH = 1800;
 const FULL_SCAN_RESPONSE_LENGTH = 3200;
 const RELATIONSHIP_RESPONSE_LENGTH = 900;
 const BACKFILL_RESPONSE_LENGTH = 3200;
+const BACKFILL_MAX_ATTEMPTS = 3;
+const BACKFILL_RETRY_COOLDOWN_MS = 60 * 1000;
 const JSON_RETRY_RESPONSE_LENGTH = 5200;
 
 function isTruncatedScannerJsonError(error) {
@@ -1477,7 +1541,7 @@ async function backfillNpcFromHistory(request, messageId = null) {
     const settings = getSettings();
     const ctx = getContext();
     const chatKey = getChatKey();
-    if (!request?.npcId || !request?.label || chatKey === 'no-chat') return false;
+    if (!request?.npcId || !request?.label || chatKey === 'no-chat' || !requireReadyChatMutation('backfill a dossier', chatKey, { notify: false })) return false;
     if (isScanBusy(chatKey)) return false;
     if (typeof ctx.generateRaw !== 'function') return false;
     const state = getChatState(chatKey);
@@ -1579,16 +1643,30 @@ async function backfillNpcFromHistory(request, messageId = null) {
 
 async function processPendingBackfills(messageId = null) {
     const chatKey = getChatKey();
-    if (chatKey === 'no-chat' || isScanBusy(chatKey) || isHostSwipeActive()) return 0;
+    if (chatKey === 'no-chat' || !requireReadyChatMutation('process queued dossier backfills', chatKey, { notify: false }) || isScanBusy(chatKey) || isHostSwipeActive()) return 0;
     let processed = 0;
     while (getChatKey() === chatKey && !isScanBusy(chatKey)) {
         const state = getChatState(chatKey);
         if (!Array.isArray(state.pendingBackfills) || !state.pendingBackfills.length) break;
         const request = state.pendingBackfills[0];
+        const attempts = Math.max(0, Math.round(Number(request.attempts) || 0));
+        if (attempts >= BACKFILL_MAX_ATTEMPTS) {
+            state.pendingBackfills.shift();
+            persist();
+            globalThis.toastr?.warning?.(`NPC State: stopped automatic backfill retries for ${request.label} after ${BACKFILL_MAX_ATTEMPTS} failed attempts. The bare dossier is preserved; use Scan dossier to retry manually.`);
+            continue;
+        }
+        const lastAttemptAt = Math.max(0, Number(request.lastAttemptAt || 0) || 0);
+        if (attempts > 0 && lastAttemptAt && Date.now() - lastAttemptAt < BACKFILL_RETRY_COOLDOWN_MS) break;
+
         const succeeded = await backfillNpcFromHistory(request, messageId);
         if (!succeeded) {
-            request.attempts = Math.max(0, Number(request.attempts || 0)) + 1;
+            request.attempts = attempts + 1;
             request.lastAttemptAt = Date.now();
+            if (request.attempts >= BACKFILL_MAX_ATTEMPTS) {
+                state.pendingBackfills = state.pendingBackfills.filter(item => item !== request && item.npcId !== request.npcId);
+                globalThis.toastr?.warning?.(`NPC State: automatic backfill for ${request.label} failed ${BACKFILL_MAX_ATTEMPTS} times and was removed from the retry queue. The dossier itself was not deleted.`);
+            }
             persist();
             break;
         }
@@ -2418,12 +2496,13 @@ function scanInlineNpcIds(_parsed, merged) {
 }
 
 function currentNpcById(id) {
+    if (chatHydrationStatus(getChatKey()) !== 'ready') return null;
     return getChatState().npcs.find(npc => npc.id === id) || null;
 }
 
 function findNpcByIdOrName(value) {
     const query = String(value || '').trim();
-    if (!query) return null;
+    if (!query || chatHydrationStatus(getChatKey()) !== 'ready') return null;
     const normalized = normalizeName(query);
     return getChatState().npcs.find(npc => npc.id === query || normalizeName(npc.name) === normalized) || null;
 }
@@ -3103,7 +3182,23 @@ function wireSettingsRosterEditor() {
 function renderSettingsRoster() {
     const holder = $('#npc_state_roster_summary');
     if (!holder.length) return;
-    const state = getChatState();
+    const key = getChatKey();
+    const hydration = chatHydrationStatus(key);
+    if (key === 'no-chat') {
+        holder.html('<span class="npc-state-muted">Open a chat to load its NPC State dossier.</span>');
+        return;
+    }
+    if (hydration !== 'ready') {
+        const error = hydrationErrors.get(key);
+        const message = hydration === 'error'
+            ? `NPC State could not load this chat dossier. Existing sidecar data is preserved and all dossier writes are locked.${error?.message ? ` ${escapeHtml(error.message)}` : ''}`
+            : 'NPC State is loading this chat dossier. Dossier writes remain locked until loading succeeds.';
+        const retry = hydration === 'error' ? '<div class="menu_button npc-state-retry-hydration"><i class="fa-solid fa-rotate"></i> Retry Load</div>' : '';
+        holder.html(`<div class="npc-state-hydration-warning"><b>${hydration === 'error' ? 'Dossier load failed' : 'Loading dossier...'}</b><span>${message}</span>${retry}</div>`);
+        return;
+    }
+    const state = getChatState(key);
+
     if (!state.npcs.length) {
         holder.html('<span class="npc-state-muted">No tracked NPCs yet. Named NPCs are stored persistently; inline cards appear only when the latest scene marks them present.</span>');
         return;
@@ -3150,9 +3245,12 @@ function editorValue(value) {
 }
 
 function openNpcEditor(npcId) {
+    const originChatKey = getChatKey();
+    if (!requireReadyChatMutation('edit a dossier', originChatKey)) return null;
     const npc = currentNpcById(npcId);
     if (!npc) return null;
     closeNpcEditor();
+    activeEditorChatKey = originChatKey;
     const ctx = getContext();
     const Popup = ctx.Popup;
     const POPUP_TYPE = ctx.POPUP_TYPE;
@@ -3363,6 +3461,7 @@ function portraitGeneratorHtml(npc, prompts) {
 function closePortraitGenerator() {
     const overlay = activePortraitGeneratorOverlay;
     activePortraitGeneratorOverlay = null;
+    activePortraitGeneratorChatKey = '';
     activePortraitGeneratorNpcId = '';
     activePortraitGenerationUrl = '';
     portraitGenerationBusy = false;
@@ -3372,6 +3471,8 @@ function closePortraitGenerator() {
 }
 
 function openPortraitGenerator(npcId) {
+    const originChatKey = getChatKey();
+    if (!requireReadyChatMutation('generate a portrait', originChatKey)) return false;
     const id = String(npcId || '').trim();
     const npc = currentNpcById(id);
     if (!npc) return false;
@@ -3404,6 +3505,7 @@ function openPortraitGenerator(npcId) {
     document.body?.classList?.add?.('npc-state-portrait-generator-open');
     document.documentElement?.classList?.add?.('npc-state-portrait-generator-open');
     activePortraitGeneratorOverlay = overlay;
+    activePortraitGeneratorChatKey = originChatKey;
     activePortraitGeneratorNpcId = id;
     activePortraitGenerationUrl = '';
     globalThis.requestAnimationFrame?.(() => overlay.querySelector?.('#npc_state_portrait_positive')?.focus?.());
@@ -3431,6 +3533,7 @@ function setPortraitGeneratorBusy(busy, text = '') {
 
 function resetPortraitGeneratorFromDossier() {
     if (!activePortraitGeneratorOverlay || !activePortraitGeneratorNpcId || portraitGenerationBusy) return false;
+    if (getChatKey() !== activePortraitGeneratorChatKey || !requireReadyChatMutation('reset portrait prompts', activePortraitGeneratorChatKey)) return false;
     const npc = currentNpcById(activePortraitGeneratorNpcId);
     if (!npc) return false;
     const prompts = npcImagePromptPair(npc);
@@ -3443,6 +3546,8 @@ function resetPortraitGeneratorFromDossier() {
 
 async function generatePortraitFromDialog() {
     const overlay = activePortraitGeneratorOverlay;
+    const originChatKey = activePortraitGeneratorChatKey;
+    if (!originChatKey || getChatKey() !== originChatKey || !requireReadyChatMutation('generate a portrait', originChatKey)) return false;
     const npc = currentNpcById(activePortraitGeneratorNpcId);
     if (!overlay || !npc || portraitGenerationBusy) return false;
     const positive = String(overlay.querySelector?.('#npc_state_portrait_positive')?.value || '').trim();
@@ -3455,7 +3560,7 @@ async function generatePortraitFromDialog() {
     setPortraitGeneratorBusy(true, 'Generating through SillyTavern Image Generation…');
     try {
         const url = await executeNativePortraitGeneration(positive, negative);
-        if (!activePortraitGeneratorOverlay || activePortraitGeneratorNpcId !== npc.id) return false;
+        if (!activePortraitGeneratorOverlay || activePortraitGeneratorNpcId !== npc.id || activePortraitGeneratorChatKey !== originChatKey || getChatKey() !== originChatKey) return false;
         activePortraitGenerationUrl = url;
         const image = activePortraitGeneratorOverlay.querySelector?.('.npc-state-portrait-generator-image');
         const placeholder = activePortraitGeneratorOverlay.querySelector?.('.npc-state-portrait-generator-placeholder');
@@ -3493,6 +3598,8 @@ async function portraitAssetFromGeneratedUrl(url, npcName = 'npc') {
 
 async function useGeneratedPortrait() {
     if (!activePortraitGeneratorOverlay || !activePortraitGeneratorNpcId || !activePortraitGenerationUrl || portraitGenerationBusy) return false;
+    const originChatKey = activePortraitGeneratorChatKey;
+    if (!originChatKey || getChatKey() !== originChatKey || !requireReadyChatMutation('apply a generated portrait', originChatKey)) return false;
     const npc = currentNpcById(activePortraitGeneratorNpcId);
     if (!npc) return false;
     setPortraitGeneratorBusy(true, 'Importing generated image into the NPC dossier…');
@@ -3518,6 +3625,7 @@ async function useGeneratedPortrait() {
 function closeNpcEditor() {
     const popup = activeEditorPopup;
     activeEditorPopup = null;
+    activeEditorChatKey = '';
     if (popup?.completeCancelled) {
         Promise.resolve(popup.completeCancelled()).catch(error => console.debug('[NPC State] editor popup close failed', error));
     }
@@ -3538,7 +3646,12 @@ function clampEditorRelationshipStat(id) {
 }
 
 function saveNpcEditor(npcId, { close = true, silent = false } = {}) {
-    const state = getChatState();
+    const originChatKey = activeEditorChatKey || getChatKey();
+    if (getChatKey() !== originChatKey || !requireReadyChatMutation('save dossier edits', originChatKey)) {
+        globalThis.toastr?.warning?.('NPC State: this editor belongs to a different or unloaded chat. Reopen the dossier in the active chat.');
+        return false;
+    }
+    const state = getChatState(originChatKey);
     const index = state.npcs.findIndex(item => item.id === npcId);
     if (index < 0) { if (close) closeNpcEditor(); return false; }
     const current = state.npcs[index];
@@ -3654,7 +3767,7 @@ function saveNpcEditor(npcId, { close = true, silent = false } = {}) {
 
 function deleteNpcById(npcId, { confirmAction = true } = {}) {
     const id = String(npcId || '').trim();
-    if (!id) return false;
+    if (!id || !requireReadyChatMutation('delete a dossier')) return false;
     const settings = getSettings();
     const state = getChatState();
     const current = state.npcs.find(item => item.id === id);
@@ -3699,6 +3812,7 @@ function deleteNpcById(npcId, { confirmAction = true } = {}) {
 }
 
 function setNpcArchiveStateById(npcId, archived, { reason = 'manual', confirmAction = true } = {}) {
+    if (!requireReadyChatMutation(archived ? 'archive a dossier' : 'restore a dossier')) return false;
     const state = getChatState();
     const index = state.npcs.findIndex(item => item.id === npcId);
     if (index < 0) return false;
@@ -3801,6 +3915,7 @@ function buildBundleFilename() {
 }
 
 function exportBundleBytes() {
+    if (!requireReadyChatMutation('export a dossier', getChatKey(), { notify: false })) throw new Error('NPC State chat dossier is not loaded.');
     return encodeNpcStateBundle(getChatState(), {
         appVersion: NPC_STATE_VERSION,
         chatKey: getChatKey(),
@@ -3825,6 +3940,7 @@ function exportDossierBundle() {
         globalThis.toastr?.warning?.('NPC State: open a chat before exporting a dossier.');
         return null;
     }
+    if (!requireReadyChatMutation('export a dossier')) return null;
     const state = getChatState();
     if (!state.npcs.length && !state.dismissed?.length) {
         globalThis.toastr?.warning?.('NPC State: this chat dossier is empty.');
@@ -3844,6 +3960,7 @@ function exportDossierBundle() {
 }
 
 function importBundleBytes(bytes) {
+    if (!requireReadyChatMutation('import a dossier')) throw new Error('NPC State chat dossier is not loaded.');
     const settings = getSettings();
     const decoded = decodeNpcStateBundle(bytes);
     const before = getChatState();
@@ -4024,6 +4141,7 @@ function bindUi() {
         syncSettingsControls(); persistSettings(); updateInjection();
         globalThis.toastr?.success?.('NPC State: behavior rubric reset to default.');
     });
+    $(document).on('click.npcState', '.npc-state-retry-hydration', () => { void retryCurrentChatHydration(); });
     $(document).on('click.npcState', '#npc_state_scan_now', () => scanNow({ manual: true, messageId: latestMessageId(true) }));
     $(document).on('click.npcState', '#npc_state_export_bundle', () => exportDossierBundle());
     $(document).on('change.npcState', '#npc_state_import_bundle_file', async function () {
@@ -4032,6 +4150,7 @@ function bindUi() {
         await importDossierBundle(file);
     });
     $(document).on('click.npcState', '#npc_state_add_manual', () => {
+        if (!requireReadyChatMutation('add an NPC')) return;
         const settings = getSettings();
         const state = getChatState();
         if (state.npcs.filter(npc => !npc?.archived).length >= settings.maxNpcs) return globalThis.toastr?.warning?.(`NPC State: active roster cap is ${settings.maxNpcs}. Archived dossiers do not count.`);
@@ -4071,6 +4190,7 @@ function bindUi() {
         deleteNpcById(this.dataset.npcId);
     });
     $(document).on('click.npcState', '#npc_state_clear_chat', () => {
+        if (!requireReadyChatMutation('clear this chat dossier')) return;
         if (!window.confirm('Clear every NPC State dossier for this chat? Portraits and inline dossier cards will also be removed.')) return;
         closePortraitGenerator();
         const cleared = freshChatState();
@@ -4079,21 +4199,29 @@ function bindUi() {
         persist(); renderDossier(); updateInjection();
     });
     $(document).on('change.npcState', '.npc-state-inline-portrait-file', async function () {
+        if (!requireReadyChatMutation('attach a portrait')) { this.value = ''; return; }
+        const originChatKey = getChatKey();
+        const originRevision = Number(stateVersions.get(originChatKey) || 0);
         const npc = currentNpcById(this.dataset.npcId);
         const file = this.files?.[0];
         this.value = '';
         if (!npc || !file) return;
         try {
-            npc.portrait = await compressPortrait(file);
-            getChatState().portraitAssets[npc.id] = structuredClone(npc.portrait);
-            npc.updatedAt = Date.now();
+            const portrait = await compressPortrait(file);
+            if (getChatKey() !== originChatKey || Number(stateVersions.get(originChatKey) || 0) !== originRevision || !requireReadyChatMutation('attach a portrait', originChatKey)) return;
+            const liveNpc = getChatState(originChatKey).npcs.find(item => item.id === npc.id);
+            if (!liveNpc) return;
+            liveNpc.portrait = portrait;
+            getChatState(originChatKey).portraitAssets[liveNpc.id] = structuredClone(liveNpc.portrait);
+            liveNpc.updatedAt = Date.now();
             persist(); renderDossier();
-            globalThis.toastr?.success?.(`Portrait attached to ${npc.name}.`);
+            globalThis.toastr?.success?.(`Portrait attached to ${liveNpc.name}.`);
         } catch (error) {
             globalThis.toastr?.error?.(`NPC State portrait: ${error?.message || error}`);
         }
     });
     $(document).on('click.npcState', '.npc-state-inline-remove-portrait', function () {
+        if (!requireReadyChatMutation('remove a portrait')) return;
         const npc = currentNpcById(this.dataset.npcId);
         if (!npc) return;
         npc.portrait = null;
@@ -4135,7 +4263,7 @@ function scheduleSettingsMountRetries() {
 
 function processOocCommands(messageId = null) {
     const settings = getSettings();
-    if (!settings.enabled || getChatKey() === 'no-chat') return [];
+    if (!settings.enabled || getChatKey() === 'no-chat' || !requireReadyChatMutation('process OOC dossier commands', getChatKey(), { notify: false })) return [];
     const ctx = getContext();
     const chat = ctx.chat || [];
     let resolvedId = Number.isInteger(messageId) ? messageId : chat.length - 1;
@@ -4290,7 +4418,10 @@ function registerEvents() {
             await ensureChatStateLoaded(key);
             if (getChatKey() !== key) return;
             renderDossier(); ensureInlineObserver(); queueInlineRender(0);
-        } catch (error) { console.error('[NPC State] post-load hydration/render failed; durable data was not overwritten.', error); }
+        } catch (error) {
+            if (getChatKey() === key) { renderDossier(); updateInjection(); }
+            console.error('[NPC State] post-load hydration/render failed; durable data was not overwritten.', error);
+        }
     });
 
     if (events.MESSAGE_DELETED) {
@@ -4329,6 +4460,9 @@ function registerEvents() {
 
     if (events.CHAT_CHANGED) {
         source.on(events.CHAT_CHANGED, async () => {
+            closePortraitGenerator();
+            closeNpcViewer();
+            closeNpcEditor();
             const key = getChatKey();
             try {
                 if (key !== 'no-chat') await ensureChatStateLoaded(key);
@@ -4439,7 +4573,7 @@ window.NPCState = Object.freeze({
         hydrationError: hydrationErrors.get(getChatKey())?.message || null,
         scanBusyForChat: isScanBusy(getChatKey()),
         scanOperation: scanOperations.status(getChatKey()),
-        inlineEntries: getChatState().inlineCards?.length || 0,
+        inlineEntries: chatHydrationStatus(getChatKey()) === 'ready' ? (getChatState().inlineCards?.length || 0) : 0,
         mountedInlineAnchors: document.querySelectorAll?.('.npc-state-inline-anchor')?.length || 0,
         integratedMeguminBlocks: document.querySelectorAll?.('.npc-state-megumin-pane')?.length || 0,
         settingsPanelMounted: Boolean(document.querySelector?.(`#${UI_ID}`)),

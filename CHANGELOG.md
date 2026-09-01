@@ -1,5 +1,17 @@
 # NPC State Changelog
 
+## v0.2.14
+
+### Data-safety and runtime-affinity hardening
+
+- Made successful hydration the only authority transition for sidecar-backed chat state; unhydrated fallback state is read-only.
+- Added explicit load-error UI and Retry Load while blocking dossier mutations until hydration succeeds.
+- Made chat rename transactional by writing and verifying the new-key sidecar before switching ownership.
+- Drains coalesced automatic scans when a genuinely hung scan operation times out.
+- Persisted bounded backfill retry metadata with cooldown and a three-attempt automatic cap.
+- Bound editor and portrait workflows to their origin chat and rejected stale asynchronous portrait completion.
+- Added permanent GitHub Actions CI and dedicated v0.2.14 hardening assertions.
+
 
 ## v0.2.13
 
