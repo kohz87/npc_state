@@ -40,6 +40,14 @@ jobs:
           if old not in s:
               raise SystemExit('ui legacy deletion wording assertion not found')
           p.write_text(s.replace(old, '', 1))
+
+          p = Path('tests/runtime-smoke.mjs')
+          s = p.read_text()
+          old = "    assert.ok(state.dismissed.includes('wiz'), 'settings delete should suppress immediate scanner rediscovery');\n"
+          new = """    assert.ok(state.userDismissedGroups.some(group => group.ids?.includes(wizIdForDelete)), 'settings delete should suppress immediate scanner rediscovery by stable ID');\n    assert.ok(!state.dismissed.includes('wiz'), 'modern ID tombstones must not globally suppress future same-name NPCs');\n"""
+          if old not in s:
+              raise SystemExit('runtime legacy deletion assertion not found')
+          p.write_text(s.replace(old, new, 1))
           PY
       - name: Syntax check
         run: |
