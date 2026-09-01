@@ -1,6 +1,18 @@
 # NPC State Changelog
 
 
+## v0.2.13
+
+### Runtime lifecycle hardening
+
+- Gated dossier rendering and RP prompt injection on per-chat hydration readiness so unloaded state cannot briefly render or inject as authoritative empty state.
+- Coalesced automatic scans that arrive while a scan is already active, preventing valid assistant turns from being silently dropped.
+- Replaced branch-rescan polling retries with one pending scan per chat and deterministic drain after the active scan completes.
+- Hardened rapid chat switching by rejecting stale asynchronous hydration and branch work after the active chat changes.
+- Cleaned pending scan and hydration error state during chat deletion and preserved chat/group namespace isolation.
+- Added regression coverage for hydration gating, busy automatic scan coalescing, and chat-affine async completion.
+- Full hardening verification completed with 320/320 Node tests passing twice, plus syntax, SillyTavern 1.18 compatibility, runtime smoke, migration smoke, and package-layout checks.
+
 ## v0.2.12
 
 ### Social Graph / canonical identity resolution

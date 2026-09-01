@@ -1,4 +1,17 @@
-# NPC State v0.2.12 Code Review
+# NPC State v0.2.13 Code Review
+
+## v0.2.13 runtime lifecycle hardening
+
+**High: rendering/injection could race chat hydration.** Dossier surfaces and RP injection are now gated until the active chat state is fully hydrated, preventing transient unloaded state from becoming visible or model-facing state.
+
+**High: automatic scans could be lost while another scan was active.** Busy automatic work now coalesces per chat and drains after the active scan finishes instead of being silently discarded.
+
+**Medium: branch rescans used bounded polling retries.** The retry loop was replaced with deterministic pending-work coalescing, removing timer churn while preserving the newest valid assistant turn.
+
+**High: rapid chat switching could allow stale async completion.** Chat-change hydration and branch reconciliation now re-check active chat identity after awaits and reject stale completion.
+
+**Verification:** two complete hard passes each finished at 320/320 tests, with zero failures, plus syntax, SillyTavern 1.18 compatibility, runtime smoke, migration smoke, and one-level package-layout checks.
+
 
 
 ## v0.2.12 two hard-pass findings
