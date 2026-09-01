@@ -25,7 +25,7 @@ jobs:
         run: npm test
       - name: Commit verified fixes
         run: |
-          rm -f .github/deep_harden.py .github/workflows/deep-hardening-pass.yml
+          rm -f .github/deep_harden.py .github/workflows/deep-hardening-pass.yml .github/workflows/ci.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
