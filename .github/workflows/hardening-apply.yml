@@ -1,0 +1,39 @@
+name: Hardening Apply
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening-identity-import-safety
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply reviewed hardening patch
+        run: |
+          python3 tools/apply-hardening.py
+          python3 tools/apply-remaining-hardening-tests.py
+      - name: Syntax check
+        run: |
+          node --check index.js
+          node --check branch.js
+          node --check bundle.js
+      - name: Full repository test suite
+        run: npm test
+      - name: Remove temporary patch helpers and workflow
+        run: |
+          rm -f tools/apply-hardening.py tools/apply-remaining-hardening-tests.py .github/workflows/hardening-apply.yml
+      - name: Commit verified hardening
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Harden NPC identity, imports, branches, and scan concurrency"
+          git push origin HEAD:hardening-identity-import-safety
