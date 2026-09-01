@@ -137,6 +137,7 @@ const STATE_WRITE_DELAY = 120;
 const chatStateCache = new Map();
 const loadedChatKeys = new Set();
 const loadingChatStates = new Map();
+const hydrationErrors = new Map();
 const stateWriteTimers = new Map();
 const stateWritePromises = new Map();
 const stateVersions = new Map();
@@ -449,13 +450,25 @@ function getChatState(key = getChatKey()) {
     return chatStateCache.get(key);
 }
 
-function setChatState(key, state) {
+function setChatState(key, state, { markLoaded = true } = {}) {
     if (!key || key === 'no-chat') return state;
     const normalized = normalizeChatState(state);
     chatStateCache.set(key, normalized);
-    loadedChatKeys.add(key);
+    if (markLoaded) { loadedChatKeys.add(key); hydrationErrors.delete(key); }
     stateVersions.set(key, Number(stateVersions.get(key) || 0) + 1);
     return normalized;
+}
+function chatHydrationStatus(key = getChatKey()) {
+    if (!key || key === 'no-chat') return 'none';
+    if (loadedChatKeys.has(key)) return 'ready';
+    if (loadingChatStates.has(key)) return 'loading';
+    if (hydrationErrors.has(key)) return 'error';
+    return 'idle';
+}
+function assertChatHydratedForWrite(key = getChatKey()) {
+    if (!key || key === 'no-chat') return;
+    const pointer = getSettings().dataFiles?.[key];
+    if (pointer?.path && !loadedChatKeys.has(key)) throw new Error('Refusing to overwrite unhydrated NPC State sidecar for ' + key + '.');
 }
 
 function requestHeaders() {
@@ -475,11 +488,21 @@ async function ensureChatStateLoaded(key = getChatKey()) {
         const pointer = settings.dataFiles?.[key] || null;
         let loaded = null;
         if (pointer?.path) {
-            try {
-                const payload = await readNpcStateDataFile(pointer, { expectedChatKey: key });
-                if (payload?.state) loaded = payload.state;
-            } catch (error) {
-                console.warn(`[NPC State] Could not read data file for ${key}; using migration/fresh fallback.`, error);
+            let lastError = null;
+            for (let attempt = 0; attempt < 3 && !loaded; attempt += 1) {
+                try {
+                    const payload = await readNpcStateDataFile(pointer, { expectedChatKey: key });
+                    if (payload?.state) loaded = payload.state;
+                    else throw new Error('NPC State sidecar returned no state payload.');
+                } catch (error) {
+                    lastError = error;
+                    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 120 * (attempt + 1)));
+                }
+            }
+            if (!loaded) {
+                hydrationErrors.set(key, lastError || new Error('NPC State sidecar could not be loaded.'));
+                console.error(`[NPC State] Could not hydrate data file for ${key}; preserving the sidecar and blocking writes.`, lastError);
+                throw lastError || new Error('NPC State could not hydrate ' + key + '.');
             }
         }
         const legacy = settings.chats && typeof settings.chats === 'object' ? settings.chats[key] : null;
@@ -545,6 +568,7 @@ function queueStateFileWrite(key = getChatKey(), delay = STATE_WRITE_DELAY) {
 
 async function flushStateFile(key = getChatKey()) {
     if (!key || key === 'no-chat' || !chatStateCache.has(key)) return null;
+    assertChatHydratedForWrite(key);
     if (stateWriteTimers.has(key)) {
         clearTimeout(stateWriteTimers.get(key));
         stateWriteTimers.delete(key);
@@ -764,16 +788,16 @@ async function reconcileCurrentBranch({ explicitDivergence = null, rescan = true
     return result;
 }
 
-function queueBranchRescan(messageId, attempt = 0) {
-    if (!Number.isInteger(messageId) || messageId < 0) return;
+function queueBranchRescan(messageId, attempt = 0, originKey = getChatKey()) {
+    if (!Number.isInteger(messageId) || messageId < 0 || originKey === 'no-chat') return;
     setTimeout(async () => {
-        if (getChatKey() === 'no-chat') return;
+        if (getChatKey() !== originKey) return;
         if (isHostSwipeActive()) {
             queueSettledSwipeReconcile({ explicitDivergence: messageId, rescan: true, reason: 'branch-rescan-during-swipe' });
             return;
         }
         if (isScanBusy(getChatKey())) {
-            if (attempt < 12) queueBranchRescan(messageId, attempt + 1);
+            if (attempt < 250) queueBranchRescan(messageId, attempt + 1, originKey);
             return;
         }
         const message = (getContext().chat || [])[messageId];
@@ -783,6 +807,9 @@ function queueBranchRescan(messageId, attempt = 0) {
 }
 
 function queueBranchReconcile(options = {}, delay = 90) {
+    const originKey = options.chatKey || getChatKey();
+    if (originKey === 'no-chat') return;
+    options = { ...options, chatKey: originKey };
     if (isHostSwipeActive()) {
         queueSettledSwipeReconcile(options);
         return;
@@ -796,6 +823,7 @@ function queueBranchReconcile(options = {}, delay = 90) {
         branchReconcilePending = null;
         branchReconcileTimer = null;
         try {
+            if (pending.chatKey && getChatKey() !== pending.chatKey) return;
             await reconcileCurrentBranch(pending);
         } catch (error) {
             console.warn('[NPC State] branch reconciliation failed', error);
@@ -838,7 +866,8 @@ async function moveRenamedChatState(eventData = {}) {
     const settings = getSettings();
     let changed = false;
 
-    for (const prefix of ['chat:', 'group:']) {
+    const currentPrefix = getChatKey().startsWith('group:') ? 'group:' : 'chat:';
+    for (const prefix of [currentPrefix]) {
         const oldKey = `${prefix}${oldId}`;
         const newKey = `${prefix}${newId}`;
         const hasOld = Boolean(settings.dataFiles?.[oldKey] || settings.chats?.[oldKey] || chatStateCache.has(oldKey));
@@ -877,6 +906,12 @@ async function moveRenamedChatState(eventData = {}) {
     }
     if (changed) persistSettings();
     return changed;
+}
+
+function flushCurrentChatOnPageHide() {
+    const key = getChatKey();
+    if (key === 'no-chat' || !loadedChatKeys.has(key) || !chatStateCache.has(key)) return;
+    void settleStateFileWrite(key, { flush: true }).catch(error => console.debug('[NPC State] page-hide flush deferred', error));
 }
 
 function cleanMessage(message) {
@@ -1533,9 +1568,17 @@ async function processPendingBackfills(messageId = null) {
     while (getChatKey() === chatKey && !isScanBusy(chatKey)) {
         const state = getChatState(chatKey);
         if (!Array.isArray(state.pendingBackfills) || !state.pendingBackfills.length) break;
-        const request = state.pendingBackfills.shift();
+        const request = state.pendingBackfills[0];
+        const succeeded = await backfillNpcFromHistory(request, messageId);
+        if (!succeeded) {
+            request.attempts = Math.max(0, Number(request.attempts || 0)) + 1;
+            request.lastAttemptAt = Date.now();
+            persist();
+            break;
+        }
+        const latest = getChatState(chatKey);
+        latest.pendingBackfills = (latest.pendingBackfills || []).filter(item => item !== request && item.npcId !== request.npcId);
         persist();
-        await backfillNpcFromHistory(request, messageId);
         processed += 1;
     }
     return processed;
@@ -1957,7 +2000,12 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
         // If the registry is already full, free truly stale slots before admission so a new
         // current NPC is not rejected just because a long-gone dossier still occupies the cap.
         const preCleanup = applyStaleLifecycleAfterScan(state, parsedForMerge, currentTranscript || transcript, settings, { onlyWhenAtCap: true });
-        const merged = mergeScanResult(preCleanup.state, parsedForMerge, {
+        const mergeBaseState = structuredClone(preCleanup.state);
+        for (const npc of mergeBaseState.npcs || []) {
+            npc.present = false;
+            if (!compactWorldStateTurn) npc.worldActive = false;
+        }
+        const merged = mergeScanResult(mergeBaseState, parsedForMerge, {
             maxNpcs: settings.maxNpcs,
             excludeNames: [...currentExclusions(), ...(state.dismissed || [])],
             turn: state.turn,
@@ -4140,6 +4188,15 @@ function processOocCommands(messageId = null) {
 async function handleAssistantMessageReceived(messageId, { bypassSwipeGuard = false, forceBranchRescan = false } = {}) {
     const settings = getSettings();
     if (!settings.enabled) return;
+    const eventChatKey = getChatKey();
+    if (eventChatKey === 'no-chat') return;
+    try { await ensureChatStateLoaded(eventChatKey); }
+    catch (error) {
+        console.error('[NPC State] assistant event deferred because chat hydration failed.', error);
+        globalThis.toastr?.error?.('NPC State could not load this chat dossier. Existing sidecar data was preserved; retry after the server is available.');
+        return;
+    }
+    if (getChatKey() !== eventChatKey) return;
 
     // SillyTavern 1.18 emits MESSAGE_SWIPED before starting Generate('swipe'). Some
     // backends then emit MESSAGE_RECEIVED while swipeState is still SWIPING. Never run
@@ -4160,10 +4217,9 @@ async function handleAssistantMessageReceived(messageId, { bypassSwipeGuard = fa
     state.turn = Number(state.turn || 0) + 1;
     const receivedMessage = Number.isInteger(messageId) ? getContext().chat?.[messageId] : null;
     const compactWorldStateTurn = hasCompactMeguminWorldState(receivedMessage?.mes || '');
-    for (const npc of state.npcs) {
-        npc.present = false;
-        if (!compactWorldStateTurn) npc.worldActive = false;
-    }
+    // Presence remains last-confirmed until a successful scanner observation replaces it.
+    // A skipped, busy, failed, or timed-out scan must not make every NPC disappear.
+    if (!compactWorldStateTurn) for (const npc of state.npcs) npc.worldActive = Boolean(npc.worldActive);
     state.assistantSinceScan = Number(state.assistantSinceScan || 0) + 1;
     const shouldForceBranchScan = forceBranchRescan && settings.branchRescan !== false;
     const autoScanDue = settings.autoScan && (settings.fullScanEveryTurn || state.assistantSinceScan >= settings.scanEvery);
@@ -4189,7 +4245,11 @@ function registerEvents() {
     eventsRegistered = true;
 
     if (events.MESSAGE_SENT) {
-        source.on(events.MESSAGE_SENT, (messageId) => {
+        source.on(events.MESSAGE_SENT, async (messageId) => {
+            const key = getChatKey();
+            if (key === 'no-chat') return;
+            try { await ensureChatStateLoaded(key); } catch (error) { console.error('[NPC State] OOC command skipped because chat hydration failed.', error); return; }
+            if (getChatKey() !== key) return;
             const reports = processOocCommands(messageId);
             if (!reports.length && getChatKey() !== 'no-chat') {
                 getChatState().lineage = chatLineage(getContext().chat || []);
@@ -4205,7 +4265,15 @@ function registerEvents() {
     if (events.CHARACTER_MESSAGE_RENDERED) source.on(events.CHARACTER_MESSAGE_RENDERED, () => queueInlineRender(0));
     if (events.MESSAGE_UPDATED) source.on(events.MESSAGE_UPDATED, () => queueInlineRender(30));
     if (events.MORE_MESSAGES_LOADED) source.on(events.MORE_MESSAGES_LOADED, () => queueInlineRender(30));
-    if (events.CHAT_LOADED) source.on(events.CHAT_LOADED, () => queueInlineRender(30));
+    if (events.CHAT_LOADED) source.on(events.CHAT_LOADED, async () => {
+        const key = getChatKey();
+        if (key === 'no-chat') return;
+        try {
+            await ensureChatStateLoaded(key);
+            if (getChatKey() !== key) return;
+            renderDossier(); ensureInlineObserver(); queueInlineRender(0);
+        } catch (error) { console.error('[NPC State] post-load hydration/render failed; durable data was not overwritten.', error); }
+    });
 
     if (events.MESSAGE_DELETED) {
         source.on(events.MESSAGE_DELETED, () => {
@@ -4281,6 +4349,8 @@ async function init() {
     installUiCaptureBridge();
     registerEvents();
     startInlineWatchdog();
+    globalThis.addEventListener?.('pagehide', flushCurrentChatOnPageHide);
+    globalThis.document?.addEventListener?.('visibilitychange', () => { if (globalThis.document?.visibilityState === 'hidden') flushCurrentChatOnPageHide(); });
     scheduleSettingsMountRetries();
     updateInjection();
     console.log(`[NPC State] v${NPC_STATE_VERSION} loaded`);
@@ -4337,6 +4407,8 @@ window.NPCState = Object.freeze({
     uiStatus: () => ({
         version: NPC_STATE_VERSION,
         chatKey: getChatKey(),
+        hydrationStatus: chatHydrationStatus(getChatKey()),
+        hydrationError: hydrationErrors.get(getChatKey())?.message || null,
         scanBusyForChat: isScanBusy(getChatKey()),
         scanOperation: scanOperations.status(getChatKey()),
         inlineEntries: getChatState().inlineCards?.length || 0,
