@@ -118,6 +118,13 @@ function validateManifest(manifest) {
     if (!manifest || manifest.format !== 'npc_state_bundle') throw new Error('Not an NPC State bundle.');
     if (manifest.formatVersion !== FORMAT_VERSION) throw new Error(`Unsupported NPC State bundle version: ${manifest.formatVersion}.`);
     if (!manifest.state || !Array.isArray(manifest.state.npcs)) throw new Error('NPC State bundle is missing its dossier registry.');
+    const ids = new Set();
+    for (const npc of manifest.state.npcs) {
+        const id = String(npc?.id || '').trim();
+        if (!id) continue;
+        if (ids.has(id)) throw new Error(`NPC State bundle contains duplicate NPC id: ${id}.`);
+        ids.add(id);
+    }
 }
 
 export function decodeNpcStateBundle(input) {
@@ -140,23 +147,33 @@ export function decodeNpcStateBundle(input) {
     }
     validateManifest(manifest);
 
+    const portraitRanges = [];
     const npcs = manifest.state.npcs.map(npc => {
         const record = structuredClone(npc);
         const bin = record.portrait?.binary;
         if (!bin) return record;
         const offset = Number(bin.offset);
         const length = Number(bin.length);
-        if (!Number.isInteger(offset) || !Number.isInteger(length) || offset < 0 || length < 0) {
+        if (!Number.isInteger(offset) || !Number.isInteger(length) || offset < 0 || length <= 0) {
             throw new Error(`NPC State bundle has invalid portrait metadata for ${record.name || 'an NPC'}.`);
         }
         const start = binaryStart + offset;
         const end = start + length;
-        if (end > bytes.length) throw new Error(`NPC State bundle portrait is truncated for ${record.name || 'an NPC'}.`);
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start || end > bytes.length) {
+            throw new Error(`NPC State bundle portrait is truncated for ${record.name || 'an NPC'}.`);
+        }
+        portraitRanges.push({ start, end, name: record.name || 'an NPC' });
         const mime = record.portrait.mime || 'application/octet-stream';
         record.portrait.dataUrl = binaryToDataUrl(bytes.subarray(start, end), mime);
         delete record.portrait.binary;
         return record;
     });
+    portraitRanges.sort((a, b) => a.start - b.start || a.end - b.end);
+    for (let i = 1; i < portraitRanges.length; i += 1) {
+        if (portraitRanges[i].start < portraitRanges[i - 1].end) {
+            throw new Error(`NPC State bundle contains overlapping portrait data for ${portraitRanges[i].name}.`);
+        }
+    }
 
     return {
         metadata: {
@@ -174,61 +191,162 @@ export function decodeNpcStateBundle(input) {
 }
 
 function npcKeys(npc) {
-    return [npc?.name, ...(Array.isArray(npc?.aliases) ? npc.aliases : [])]
+    return [...new Set([npc?.name, ...(Array.isArray(npc?.aliases) ? npc.aliases : [])]
         .map(normalizeName)
-        .filter(Boolean);
+        .filter(Boolean))];
 }
 
-function sameNpc(a, b) {
-    if (a?.id && b?.id && a.id === b.id) return true;
-    const aKeys = new Set(npcKeys(a));
-    return npcKeys(b).some(key => aKeys.has(key));
+function identityMatchIndex(records, npc, { stableIdOnly = false } = {}) {
+    const available = records.map((candidate, index) => ({ candidate, index }));
+    const incomingKeys = new Set(npcKeys(npc));
+    const incomingName = normalizeName(npc?.name);
+    const sameId = npc?.id
+        ? available.find(entry => String(entry.candidate?.id || '') === String(npc.id))
+        : null;
+    if (sameId) {
+        const candidateKeys = npcKeys(sameId.candidate);
+        const labelsAgree = candidateKeys.some(key => incomingKeys.has(key));
+        if (labelsAgree || !incomingKeys.size || !candidateKeys.length) return sameId.index;
+        // Same stable id with wholly disjoint identity labels is treated as an id collision,
+        // not proof that two unrelated dossiers are the same person.
+    }
+    // An ID-backed deletion tombstone proves that this imported stable id belongs to an older
+    // identity. Never collapse it into a different current homonym merely because the names match.
+    if (stableIdOnly && npc?.id) return -1;
+
+    if (incomingName) {
+        const canonical = available.filter(entry => normalizeName(entry.candidate?.name) === incomingName);
+        if (canonical.length === 1) return canonical[0].index;
+        if (canonical.length > 1) return -1;
+    }
+
+    const aliasMatches = available.filter(entry => npcKeys(entry.candidate).some(key => incomingKeys.has(key)));
+    return aliasMatches.length === 1 ? aliasMatches[0].index : -1;
 }
 
-export function mergeImportedDossierState(currentState, importedState, { maxNpcs = 40, excludeNames = [] } = {}) {
+function uniqueImportedId(npc, usedIds) {
+    const stem = normalizeName(npc?.name || 'npc')
+        .replace(/[^\p{L}\p{N}]+/gu, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48) || 'npc';
+    let counter = 1;
+    let id = `npc_import_${stem}`;
+    while (usedIds.has(id)) {
+        counter += 1;
+        id = `npc_import_${stem}_${counter}`;
+    }
+    return id.slice(0, 100);
+}
+
+function filterGraphByIds(graph, validIds, rejectedSourceIds = new Set()) {
+    const normalized = normalizeSocialGraph(graph);
+    return normalizeSocialGraph({
+        edges: normalized.edges.filter(edge => !rejectedSourceIds.has(edge.aId)
+            && !rejectedSourceIds.has(edge.bId)
+            && validIds.has(edge.aId)
+            && validIds.has(edge.bId)),
+        unresolved: normalized.unresolved.filter(slot => !rejectedSourceIds.has(slot.ownerId) && validIds.has(slot.ownerId)),
+    });
+}
+
+function initImportReport(report) {
+    if (!report || typeof report !== 'object') return null;
+    report.updated = [];
+    report.added = [];
+    report.skipped = [];
+    report.idRemaps = [];
+    report.accepted = [];
+    return report;
+}
+
+export function mergeImportedDossierState(currentState, importedState, { maxNpcs = 40, excludeNames = [], report = null } = {}) {
     const current = currentState && typeof currentState === 'object' ? currentState : {};
     const incoming = importedState && typeof importedState === 'object' ? importedState : {};
     const existing = Array.isArray(current.npcs) ? current.npcs.map(normalizeNpcRecord) : [];
     const excluded = new Set((Array.isArray(excludeNames) ? excludeNames : []).map(normalizeName).filter(Boolean));
-    const imported = (Array.isArray(incoming.npcs) ? incoming.npcs : []).map(normalizeNpcRecord)
-        .filter(npc => !npcKeys(npc).some(key => excluded.has(key)));
-    const usedExisting = new Set();
-    const importedIdMap = new Map();
-    const merged = [];
-
-    for (const npc of imported) {
-        const index = existing.findIndex((candidate, i) => !usedExisting.has(i) && sameNpc(candidate, npc));
-        if (index >= 0) {
-            usedExisting.add(index);
-            const old = existing[index];
-            importedIdMap.set(npc.id, old.id);
-            merged.push({
-                ...old,
-                ...structuredClone(npc),
-                id: old.id,
-                aliases: [...new Set([...(old.aliases || []), ...(npc.aliases || []), ...(old.name !== npc.name ? [old.name] : [])])].filter(alias => normalizeName(alias) !== normalizeName(npc.name)).slice(0, 8),
-                portrait: npc.portrait?.dataUrl ? structuredClone(npc.portrait) : old.portrait || npc.portrait || null,
-            });
-        } else {
-            merged.push(structuredClone(npc));
-        }
-    }
-    for (let i = 0; i < existing.length; i += 1) {
-        if (!usedExisting.has(i)) merged.push(existing[i]);
-    }
-
-    const cap = Math.max(1, Math.min(100, Number(maxNpcs) || 40));
-    const npcs = [];
-    let activeCount = 0;
-    for (const npc of merged) {
-        if (npc?.archived) {
-            npcs.push(npc);
+    const allImported = (Array.isArray(incoming.npcs) ? incoming.npcs : []).map(normalizeNpcRecord);
+    const importReport = initImportReport(report);
+    const rejectedSourceIds = new Set();
+    const imported = [];
+    for (const npc of allImported) {
+        const sourceId = String(npc.id || '');
+        if (npcKeys(npc).some(key => excluded.has(key))) {
+            if (sourceId) rejectedSourceIds.add(sourceId);
+            importReport?.skipped.push({ sourceId, name: npc.name, reason: 'excluded' });
             continue;
         }
-        if (activeCount >= cap) continue;
-        npcs.push(npc);
-        activeCount += 1;
+        imported.push(npc);
     }
+
+    // Preserve every existing dossier in-place. Imports may update an unambiguous match and
+    // may fill genuinely available active slots, but they never evict an existing active NPC.
+    const npcs = existing.map(npc => structuredClone(npc));
+    const usedTargetIndexes = new Set();
+    const importedIdMap = new Map();
+    const usedIds = new Set(npcs.map(npc => String(npc?.id || '')).filter(Boolean));
+    const tombstonedIds = new Set((Array.isArray(current.userDismissedGroups) ? current.userDismissedGroups : [])
+        .flatMap(group => [...(Array.isArray(group?.ids) ? group.ids : []), group?.npcId])
+        .map(value => String(value || '').trim())
+        .filter(Boolean));
+    const cap = Math.max(1, Math.min(100, Number(maxNpcs) || 40));
+    let activeCount = npcs.filter(npc => !npc?.archived).length;
+
+    for (const rawNpc of imported) {
+        const npc = structuredClone(rawNpc);
+        const sourceId = String(npc.id || '');
+        const index = identityMatchIndex(npcs, npc, { stableIdOnly: Boolean(sourceId && tombstonedIds.has(sourceId)) });
+        if (index >= 0) {
+            const old = npcs[index];
+            const wasActive = !old?.archived;
+            const targetId = old.id;
+            importedIdMap.set(sourceId, targetId);
+            if (usedTargetIndexes.has(index)) {
+                importReport?.skipped.push({ sourceId, id: targetId, name: npc.name, reason: 'duplicate-identity' });
+                continue;
+            }
+            usedTargetIndexes.add(index);
+            const merged = {
+                ...old,
+                ...npc,
+                id: targetId,
+                aliases: [...new Set([...(old.aliases || []), ...(npc.aliases || []), ...(old.name !== npc.name ? [old.name] : [])])]
+                    .filter(alias => normalizeName(alias) !== normalizeName(npc.name))
+                    .slice(0, 8),
+                portrait: npc.portrait?.dataUrl ? structuredClone(npc.portrait) : old.portrait || npc.portrait || null,
+            };
+            npcs[index] = merged;
+            const isActive = !merged?.archived;
+            if (wasActive !== isActive) activeCount += isActive ? 1 : -1;
+            importReport?.updated.push({ sourceId, id: targetId, name: merged.name });
+            importReport?.accepted.push({ sourceId, id: targetId, name: merged.name, status: 'updated' });
+            if (sourceId && sourceId !== targetId) importReport?.idRemaps.push({ from: sourceId, to: targetId, reason: 'matched-existing' });
+            continue;
+        }
+
+        // If the imported id is already owned by a different identity, mint a fresh id before
+        // graph reconciliation so portraits, inline cards, branches, and social edges cannot alias.
+        let targetId = sourceId;
+        if (!targetId || usedIds.has(targetId)) {
+            targetId = uniqueImportedId(npc, usedIds);
+            if (sourceId) importedIdMap.set(sourceId, targetId);
+            importReport?.idRemaps.push({ from: sourceId, to: targetId, reason: sourceId ? 'id-collision' : 'missing-id' });
+        }
+        npc.id = targetId;
+
+        if (!npc.archived && activeCount >= cap) {
+            if (sourceId) rejectedSourceIds.add(sourceId);
+            importReport?.skipped.push({ sourceId, id: targetId, name: npc.name, reason: 'capacity' });
+            continue;
+        }
+
+        npcs.push(npc);
+        usedTargetIndexes.add(npcs.length - 1);
+        usedIds.add(targetId);
+        if (!npc.archived) activeCount += 1;
+        importReport?.added.push({ sourceId, id: targetId, name: npc.name, archived: Boolean(npc.archived) });
+        importReport?.accepted.push({ sourceId, id: targetId, name: npc.name, status: 'added' });
+    }
+
     const activeNames = new Set(npcs.flatMap(npcKeys));
     const dismissed = [...new Set([
         ...(Array.isArray(current.dismissed) ? current.dismissed : []),
@@ -236,8 +354,19 @@ export function mergeImportedDossierState(currentState, importedState, { maxNpcs
     ].map(normalizeName).filter(Boolean))].filter(name => !activeNames.has(name));
 
     let importedGraph = normalizeSocialGraph(incoming.socialGraph);
-    for (const [fromId, toId] of importedIdMap.entries()) importedGraph = remapSocialGraphNpcId(importedGraph, fromId, toId);
-    const currentGraph = normalizeSocialGraph(current.socialGraph);
+    // Remove endpoints belonging to imports that were deliberately not admitted before any id
+    // remap, otherwise a rejected source id that collides with an existing id could attach its
+    // relationship edges to the wrong person.
+    importedGraph = normalizeSocialGraph({
+        edges: importedGraph.edges.filter(edge => !rejectedSourceIds.has(edge.aId) && !rejectedSourceIds.has(edge.bId)),
+        unresolved: importedGraph.unresolved.filter(slot => !rejectedSourceIds.has(slot.ownerId)),
+    });
+    for (const [fromId, toId] of importedIdMap.entries()) {
+        if (fromId && toId && fromId !== toId) importedGraph = remapSocialGraphNpcId(importedGraph, fromId, toId);
+    }
+    const validIds = new Set(npcs.map(npc => String(npc?.id || '')).filter(Boolean));
+    importedGraph = filterGraphByIds(importedGraph, validIds);
+    const currentGraph = filterGraphByIds(current.socialGraph, validIds);
     const socialGraph = normalizeSocialGraph({
         edges: [...currentGraph.edges, ...importedGraph.edges],
         unresolved: [...currentGraph.unresolved, ...importedGraph.unresolved],

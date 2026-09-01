@@ -4,6 +4,93 @@ import { normalizeSocialGraph, removeNpcFromSocialGraph, purgeNpcStructuredRefer
 export const BRANCH_HISTORY_LIMIT = 160;
 export const BRANCH_LINEAGE_VERSION = 2;
 
+export const DEFAULT_SCAN_OPERATION_TIMEOUT_MS = 5 * 60 * 1000;
+
+export function createScanOperationRegistry({
+    timeoutMs = DEFAULT_SCAN_OPERATION_TIMEOUT_MS,
+    onExpire = null,
+    setTimeoutFn = globalThis.setTimeout,
+    clearTimeoutFn = globalThis.clearTimeout,
+} = {}) {
+    const active = new Map();
+    let sequence = 0;
+    const timeout = Math.max(1000, Number(timeoutMs) || DEFAULT_SCAN_OPERATION_TIMEOUT_MS);
+
+    const keyOf = value => String(value || '').trim();
+    const isBusy = key => active.has(keyOf(key));
+    const isCurrent = (key, operation) => Boolean(operation && active.get(keyOf(key)) === operation && !operation.expired);
+
+    const end = (key, operation) => {
+        const normalizedKey = keyOf(key);
+        if (!operation || active.get(normalizedKey) !== operation) return false;
+        if (operation.timer && typeof clearTimeoutFn === 'function') clearTimeoutFn(operation.timer);
+        active.delete(normalizedKey);
+        operation.finished = true;
+        return true;
+    };
+
+    const begin = (key, label = 'scan', metadata = {}) => {
+        const normalizedKey = keyOf(key);
+        if (!normalizedKey || normalizedKey === 'no-chat' || active.has(normalizedKey)) return null;
+        const operation = {
+            id: ++sequence,
+            key: normalizedKey,
+            label: String(label || 'scan'),
+            metadata: metadata && typeof metadata === 'object' ? structuredClone(metadata) : {},
+            startedAt: Date.now(),
+            expired: false,
+            finished: false,
+            timer: null,
+        };
+        if (typeof setTimeoutFn === 'function') {
+            operation.timer = setTimeoutFn(() => {
+                if (active.get(normalizedKey) !== operation) return;
+                active.delete(normalizedKey);
+                operation.expired = true;
+                operation.finished = true;
+                try { onExpire?.(operation); } catch (error) { console.warn('[NPC State] scan timeout cleanup callback failed', error); }
+            }, timeout);
+            operation.timer?.unref?.();
+        }
+        active.set(normalizedKey, operation);
+        return operation;
+    };
+
+    const cancel = (key, reason = 'cancelled') => {
+        const normalizedKey = keyOf(key);
+        const operation = active.get(normalizedKey);
+        if (!operation) return null;
+        if (operation.timer && typeof clearTimeoutFn === 'function') clearTimeoutFn(operation.timer);
+        active.delete(normalizedKey);
+        operation.finished = true;
+        operation.cancelled = true;
+        operation.cancelReason = String(reason || 'cancelled');
+        return operation;
+    };
+
+    const status = key => {
+        const operation = active.get(keyOf(key));
+        if (!operation) return null;
+        return {
+            id: operation.id,
+            key: operation.key,
+            label: operation.label,
+            metadata: structuredClone(operation.metadata || {}),
+            startedAt: operation.startedAt,
+        };
+    };
+
+    return Object.freeze({ begin, end, cancel, isBusy, isCurrent, status });
+}
+
+export function deletedChatStateKey(rawId, kind = 'chat') {
+    const id = String(rawId ?? '').replace(/\.jsonl$/i, '').trim();
+    if (!id) return '';
+    const prefix = kind === 'group' ? 'group' : (kind === 'chat' ? 'chat' : '');
+    if (!prefix) return '';
+    return `${prefix}:${id}`;
+}
+
 function fnv1a32(text, seed = 0x811c9dc5) {
     let hash = seed >>> 0;
     const input = String(text ?? '');
@@ -127,78 +214,133 @@ function npcLabels(npc) {
         .filter(Boolean);
 }
 
-function sameNpc(a, b) {
-    if (a?.id && b?.id && a.id === b.id) return true;
-    const labels = new Set(npcLabels(a));
-    return npcLabels(b).some(label => labels.has(label));
+function findNpcForMetadataRestore(npc, currentNpcs = []) {
+    const records = Array.isArray(currentNpcs) ? currentNpcs : [];
+    if (npc?.id) {
+        const exact = records.find(candidate => candidate?.id && candidate.id === npc.id);
+        if (exact) return exact;
+    }
+    const labels = new Set(npcLabels(npc));
+    if (!labels.size) return null;
+    const matches = records.filter(candidate => npcLabels(candidate).some(label => labels.has(label)));
+    return matches.length === 1 ? matches[0] : null;
 }
 
 export function normalizeUserDismissedGroups(value = []) {
     const groups = [];
     for (const raw of Array.isArray(value) ? value : []) {
-        const labels = [...new Set((Array.isArray(raw?.labels) ? raw.labels : [raw?.primary || raw])
+        const labels = [...new Set((Array.isArray(raw?.labels) ? raw.labels : [raw?.primary || (typeof raw === 'string' ? raw : '')])
             .map(normalizeName)
             .filter(Boolean))];
-        if (!labels.length) continue;
-        const primary = normalizeName(raw?.primary) || labels[0];
+        const ids = [...new Set([
+            ...(Array.isArray(raw?.ids) ? raw.ids : []),
+            raw?.npcId,
+        ].map(value => String(value || '').trim()).filter(Boolean))];
+        if (!labels.length && !ids.length) continue;
+        const primary = normalizeName(raw?.primary) || labels[0] || '';
         groups.push({
             primary,
             labels,
+            ids,
             createdAt: Number(raw?.createdAt || 0) || Date.now(),
         });
     }
     return groups;
 }
 
-export function addUserDismissedGroup(groups, npc) {
+export function promoteLegacyUserDismissedGroups(groups, npcCollections = []) {
+    const normalized = normalizeUserDismissedGroups(groups);
+    const records = (Array.isArray(npcCollections) ? npcCollections : [])
+        .flatMap(collection => Array.isArray(collection) ? collection : [])
+        .filter(Boolean);
+    return normalized.map(group => {
+        if (group.ids.length || !group.labels.length) return group;
+        const labels = new Set(group.labels);
+        const candidateIds = [...new Set(records
+            .filter(npc => npc?.id && npcLabels(npc).some(label => labels.has(label)))
+            .map(npc => String(npc.id).trim())
+            .filter(Boolean))];
+        // Upgrade only when history proves one stable identity. Multiple matching ids may be
+        // genuine homonyms or older split identities, so retaining legacy suppression is safer.
+        return candidateIds.length === 1 ? { ...group, ids: candidateIds } : group;
+    });
+}
+
+export function addUserDismissedGroup(groups, npc, { historicalNpcIds = [] } = {}) {
     const labels = [...new Set(npcLabels(npc))];
-    if (!labels.length) return normalizeUserDismissedGroups(groups);
+    const ids = [...new Set([npc?.id, ...(Array.isArray(historicalNpcIds) ? historicalNpcIds : [])]
+        .map(value => String(value || '').trim())
+        .filter(Boolean))];
+    if (!labels.length && !ids.length) return normalizeUserDismissedGroups(groups);
     const existing = normalizeUserDismissedGroups(groups);
     const mergedLabels = new Set(labels);
+    const mergedIds = new Set(ids);
     const kept = [];
     for (const group of existing) {
-        if (group.labels.some(label => mergedLabels.has(label))) {
+        const idOverlap = group.ids.some(id => mergedIds.has(id));
+        const legacyLabelOverlap = !group.ids.length && group.labels.some(label => mergedLabels.has(label));
+        if (idOverlap || legacyLabelOverlap) {
             for (const label of group.labels) mergedLabels.add(label);
+            for (const id of group.ids) mergedIds.add(id);
         } else kept.push(group);
     }
     kept.push({
-        primary: normalizeName(npc?.name) || labels[0],
+        primary: normalizeName(npc?.name) || labels[0] || '',
         labels: [...mergedLabels],
+        ids: [...mergedIds],
         createdAt: Date.now(),
     });
     return kept;
 }
 
-export function clearUserDismissedGroupsFor(groups, target) {
+export function clearUserDismissedGroupsFor(groups, target, { modernByIdOnly = false } = {}) {
     const targetLabels = new Set(typeof target === 'string' ? [normalizeName(target)].filter(Boolean) : npcLabels(target));
+    const targetIds = new Set(typeof target === 'string' ? [] : [target?.id, ...(Array.isArray(target?.historicalNpcIds) ? target.historicalNpcIds : [])]
+        .map(value => String(value || '').trim()).filter(Boolean));
     const kept = [];
     const removedLabels = new Set();
+    const removedIds = new Set();
     for (const group of normalizeUserDismissedGroups(groups)) {
-        if (group.labels.some(label => targetLabels.has(label))) {
+        const matchesId = group.ids.some(id => targetIds.has(id));
+        // Callers handling automatic/import identity reconciliation can require modern
+        // tombstones to match by stable id. The default keeps the public/manual helper
+        // backward-compatible for an explicit name-based resurrection action.
+        const matchesLabel = (!modernByIdOnly || !group.ids.length) && group.labels.some(label => targetLabels.has(label));
+        if (matchesId || matchesLabel) {
             for (const label of group.labels) removedLabels.add(label);
+            for (const id of group.ids) removedIds.add(id);
         } else kept.push(group);
     }
-    return { groups: kept, removedLabels: [...removedLabels] };
+    return { groups: kept, removedLabels: [...removedLabels], removedIds: [...removedIds] };
 }
 
 function enforceUserDismissals(state, groups) {
     const normalizedGroups = normalizeUserDismissedGroups(groups);
-    const blocked = new Set(normalizedGroups.flatMap(group => group.labels));
+    const blockedIds = new Set(normalizedGroups.flatMap(group => group.ids));
+    const legacyBlockedLabels = new Set(normalizedGroups.filter(group => !group.ids.length).flatMap(group => group.labels));
     state.userDismissedGroups = normalizedGroups;
-    if (!blocked.size) return state;
-    const removedNpcs = (Array.isArray(state.npcs) ? state.npcs : [])
-        .filter(npc => npcLabels(npc).some(label => blocked.has(label)));
-    state.npcs = (Array.isArray(state.npcs) ? state.npcs : []).filter(npc => !npcLabels(npc).some(label => blocked.has(label)));
+    if (!blockedIds.size && !legacyBlockedLabels.size) return state;
+    const blockedNpc = npc => blockedIds.has(String(npc?.id || ''))
+        || npcLabels(npc).some(label => legacyBlockedLabels.has(label));
+    const removedNpcs = (Array.isArray(state.npcs) ? state.npcs : []).filter(blockedNpc);
+    state.npcs = (Array.isArray(state.npcs) ? state.npcs : []).filter(npc => !blockedNpc(npc));
     for (const removedNpc of removedNpcs) {
         state.socialGraph = removeNpcFromSocialGraph(state.socialGraph, removedNpc.id);
         purgeNpcStructuredReferences(state.npcs, removedNpc);
     }
-    state.candidates = (Array.isArray(state.candidates) ? state.candidates : []).filter(candidate => !npcLabels(candidate).some(label => blocked.has(label)));
-    state.pendingBackfills = (Array.isArray(state.pendingBackfills) ? state.pendingBackfills : []).filter(item => {
-        const label = normalizeName(item?.label);
-        return !label || !blocked.has(label);
+    state.candidates = (Array.isArray(state.candidates) ? state.candidates : []).filter(candidate => {
+        if (blockedIds.has(String(candidate?.id || ''))) return false;
+        return !npcLabels(candidate).some(label => legacyBlockedLabels.has(label));
     });
-    state.dismissed = [...new Set([...(Array.isArray(state.dismissed) ? state.dismissed : []).map(normalizeName).filter(Boolean), ...blocked])];
+    state.pendingBackfills = (Array.isArray(state.pendingBackfills) ? state.pendingBackfills : []).filter(item => {
+        if (blockedIds.has(String(item?.npcId || ''))) return false;
+        const label = normalizeName(item?.label);
+        return !label || !legacyBlockedLabels.has(label);
+    });
+    // Modern permanent deletion tombstones are ID-backed. Do not seed their labels into
+    // narrative `dismissed`, or a different future NPC with the same name would be suppressed.
+    const existingDismissed = (Array.isArray(state.dismissed) ? state.dismissed : []).map(normalizeName).filter(Boolean);
+    state.dismissed = [...new Set([...existingDismissed, ...legacyBlockedLabels])];
     return state;
 }
 
@@ -209,7 +351,7 @@ export function preserveUserNpcMetadata(restoredNpcs = [], currentNpcs = []) {
         'retentionProtected', 'minor', 'importance',
     ];
     for (const npc of restored) {
-        const current = (currentNpcs || []).find(candidate => sameNpc(npc, candidate));
+        const current = findNpcForMetadataRestore(npc, currentNpcs);
         if (!current) continue;
         if (current?.portrait?.dataUrl) npc.portrait = structuredClone(current.portrait);
         for (const field of globallyPreserved) {
@@ -228,7 +370,6 @@ export function preserveUserNpcMetadata(restoredNpcs = [], currentNpcs = []) {
     return restored;
 }
 
-// Backward-compatible export used by existing tests/callers.
 export function preservePortraitAssets(restoredNpcs = [], currentNpcs = []) {
     return preserveUserNpcMetadata(restoredNpcs, currentNpcs);
 }
@@ -496,7 +637,7 @@ export function bestAncestorState(chats = {}, currentKey = '', currentChat = [])
     for (const [key, state] of Object.entries(chats || {})) {
         if (key === currentKey || !state || !Array.isArray(state.lineage) || !Array.isArray(state.checkpoints)) continue;
         const prefixLength = commonPrefixLength(state.lineage, lineage);
-        if (prefixLength < 2) continue;
+        if (prefixLength < 1) continue;
         const checkpoints = normalizeBranchCheckpoints(state.checkpoints, state.lineage);
         const checkpoint = checkpoints
             .filter(item => item.messageId < prefixLength && item.lineageKey === currentKeys[item.messageId])

@@ -73,6 +73,8 @@ import {
 } from './bundle.js';
 import {
     BRANCH_LINEAGE_VERSION,
+    createScanOperationRegistry,
+    deletedChatStateKey,
     bestAncestorState,
     chatLineage,
     fingerprintMessage,
@@ -83,6 +85,7 @@ import {
     ensureBranchParentAnchor,
     migrateLegacyBranchState,
     normalizeUserDismissedGroups,
+    promoteLegacyUserDismissedGroups,
     recordBranchCheckpoint,
     reconcileBranchState,
 } from './branch.js';
@@ -102,7 +105,6 @@ import {
 const EXTENSION_NAME = 'npc_state';
 const PROMPT_KEY = 'npc_state_live_dossier';
 const UI_ID = 'npc_state_settings';
-let scanBusy = false;
 let eventsRegistered = false;
 let initialized = false;
 let mountRetryTimer = null;
@@ -139,6 +141,27 @@ const stateWriteTimers = new Map();
 const stateWritePromises = new Map();
 const stateVersions = new Map();
 const persistedVersions = new Map();
+const SCAN_OPERATION_TIMEOUT_MS = 5 * 60 * 1000;
+const scanOperations = createScanOperationRegistry({
+    timeoutMs: SCAN_OPERATION_TIMEOUT_MS,
+    onExpire: operation => {
+        console.warn(`[NPC State] ${operation.label} exceeded the scan timeout for ${operation.key}; the lock was released and any late result will be discarded.`);
+        try {
+            if (getChatKey() !== operation.key) return;
+            setScanIndicator(false);
+            const npcId = String(operation.metadata?.npcId || '');
+            if (npcId && operation.metadata?.indicator === 'dossier') setNpcDossierScanIndicator(npcId, false);
+            if (npcId && operation.metadata?.indicator === 'refresh') setNpcChatRefreshIndicator(npcId, false);
+            updateInjection();
+        } catch (error) {
+            console.debug('[NPC State] scan-timeout indicator cleanup skipped', error);
+        }
+    },
+});
+function isScanBusy(key = getChatKey()) { return scanOperations.isBusy(key); }
+function beginScanOperation(key, label, metadata = {}) { return scanOperations.begin(key, label, metadata); }
+function scanOperationCurrent(key, operation) { return scanOperations.isCurrent(key, operation); }
+function endScanOperation(key, operation) { return scanOperations.end(key, operation); }
 
 const PORTRAIT_THEME_PRESETS = Object.freeze({
     fantasy_anime: {
@@ -404,6 +427,11 @@ function normalizeChatState(raw = {}) {
         state.branchRootSnapshot = null;
     }
     state.lineage = Array.isArray(state.lineage) ? state.lineage : [];
+    state.userDismissedGroups = promoteLegacyUserDismissedGroups(state.userDismissedGroups, [
+        state.npcs,
+        ...(state.checkpoints || []).map(checkpoint => checkpoint?.snapshot?.npcs || []),
+        state.branchRootSnapshot?.npcs || [],
+    ]);
     state.durableCompactionVersion = DURABLE_COMPACTION_VERSION;
     const socialMigration = reconcileSocialState(state, { provenance: 'migration', confidence: 'migration' });
     state.socialGraph = socialMigration.socialGraph;
@@ -697,7 +725,7 @@ async function maybeInheritKnownBranch() {
     const current = getChatState(key);
     const chat = getContext().chat || [];
     const isEmptyState = !current.npcs.length && !current.candidates.length && !current.dismissed.length && !current.checkpoints.length && !current.lineage.length;
-    if (!isEmptyState || chat.length < 2) return false;
+    if (!isEmptyState || chat.length < 1) return false;
     await ensureKnownChatStatesLoaded();
     const inherited = bestAncestorState(Object.fromEntries(chatStateCache.entries()), key, chat);
     if (!inherited) return false;
@@ -730,7 +758,7 @@ async function reconcileCurrentBranch({ explicitDivergence = null, rescan = true
 
     const targetAssistant = findLatestAssistantAtOrAfter(result.divergence);
     if (rescan && !result.exactRestored && getSettings().branchRescan !== false && targetAssistant >= 0) {
-        if (scanBusy) queueBranchRescan(targetAssistant);
+        if (isScanBusy(key)) queueBranchRescan(targetAssistant);
         else await scanNow({ manual: false, messageId: targetAssistant });
     }
     return result;
@@ -744,7 +772,7 @@ function queueBranchRescan(messageId, attempt = 0) {
             queueSettledSwipeReconcile({ explicitDivergence: messageId, rescan: true, reason: 'branch-rescan-during-swipe' });
             return;
         }
-        if (scanBusy) {
+        if (isScanBusy(getChatKey())) {
             if (attempt < 12) queueBranchRescan(messageId, attempt + 1);
             return;
         }
@@ -775,29 +803,30 @@ function queueBranchReconcile(options = {}, delay = 90) {
     }, delay);
 }
 
-async function removeDeletedChatState(rawId) {
-    const id = String(rawId ?? '').replace(/\.jsonl$/i, '');
-    if (!id) return false;
+async function removeDeletedChatState(rawId, kind = 'chat') {
+    const key = deletedChatStateKey(rawId, kind);
+    if (!key) return false;
     const settings = getSettings();
     let removed = false;
-    for (const key of [`chat:${id}`, `group:${id}`]) {
-        // A completed stale upload must not recreate a pointer after deletion.
-        await settleStateFileWrite(key).catch(error => console.warn(`[NPC State] Could not settle pending write for ${key}.`, error));
-        const pointer = settings.dataFiles?.[key] || null;
-        if (pointer) {
-            delete settings.dataFiles[key];
-            try { await deleteNpcStateDataFile(pointer, { headers: requestHeaders() }); }
-            catch (error) { console.warn(`[NPC State] Could not delete data file for ${key}.`, error); }
-            removed = true;
-        }
-        if (settings.chats?.[key]) { delete settings.chats[key]; removed = true; }
-        chatStateCache.delete(key);
-        loadedChatKeys.delete(key);
-        loadingChatStates.delete(key);
-        stateVersions.delete(key);
-        persistedVersions.delete(key);
-        stateWritePromises.delete(key);
+
+    // A completed stale upload must not recreate a pointer after deletion. Cancel only
+    // this chat namespace; a normal chat and a group may legitimately share the raw id.
+    scanOperations.cancel(key, 'chat-deleted');
+    await settleStateFileWrite(key).catch(error => console.warn(`[NPC State] Could not settle pending write for ${key}.`, error));
+    const pointer = settings.dataFiles?.[key] || null;
+    if (pointer) {
+        delete settings.dataFiles[key];
+        try { await deleteNpcStateDataFile(pointer, { headers: requestHeaders() }); }
+        catch (error) { console.warn(`[NPC State] Could not delete data file for ${key}.`, error); }
+        removed = true;
     }
+    if (settings.chats?.[key]) { delete settings.chats[key]; removed = true; }
+    chatStateCache.delete(key);
+    loadedChatKeys.delete(key);
+    loadingChatStates.delete(key);
+    stateVersions.delete(key);
+    persistedVersions.delete(key);
+    stateWritePromises.delete(key);
     if (removed) persistSettings();
     return removed;
 }
@@ -1025,8 +1054,8 @@ async function scanNpcDossier(npcId) {
     const ctx = getContext();
     const chatKey = getChatKey();
     if (!id || chatKey === 'no-chat') return false;
-    if (scanBusy) {
-        globalThis.toastr?.info?.('NPC State: another dossier scan is already running.');
+    if (isScanBusy(chatKey)) {
+        globalThis.toastr?.info?.('NPC State: another dossier scan is already running in this chat.');
         return false;
     }
     const state = getChatState(chatKey);
@@ -1047,7 +1076,12 @@ async function scanNpcDossier(npcId) {
         userName: ctx.name1 || 'User',
         charName: ctx.name2 || 'Character',
     });
-    scanBusy = true;
+    const scanStateVersion = Number(stateVersions.get(chatKey) || 0);
+    const operation = beginScanOperation(chatKey, `dossier import for ${existing.name}`, { npcId: id, indicator: 'dossier' });
+    if (!operation) {
+        globalThis.toastr?.info?.('NPC State: another dossier scan is already running in this chat.');
+        return false;
+    }
     setScanIndicator(true);
     setNpcDossierScanIndicator(id, true);
     try {
@@ -1057,8 +1091,12 @@ async function scanNpcDossier(npcId) {
             responseLength: BACKFILL_RESPONSE_LENGTH,
             label: `dossier import for ${existing.name}`,
         });
+        if (!scanOperationCurrent(chatKey, operation)) {
+            console.info('[NPC State] discarded expired or superseded dossier import.');
+            return false;
+        }
         const currentLineage = chatLineage(getContext().chat || []);
-        if (getChatKey() !== chatKey || firstLineageDivergence(lineage, currentLineage) !== -1) {
+        if (getChatKey() !== chatKey || firstLineageDivergence(lineage, currentLineage) !== -1 || Number(stateVersions.get(chatKey) || 0) !== scanStateVersion) {
             globalThis.toastr?.info?.('NPC State: chat changed during dossier import; stale result was discarded.');
             return false;
         }
@@ -1107,9 +1145,10 @@ async function scanNpcDossier(npcId) {
         globalThis.toastr?.warning?.(`NPC State dossier import failed for ${existing.name}: ${error?.message || error}`);
         return false;
     } finally {
-        scanBusy = false;
-        setScanIndicator(false);
-        setNpcDossierScanIndicator(id, false);
+        const owned = scanOperationCurrent(chatKey, operation);
+        endScanOperation(chatKey, operation);
+        if (getChatKey() === chatKey) setScanIndicator(isScanBusy(chatKey));
+        if (owned) setNpcDossierScanIndicator(id, false);
         updateInjection();
     }
 }
@@ -1166,8 +1205,8 @@ async function refreshNpcFromChat(npcId) {
     const ctx = getContext();
     const chatKey = getChatKey();
     if (!id || chatKey === 'no-chat') return false;
-    if (scanBusy) {
-        globalThis.toastr?.info?.('NPC State: another dossier scan is already running.');
+    if (isScanBusy(chatKey)) {
+        globalThis.toastr?.info?.('NPC State: another dossier scan is already running in this chat.');
         return false;
     }
     if (typeof ctx.generateRaw !== 'function') return false;
@@ -1193,7 +1232,12 @@ async function refreshNpcFromChat(npcId) {
         charName: ctx.name2 || 'Character',
         memoryCriteria: settings.memoryCriteria,
     });
-    scanBusy = true;
+    const scanStateVersion = Number(stateVersions.get(chatKey) || 0);
+    const operation = beginScanOperation(chatKey, `chat refresh for ${existing.name}`, { npcId: id, indicator: 'refresh' });
+    if (!operation) {
+        globalThis.toastr?.info?.('NPC State: another dossier scan is already running in this chat.');
+        return false;
+    }
     setScanIndicator(true);
     setNpcChatRefreshIndicator(id, true);
     try {
@@ -1203,9 +1247,13 @@ async function refreshNpcFromChat(npcId) {
             responseLength: BACKFILL_RESPONSE_LENGTH,
             label: `chat refresh for ${existing.name}`,
         });
+        if (!scanOperationCurrent(chatKey, operation)) {
+            console.info('[NPC State] discarded expired or superseded dossier refresh.');
+            return false;
+        }
         const currentLineage = chatLineage(getContext().chat || []);
-        if (getChatKey() !== chatKey || firstLineageDivergence(lineage, currentLineage) !== -1) {
-            globalThis.toastr?.info?.('NPC State: chat changed during dossier refresh; stale result was discarded.');
+        if (getChatKey() !== chatKey || firstLineageDivergence(lineage, currentLineage) !== -1 || Number(stateVersions.get(chatKey) || 0) !== scanStateVersion) {
+            globalThis.toastr?.info?.('NPC State: chat or dossier state changed during dossier refresh; stale result was discarded.');
             return false;
         }
         const returned = Array.isArray(parsed.npcs) ? parsed.npcs : [];
@@ -1307,9 +1355,10 @@ async function refreshNpcFromChat(npcId) {
         globalThis.toastr?.warning?.(`NPC State refresh failed for ${existing.name}: ${error?.message || error}`);
         return false;
     } finally {
-        scanBusy = false;
-        setScanIndicator(false);
-        setNpcChatRefreshIndicator(id, false);
+        const owned = scanOperationCurrent(chatKey, operation);
+        endScanOperation(chatKey, operation);
+        if (getChatKey() === chatKey) setScanIndicator(isScanBusy(chatKey));
+        if (owned) setNpcChatRefreshIndicator(id, false);
         updateInjection();
     }
 }
@@ -1378,6 +1427,7 @@ async function backfillNpcFromHistory(request, messageId = null) {
     const ctx = getContext();
     const chatKey = getChatKey();
     if (!request?.npcId || !request?.label || chatKey === 'no-chat') return false;
+    if (isScanBusy(chatKey)) return false;
     if (typeof ctx.generateRaw !== 'function') return false;
     const state = getChatState(chatKey);
     const existing = state.npcs.find(npc => npc.id === request.npcId);
@@ -1394,7 +1444,9 @@ async function backfillNpcFromHistory(request, messageId = null) {
         memoryCriteria: settings.memoryCriteria,
     });
 
-    scanBusy = true;
+    const scanStateVersion = Number(stateVersions.get(chatKey) || 0);
+    const operation = beginScanOperation(chatKey, `backfill for ${request.label}`, { npcId: request.npcId, indicator: 'backfill' });
+    if (!operation) return false;
     setScanIndicator(true);
     try {
         const { parsed } = await generateParsedNpcJson(ctx, {
@@ -1403,9 +1455,13 @@ async function backfillNpcFromHistory(request, messageId = null) {
             responseLength: BACKFILL_RESPONSE_LENGTH,
             label: `backfill for ${request.label}`,
         });
+        if (!scanOperationCurrent(chatKey, operation)) {
+            console.info('[NPC State] discarded expired or superseded dossier backfill.');
+            return false;
+        }
         const currentLineage = chatLineage(getContext().chat || []);
-        if (getChatKey() !== chatKey || firstLineageDivergence(scanLineage, currentLineage) !== -1) {
-            console.info('[NPC State] discarded stale dossier backfill after chat branch changed.');
+        if (getChatKey() !== chatKey || firstLineageDivergence(scanLineage, currentLineage) !== -1 || Number(stateVersions.get(chatKey) || 0) !== scanStateVersion) {
+            console.info('[NPC State] discarded stale dossier backfill after chat or dossier state changed.');
             return false;
         }
         const returned = Array.isArray(parsed.npcs) ? parsed.npcs : [];
@@ -1464,17 +1520,18 @@ async function backfillNpcFromHistory(request, messageId = null) {
         globalThis.toastr?.warning?.(`NPC State backfill failed for ${request.label}: ${error?.message || error}`);
         return false;
     } finally {
-        scanBusy = false;
-        setScanIndicator(false);
+        endScanOperation(chatKey, operation);
+        if (getChatKey() === chatKey) setScanIndicator(isScanBusy(chatKey));
         updateInjection();
     }
 }
 
 async function processPendingBackfills(messageId = null) {
-    if (scanBusy || getChatKey() === 'no-chat' || isHostSwipeActive()) return 0;
+    const chatKey = getChatKey();
+    if (chatKey === 'no-chat' || isScanBusy(chatKey) || isHostSwipeActive()) return 0;
     let processed = 0;
-    while (!scanBusy) {
-        const state = getChatState();
+    while (getChatKey() === chatKey && !isScanBusy(chatKey)) {
+        const state = getChatState(chatKey);
         if (!Array.isArray(state.pendingBackfills) || !state.pendingBackfills.length) break;
         const request = state.pendingBackfills.shift();
         persist();
@@ -1771,14 +1828,19 @@ function applyStaleLifecycleAfterScan(state, scanResult, transcript, settings, {
 
 async function scanNow({ manual = false, messageId = null, allowDuringSwipe = false } = {}) {
     const settings = getSettings();
-    if (scanBusy || !settings.enabled) return;
+    if (!settings.enabled) return;
     if (!allowDuringSwipe && isHostSwipeActive()) {
         if (manual) globalThis.toastr?.info?.('NPC State: wait for the current swipe to finish before scanning.');
         return;
     }
     const ctx = getContext();
     const scanChatKey = getChatKey();
-    if (scanChatKey !== 'no-chat') await ensureChatStateLoaded(scanChatKey);
+    if (scanChatKey === 'no-chat') return;
+    await ensureChatStateLoaded(scanChatKey);
+    if (isScanBusy(scanChatKey)) {
+        if (manual) globalThis.toastr?.info?.('NPC State: another dossier scan is already running in this chat.');
+        return;
+    }
     const scanLineage = chatLineage(ctx.chat || []);
     const currentTranscript = currentExchangeTranscript(messageId);
     const fullWindowScan = Boolean(!manual && settings.fullScanEveryTurn);
@@ -1792,9 +1854,10 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
         return;
     }
 
-    scanBusy = true;
+    const operation = beginScanOperation(scanChatKey, manual ? 'manual dossier scan' : 'automatic dossier scan');
+    if (!operation) return;
     setScanIndicator(true);
-    const state = getChatState();
+    const state = getChatState(scanChatKey);
     const scanStateVersion = Number(stateVersions.get(scanChatKey) || 0);
     const prompt = buildScannerPrompt({
         transcript,
@@ -1825,7 +1888,7 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
             label: manual ? 'manual dossier scan' : (fullWindowScan ? 'automatic full dossier scan' : 'automatic dossier scan'),
         });
         let currentLineage = chatLineage(getContext().chat || []);
-        if (getChatKey() !== scanChatKey || firstLineageDivergence(scanLineage, currentLineage) !== -1 || Number(stateVersions.get(scanChatKey) || 0) !== scanStateVersion) {
+        if (!scanOperationCurrent(scanChatKey, operation) || getChatKey() !== scanChatKey || firstLineageDivergence(scanLineage, currentLineage) !== -1 || Number(stateVersions.get(scanChatKey) || 0) !== scanStateVersion) {
             const scanFinishedAt = performance.now?.() ?? Date.now();
             lastScanMetrics = {
                 label: manual ? 'manual' : (fullWindowScan ? 'automatic-full' : 'automatic'),
@@ -1883,7 +1946,7 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
             at: Date.now(),
         };
         currentLineage = chatLineage(getContext().chat || []);
-        if (getChatKey() !== scanChatKey || firstLineageDivergence(scanLineage, currentLineage) !== -1 || Number(stateVersions.get(scanChatKey) || 0) !== scanStateVersion) {
+        if (!scanOperationCurrent(scanChatKey, operation) || getChatKey() !== scanChatKey || firstLineageDivergence(scanLineage, currentLineage) !== -1 || Number(stateVersions.get(scanChatKey) || 0) !== scanStateVersion) {
             console.info('[NPC State] discarded stale dossier scan after chat or dossier state changed during relationship evaluation.');
             if (manual) globalThis.toastr?.info?.('NPC State: chat changed during scan; stale result was discarded.');
             return;
@@ -1960,8 +2023,8 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
         console.error('[NPC State] dossier scan failed', error);
         if (manual) globalThis.toastr?.error?.(`NPC State scan failed: ${error?.message || error}`);
     } finally {
-        scanBusy = false;
-        setScanIndicator(false);
+        endScanOperation(scanChatKey, operation);
+        if (getChatKey() === scanChatKey) setScanIndicator(isScanBusy(scanChatKey));
         updateInjection();
     }
 }
@@ -2203,7 +2266,7 @@ function currentLineageKeyForMessage(messageId) {
 
 function clearUserDismissedSuppression(state, target) {
     if (!state || typeof state !== 'object') return state;
-    const cleared = clearUserDismissedGroupsFor(state.userDismissedGroups, target);
+    const cleared = clearUserDismissedGroupsFor(state.userDismissedGroups, target, { modernByIdOnly: true });
     state.userDismissedGroups = cleared.groups;
     if (cleared.removedLabels.length) {
         const removed = new Set(cleared.removedLabels.map(normalizeName).filter(Boolean));
@@ -3531,7 +3594,7 @@ function deleteNpcById(npcId, { confirmAction = true } = {}) {
     const current = state.npcs.find(item => item.id === id);
     if (!current) return false;
     if (confirmAction) {
-        const message = `Delete ${current.name}? This permanently removes the dossier from the current NPC database and suppresses automatic rediscovery. You can add them again later with Settings Add NPC or OOC add.`;
+        const message = `Delete ${current.name}? This permanently removes this dossier and prevents older branch snapshots from restoring this identity. A genuinely different future NPC with the same name remains trackable.`;
         if (!window.confirm(message)) return false;
     }
 
@@ -3543,6 +3606,12 @@ function deleteNpcById(npcId, { confirmAction = true } = {}) {
     });
     const working = result.state;
     if (result.report.status !== 'removed') return false;
+    // applyNpcStateCommand's narrative remove path suppresses by label. Manual UI trash is
+    // identity-specific instead: remove those labels from narrative dismissal and retain an
+    // ID-backed tombstone so a future homonym is not blocked.
+    const permanentLabels = new Set([current.name, ...(current.aliases || [])].map(normalizeName).filter(Boolean));
+    working.dismissed = (Array.isArray(working.dismissed) ? working.dismissed : [])
+        .filter(label => !permanentLabels.has(normalizeName(label)));
     working.userDismissedGroups = addUserDismissedGroup(state.userDismissedGroups, current);
     working.socialGraph = removeNpcFromSocialGraph(working.socialGraph, current.id);
     purgeNpcStructuredReferences(working.npcs, current);
@@ -3559,7 +3628,7 @@ function deleteNpcById(npcId, { confirmAction = true } = {}) {
     closeNpcEditor();
     renderDossier();
     updateInjection();
-    globalThis.toastr?.success?.(`NPC State: deleted ${result.report.name} and suppressed automatic rediscovery.`);
+    globalThis.toastr?.success?.(`NPC State: deleted ${result.report.name}; older branch snapshots cannot restore that identity.`);
     return true;
 }
 
@@ -3712,12 +3781,16 @@ function importBundleBytes(bytes) {
     const settings = getSettings();
     const decoded = decodeNpcStateBundle(bytes);
     const before = getChatState();
+    const importReport = {};
     const merged = mergeImportedDossierState(before, decoded.state, {
         maxNpcs: settings.maxNpcs,
         excludeNames: currentExclusions(),
+        report: importReport,
     });
-    for (const importedNpc of Array.isArray(decoded.state?.npcs) ? decoded.state.npcs : []) {
-        clearUserDismissedSuppression(merged, importedNpc);
+    // Only an actually accepted import can deliberately resurrect an ID-backed deleted
+    // identity. Capacity/exclusion/duplicate skips must not weaken tombstones.
+    for (const accepted of importReport.accepted || []) {
+        clearUserDismissedSuppression(merged, { id: accepted.id, name: accepted.name });
     }
     if (!merged.portraitAssets || typeof merged.portraitAssets !== 'object') merged.portraitAssets = {};
     for (const npc of merged.npcs) if (npc.portrait?.dataUrl) merged.portraitAssets[npc.id] = structuredClone(npc.portrait);
@@ -3730,7 +3803,7 @@ function importBundleBytes(bytes) {
     persist();
     renderDossier();
     updateInjection();
-    return { decoded, merged };
+    return { decoded, merged, importReport };
 }
 
 async function importDossierBundle(file) {
@@ -3739,9 +3812,14 @@ async function importDossierBundle(file) {
         if (getChatKey() === 'no-chat') throw new Error('Open a chat before importing a dossier.');
         if (file.size > 32 * 1024 * 1024) throw new Error('Bundle exceeds the 32 MB safety limit.');
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const { decoded } = importBundleBytes(bytes);
+        const { decoded, importReport } = importBundleBytes(bytes);
+        const total = decoded.state.npcs.length;
+        const accepted = (importReport.accepted || []).length;
+        const skipped = importReport.skipped || [];
         const portraitCount = decoded.state.npcs.filter(npc => npc.portrait?.dataUrl).length;
-        globalThis.toastr?.success?.(`NPC State: imported ${decoded.state.npcs.length} dossier(s) with ${portraitCount} embedded portrait(s).`);
+        const capacitySkipped = skipped.filter(item => item.reason === 'capacity').length;
+        globalThis.toastr?.success?.(`NPC State: accepted ${accepted}/${total} dossier(s); bundle contained ${portraitCount} embedded portrait(s).${capacitySkipped ? ` ${capacitySkipped} new active dossier(s) were skipped because the roster is full; existing active dossiers were preserved.` : ''}`);
+        if (skipped.length && !capacitySkipped) globalThis.toastr?.info?.(`NPC State: ${skipped.length} import entr${skipped.length === 1 ? 'y was' : 'ies were'} skipped by identity/exclusion safety checks.`);
     } catch (error) {
         console.error('[NPC State] import failed', error);
         globalThis.toastr?.error?.(`NPC State import failed: ${error?.message || error}`);
@@ -4124,9 +4202,6 @@ function registerEvents() {
             await handleAssistantMessageReceived(messageId);
         });
     }
-
-    // MESSAGE_RECEIVED updates chat state, but SillyTavern can emit it before the final
-    // message DOM has been inserted. Mount inline cards again on the host's render lifecycle.
     if (events.CHARACTER_MESSAGE_RENDERED) source.on(events.CHARACTER_MESSAGE_RENDERED, () => queueInlineRender(0));
     if (events.MESSAGE_UPDATED) source.on(events.MESSAGE_UPDATED, () => queueInlineRender(30));
     if (events.MORE_MESSAGES_LOADED) source.on(events.MORE_MESSAGES_LOADED, () => queueInlineRender(30));
@@ -4137,7 +4212,6 @@ function registerEvents() {
             queueBranchReconcile({ rescan: true, reason: 'message-deleted' }, 70);
         });
     }
-
     if (events.MESSAGE_SWIPED) {
         source.on(events.MESSAGE_SWIPED, (messageId) => {
             queueSettledSwipeReconcile({
@@ -4147,7 +4221,6 @@ function registerEvents() {
             });
         });
     }
-
     if (events.MESSAGE_SWIPE_DELETED) {
         source.on(events.MESSAGE_SWIPE_DELETED, (messageId) => {
             queueSettledSwipeReconcile({
@@ -4157,7 +4230,6 @@ function registerEvents() {
             });
         });
     }
-
     if (events.MESSAGE_EDITED) {
         source.on(events.MESSAGE_EDITED, (messageId) => {
             queueBranchReconcile({
@@ -4177,6 +4249,7 @@ function registerEvents() {
             const state = key === 'no-chat' ? null : getChatState(key);
             if (state) seedBranchTracking(state);
             if (inherited) persist();
+            setScanIndicator(key !== 'no-chat' && isScanBusy(key));
             renderDossier();
             ensureInlineObserver();
             queueInlineRender(30);
@@ -4185,8 +4258,8 @@ function registerEvents() {
         });
     }
 
-    if (events.CHAT_DELETED) source.on(events.CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId); });
-    if (events.GROUP_CHAT_DELETED) source.on(events.GROUP_CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId); });
+    if (events.CHAT_DELETED) source.on(events.CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId, 'chat'); });
+    if (events.GROUP_CHAT_DELETED) source.on(events.GROUP_CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId, 'group'); });
     if (events.CHAT_RENAMED) source.on(events.CHAT_RENAMED, async (eventData) => { await moveRenamedChatState(eventData); });
 }
 
@@ -4264,6 +4337,8 @@ window.NPCState = Object.freeze({
     uiStatus: () => ({
         version: NPC_STATE_VERSION,
         chatKey: getChatKey(),
+        scanBusyForChat: isScanBusy(getChatKey()),
+        scanOperation: scanOperations.status(getChatKey()),
         inlineEntries: getChatState().inlineCards?.length || 0,
         mountedInlineAnchors: document.querySelectorAll?.('.npc-state-inline-anchor')?.length || 0,
         integratedMeguminBlocks: document.querySelectorAll?.('.npc-state-megumin-pane')?.length || 0,

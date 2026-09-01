@@ -693,7 +693,8 @@ try {
     assert.equal(globalThis.NPCState.deleteNpc(wizIdForDelete), true);
     state = globalThis.NPCState.getState();
     assert.equal(state.npcs.some(n => n.name === 'Wiz'), false);
-    assert.ok(state.dismissed.includes('wiz'), 'settings delete should suppress immediate scanner rediscovery');
+    assert.ok(state.userDismissedGroups.some(group => group.ids?.includes(wizIdForDelete)), 'settings delete should suppress immediate scanner rediscovery by stable ID');
+    assert.ok(!state.dismissed.includes('wiz'), 'modern ID tombstones must not globally suppress future same-name NPCs');
 
     // Manual archive preserves Yunyun but immediately removes her from live injection; restore is reversible.
     const yunyunId = state.npcs.find(n => n.name === 'Yunyun').id;
