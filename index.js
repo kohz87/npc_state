@@ -1,4 +1,4 @@
-/* NPC State v0.2.12 - standalone SillyTavern extension */
+/* NPC State v0.2.13 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';
 import {
@@ -138,6 +138,7 @@ const chatStateCache = new Map();
 const loadedChatKeys = new Set();
 const loadingChatStates = new Map();
 const hydrationErrors = new Map();
+const pendingAutoScans = new Map();
 const stateWriteTimers = new Map();
 const stateWritePromises = new Map();
 const stateVersions = new Map();
@@ -788,22 +789,30 @@ async function reconcileCurrentBranch({ explicitDivergence = null, rescan = true
     return result;
 }
 
-function queueBranchRescan(messageId, attempt = 0, originKey = getChatKey()) {
-    if (!Number.isInteger(messageId) || messageId < 0 || originKey === 'no-chat') return;
-    setTimeout(async () => {
-        if (getChatKey() !== originKey) return;
-        if (isHostSwipeActive()) {
-            queueSettledSwipeReconcile({ explicitDivergence: messageId, rescan: true, reason: 'branch-rescan-during-swipe' });
-            return;
-        }
-        if (isScanBusy(getChatKey())) {
-            if (attempt < 250) queueBranchRescan(messageId, attempt + 1, originKey);
-            return;
-        }
-        const message = (getContext().chat || [])[messageId];
-        if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()) return;
-        await scanNow({ manual: false, messageId });
-    }, 120);
+function queuePendingAutoScan(chatKey, messageId, reason = 'automatic') {
+    if (!chatKey || chatKey === 'no-chat' || !Number.isInteger(messageId) || messageId < 0) return false;
+    const previous = pendingAutoScans.get(chatKey);
+    if (!previous || messageId >= previous.messageId) pendingAutoScans.set(chatKey, { chatKey, messageId, reason, queuedAt: Date.now() });
+    return true;
+}
+
+async function drainPendingAutoScan(chatKey) {
+    if (!chatKey || getChatKey() !== chatKey || isScanBusy(chatKey) || isHostSwipeActive()) return false;
+    const pending = pendingAutoScans.get(chatKey);
+    if (!pending) return false;
+    const message = (getContext().chat || [])[pending.messageId];
+    if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()) {
+        pendingAutoScans.delete(chatKey);
+        return false;
+    }
+    pendingAutoScans.delete(chatKey);
+    await scanNow({ manual: false, messageId: pending.messageId });
+    return true;
+}
+
+function queueBranchRescan(messageId, _attempt = 0, originKey = getChatKey()) {
+    if (!queuePendingAutoScan(originKey, messageId, 'branch-rescan')) return;
+    if (getChatKey() === originKey && !isScanBusy(originKey) && !isHostSwipeActive()) void drainPendingAutoScan(originKey);
 }
 
 function queueBranchReconcile(options = {}, delay = 90) {
@@ -855,6 +864,8 @@ async function removeDeletedChatState(rawId, kind = 'chat') {
     stateVersions.delete(key);
     persistedVersions.delete(key);
     stateWritePromises.delete(key);
+    hydrationErrors.delete(key);
+    pendingAutoScans.delete(key);
     if (removed) persistSettings();
     return removed;
 }
@@ -964,6 +975,11 @@ function currentExclusions() {
 function updateInjection() {
     const settings = getSettings();
     const ctx = getContext();
+    const injectionKey = getChatKey();
+    if (injectionKey !== 'no-chat' && chatHydrationStatus(injectionKey) !== 'ready') {
+        ctx.setExtensionPrompt?.(PROMPT_KEY, '', extension_prompt_types.IN_CHAT, 0, false, extension_prompt_roles.SYSTEM);
+        return;
+    }
     if (!settings.enabled || !settings.inject || getChatKey() === 'no-chat') {
         ctx.setExtensionPrompt?.(PROMPT_KEY, '', extension_prompt_types.IN_CHAT, 0, false, extension_prompt_roles.SYSTEM);
         return;
@@ -1882,6 +1898,7 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
     await ensureChatStateLoaded(scanChatKey);
     if (isScanBusy(scanChatKey)) {
         if (manual) globalThis.toastr?.info?.('NPC State: another dossier scan is already running in this chat.');
+        else if (Number.isInteger(messageId)) queuePendingAutoScan(scanChatKey, messageId, 'busy-auto-scan');
         return;
     }
     const scanLineage = chatLineage(ctx.chat || []);
@@ -2074,6 +2091,7 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
         endScanOperation(scanChatKey, operation);
         if (getChatKey() === scanChatKey) setScanIndicator(isScanBusy(scanChatKey));
         updateInjection();
+        if (getChatKey() === scanChatKey) void drainPendingAutoScan(scanChatKey);
     }
 }
 
@@ -2850,7 +2868,7 @@ function ensureInlineObserver() {
 function inlineMountNeedsRepair() {
     let chatKey;
     try { chatKey = getChatKey(); } catch { return false; }
-    if (chatKey === 'no-chat') return false;
+    if (chatKey === 'no-chat' || chatHydrationStatus(chatKey) !== 'ready') return false;
     const desired = inlineEntriesForRender(getChatState(chatKey)).filter(entry => (entry.cards || []).length);
     if (!desired.length) return false;
     const root = chatElementForInlineObserver() || document;
@@ -2887,7 +2905,7 @@ function startInlineWatchdog() {
 function renderInlineCards() {
     let chatKey;
     try { chatKey = getChatKey(); } catch { return { rendered: 0, missing: 0 }; }
-    if (chatKey === 'no-chat') return { rendered: 0, missing: 0 };
+    if (chatKey === 'no-chat' || chatHydrationStatus(chatKey) !== 'ready') return { rendered: 0, missing: 0 };
     ensureInlineObserver();
 
     const state = getChatState(chatKey);
@@ -4312,17 +4330,25 @@ function registerEvents() {
     if (events.CHAT_CHANGED) {
         source.on(events.CHAT_CHANGED, async () => {
             const key = getChatKey();
-            if (key !== 'no-chat') await ensureChatStateLoaded(key);
-            const inherited = await maybeInheritKnownBranch();
-            const state = key === 'no-chat' ? null : getChatState(key);
-            if (state) seedBranchTracking(state);
-            if (inherited) persist();
-            setScanIndicator(key !== 'no-chat' && isScanBusy(key));
-            renderDossier();
-            ensureInlineObserver();
-            queueInlineRender(30);
-            updateInjection();
-            if (!inherited && state?.lineage?.length) queueBranchReconcile({ rescan: false, reason: 'chat-changed' }, 80);
+            try {
+                if (key !== 'no-chat') await ensureChatStateLoaded(key);
+                if (getChatKey() !== key) return;
+                const inherited = await maybeInheritKnownBranch();
+                if (getChatKey() !== key) return;
+                const state = key === 'no-chat' ? null : getChatState(key);
+                if (state) seedBranchTracking(state);
+                if (inherited) persist();
+                setScanIndicator(key !== 'no-chat' && isScanBusy(key));
+                renderDossier();
+                ensureInlineObserver();
+                queueInlineRender(30);
+                updateInjection();
+                if (!inherited && state?.lineage?.length) queueBranchReconcile({ chatKey: key, rescan: false, reason: 'chat-changed' }, 80);
+                if (key !== 'no-chat') void drainPendingAutoScan(key);
+            } catch (error) {
+                if (getChatKey() === key) { renderDossier(); updateInjection(); }
+                console.error('[NPC State] chat change hydration failed; durable state was preserved.', error);
+            }
         });
     }
 
@@ -4338,12 +4364,14 @@ async function init() {
     }
     initialized = true;
     getSettings();
-    const key = getChatKey();
     await migrateLegacyChatStates();
+    const key = getChatKey();
     if (key !== 'no-chat') {
         await ensureChatStateLoaded(key);
-        await maybeInheritKnownBranch();
-        seedBranchTracking(getChatState(key));
+        if (getChatKey() === key) {
+            await maybeInheritKnownBranch();
+            if (getChatKey() === key) seedBranchTracking(getChatState(key));
+        }
     }
     bindUi();
     installUiCaptureBridge();
