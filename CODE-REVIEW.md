@@ -1,4 +1,40 @@
-# NPC State v0.2.9 Code Review
+# NPC State v0.2.10 Code Review
+
+## v0.2.10 weighting hard-pass findings
+
+### High: v0.2.9 inertia still leaked +1 ordinary gains at high scores
+
+**Finding:** v0.2.9 multiplied high-score gains by inertia but then forced every accepted non-zero event to apply at least one whole point. Ordinary +1 therefore bypassed resistance and could ratchet 95 to 100 in five events.
+
+**Resolution:** relationship evidence now accumulates fractionally per axis. The 95+ band uses 10% deepening weight, so ten distinct ordinary +1 beats are needed for one displayed point. No artificial minimum visible delta remains.
+
+### High: relationship prose and raw scores could still overpower identity
+
+**Finding:** generation could receive both raw relationship numbers and Relationship Summary. A weak model could also persist unsupported romance/possessive prose even when Desire was neutral.
+
+**Resolution:** RP injection contains one qualitative relationship lens and no raw meter values. Established Relationship Summary changes only after an accepted new event, and axis-aware summary validation rejects unsupported romance, possessiveness, obsession, or absolute dependency.
+
+### High: grounded events could be assigned to the wrong relationship axis
+
+**Finding:** a rescue reason could be story-grounded while a weak model incorrectly awarded Desire.
+
+**Resolution:** every non-zero axis now has separate evidence. Desire requires attraction/intimacy cues in both its evidence and the actual narration; rescue/gratitude/affection/trust/proximity alone cannot authorize it.
+
+### Medium: dedupe remembered only the latest event
+
+**Finding:** `A -> B -> aftermath A` could make A eligible again because lastRelationshipChange had become B.
+
+**Resolution:** keep a bounded six-event evidence history and compare new awards against all recent events. The history and fractional remainder survive bundle/sidecar/branch persistence.
+
+### Medium: v0.2.9 stock migration detection was initially too permissive
+
+**Finding:** prefix-based stock detection could have mistaken a customized rubric retaining the stock opening sentence for untouched stock.
+
+**Resolution:** v0.2.9 migration detection now compares the exact historical stock rubric strings. Customized text is preserved byte-for-byte.
+
+### Compatibility
+
+Settings schema advances to v22. Untouched v0.2.8/v0.2.9 stock settings migrate to `1/2/5/10`; customized caps/rubrics and existing visible relationship scores are never rescaled. New fractional progress defaults to zero when absent.
 
 ## v0.2.9 relationship-inertia findings
 

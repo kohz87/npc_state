@@ -29,9 +29,14 @@ import {
     setNpcArchived,
     normalizeRelationshipCaps,
     normalizeRelationshipBaseline,
+    normalizeRelationshipProgress,
+    normalizeRelationshipEvidence,
     normalizeScanNpc,
     applyRelationshipDelta,
     relationshipChangeLooksDuplicate,
+    relationshipHistoryLooksDuplicate,
+    relationshipAxisEvidenceGrounded,
+    relationshipSummaryConsistent,
     parseScanJson,
     parseOocNpcStateCommands,
     selectRelevantNpcs,
@@ -246,22 +251,22 @@ test('creates new NPC from baseline, applies deltas, and preserves portrait thro
     const state = { npcs: [], turn: 3 };
     const first = mergeScanResult(state, { npcs: [{
         name: 'Yunyun', present: true, mood: 'flustered', relationshipImpact: 'meaningful',
-        relationshipDelta: { trust: 8, affection: 5 }, relationshipChangeReason: 'She confided in the player.',
+        relationshipDelta: { trust: 2, affection: 2 }, relationshipEvidence: { trust: 'She confided a private secret and trusted the player with it.', affection: 'The shared vulnerability deepened her emotional bond.', desire: '', tension: '' }, relationshipChangeReason: 'She confided in the player and their bond deepened.',
     }] }, { maxNpcs: 4, turn: 3, sourceMessageId: 3 });
     assert.equal(first.state.npcs.length, 1);
     const npc = first.state.npcs[0];
-    assert.equal(npc.relationship.trust, 3);
-    assert.equal(npc.relationship.affection, 3);
+    assert.equal(npc.relationship.trust, 2);
+    assert.equal(npc.relationship.affection, 2);
     assert.equal(npc.lastRelationshipChange.impact, 'meaningful');
     assert.equal(npc.lastRelationshipChange.sourceMessageId, 3);
     npc.portrait = { dataUrl: 'data:image/webp;base64,abc' };
     const second = mergeScanResult(first.state, { npcs: [{
         id: npc.id, name: 'Yunyun', present: true, mood: 'determined', relationshipImpact: 'ordinary',
-        relationshipDelta: { trust: 99, tension: -2 }, relationshipChangeReason: 'A small reassuring exchange.',
+        relationshipDelta: { trust: 99, tension: -2 }, relationshipEvidence: { trust: 'The player again proved reliable in a new small matter.', affection: '', desire: '', tension: 'The new reassurance eased some pressure.' }, relationshipChangeReason: 'A new small exchange demonstrated reliability and reassurance.',
     }] }, { maxNpcs: 4, turn: 4, sourceMessageId: 4 });
     assert.equal(second.state.npcs.length, 1);
     assert.equal(second.state.npcs[0].mood, 'determined');
-    assert.equal(second.state.npcs[0].relationship.trust, 4, 'ordinary delta is intentionally limited to a single +1 axis');
+    assert.equal(second.state.npcs[0].relationship.trust, 3, 'ordinary delta is intentionally limited to a single +1 axis');
     assert.equal(second.state.npcs[0].relationship.tension, 0);
     assert.equal(second.state.npcs[0].lastRelationshipChange.delta.trust, 1);
     assert.equal(second.state.npcs[0].portrait.dataUrl, 'data:image/webp;base64,abc');
@@ -274,6 +279,7 @@ test('zero relationship decisions preserve the last actual relationship change a
     npc.lastRelationshipChange = {
         impact: 'major',
         delta: { trust: -15, affection: -9, desire: 0, tension: 15 },
+        evidence: { trust: '', affection: '', desire: '', tension: '' },
         reason: 'A severe betrayal changed how Myla sees the player.',
         sourceMessageId: 8,
     };
@@ -297,7 +303,8 @@ test('non-zero relationship deltas survive contradictory none impact as ordinary
         worldActive: false,
         relationshipImpact: 'none',
         relationshipDelta: { trust: 6 },
-        relationshipChangeReason: 'The scanner supplied a real delta but contradicted it with impact none.',
+        relationshipEvidence: { trust: 'The player proved reliable and earned trust.', affection: '', desire: '', tension: '' },
+        relationshipChangeReason: 'The scanner supplied a real trust event but contradicted it with impact none.',
     }] }, { turn: 2, relationshipCaps: { ordinary: 4, meaningful: 8, major: 15, extreme: 25 } });
 
     assert.equal(result.state.npcs[0].relationship.trust, 14, 'non-zero delta must not be clamped to zero by contradictory impact none');
@@ -316,7 +323,8 @@ test('recovers absolute relationship output when compact scanner omits relations
         worldActive: false,
         relationshipImpact: 'meaningful',
         relationship: { trust: 28, affection: 1 },
-        relationshipChangeReason: 'Model returned absolute scores instead of the requested compact delta.',
+        relationshipEvidence: { trust: 'The player proved reliable and increased her trust.', affection: 'A hurtful rejection reduced her affection.', desire: '', tension: '' },
+        relationshipChangeReason: 'A reliable act increased trust while a hurtful rejection reduced affection.',
     }] }, { turn: 2, relationshipCaps: { ordinary: 4, meaningful: 8, major: 15, extreme: 25 } });
 
     assert.deepEqual(recovered.state.npcs[0].relationship, { trust: 28, affection: 1, desire: -3, tension: 2 });
@@ -1418,7 +1426,7 @@ test('scanner prompt uses compact identity index, changed-only output, delta rel
         relationshipCriteria: 'CUSTOM TRUST RULE', impactCriteria: 'CUSTOM IMPACT RULE', memoryCriteria: 'CUSTOM MEMORY RULE',
     });
     assert.match(prompt, /Exclude player \(Kazuma\)/);
-    assert.match(prompt, /main card speaker \(Megumin\)/);
+    assert.match(prompt, /main speaker \(Megumin\)/);
     assert.match(prompt, /Return ONLY observed\/new\/meaningfully changed NPCs/i);
     assert.match(prompt, /Identity index \(matching only\)/i);
     assert.match(prompt, /include name,identityKind,dossierSignal/i);
@@ -1431,9 +1439,9 @@ test('scanner prompt uses compact identity index, changed-only output, delta rel
     assert.match(prompt, /MUST reuse id/i);
     assert.match(prompt, /old label in aliases/i);
     assert.match(prompt, /never duplicate\/downgrade/i);
-    assert.match(prompt, /EVERY supported non-zero relationshipDelta key/i);
+    assert.match(prompt, /EVERY non-zero axis needs grounded CURRENT-exchange evidence/i);
     assert.match(prompt, /-100\.\.\+100/i);
-    assert.match(prompt, /routine continuation.*zero/i);
+    assert.match(prompt, /continuation\/aftermath=>0/i);
     assert.match(prompt, /CUSTOM TRUST RULE/);
     assert.match(prompt, /CUSTOM IMPACT RULE/);
     assert.match(prompt, /CUSTOM MEMORY RULE/);
@@ -1517,9 +1525,9 @@ test('important memory criteria are explicit, configurable, and existing memorie
     });
     assert.match(prompt, /Memory criteria:/i);
     assert.match(prompt, /CUSTOM MEMORY: persist promises/i);
-    assert.match(prompt, /no duplicate\/paraphrased stored memories/i);
+    assert.match(prompt, /no duplicate\/paraphrased memories/i);
     assert.match(prompt, /Aris returned the tags of two dead adventurers/);
-    assert.match(prompt, /Cap=5/i);
+    assert.match(prompt, /cap5/i);
     assert.match(prompt, /memoryRetention/i);
     assert.match(prompt, /consequential\/durable/i);
     assert.match(prompt, /recency=tiebreak only/i);
@@ -1606,8 +1614,9 @@ test('focused relationship pass requires one full four-axis decision per target'
     assert.match(prompt, /focused relationship evaluator/i);
     assert.match(prompt, /exactly one result for EACH target id/i);
     assert.match(prompt, /ALL FOUR numeric keys/i);
+    assert.match(prompt, /relationshipEvidence is REQUIRED with ALL FOUR string keys/i);
     assert.match(prompt, /actions and consequences, not just dialogue/i);
-    assert.match(prompt, /ordinary means a NEW modest beat/i);
+    assert.match(prompt, /Raw maxima are ordinary 1 \/ meaningful 2 \/ major 5 \/ extreme 10/i);
     assert.match(prompt, /Most events move 0-1 axes/i);
     assert.match(prompt, /relationshipSummary is REQUIRED/i);
     assert.match(prompt, /COPY IT EXACTLY/i);
@@ -1628,17 +1637,14 @@ test('scanner relationship contract requires independent multi-axis deltas', () 
         relationshipCriteria: undefined,
         impactCriteria: undefined,
     });
-    assert.match(prompt, /Evaluate ALL FOUR axes independently/i);
-    assert.match(prompt, /Most events move 0-1 axes/i);
-    assert.match(prompt, /meaningful max2/i);
-    assert.match(prompt, /EVERY supported non-zero relationshipDelta key/i);
-    assert.match(prompt, /Evaluate ALL FOUR axes independently/i);
+    assert.match(prompt, /relationshipDelta\+relationshipEvidence \(all 4 keys\)/i);
+    assert.match(prompt, /axis max 1\/2\/3\/4/i);
+    assert.match(prompt, /EVERY non-zero axis needs grounded CURRENT-exchange evidence/i);
     assert.match(prompt, /DELTA-ONLY/i);
-    assert.match(prompt, /currentRelationship is read-only/i);
-    assert.match(prompt, /never return relationship\/currentRelationship/i);
-    assert.match(prompt, /requires non-none impact/i);
+    assert.match(prompt, /currentRelationship read-only/i);
+    assert.match(prompt, /Desire needs explicit attraction/i);
     assert.match(prompt, /"currentRelationship":\{"trust":20,"affection":5,"desire":0,"tension":7\}/);
-    assert.match(prompt, /"trust":-6,"affection":0,"desire":0,"tension":8/);
+    assert.match(prompt, /"trust":-2,"affection":0,"desire":0,"tension":2/);
 
     const npc = createNpcRecord('Myla');
     npc.id = 'npc_myla';
@@ -1646,7 +1652,8 @@ test('scanner relationship contract requires independent multi-axis deltas', () 
         id: 'npc_myla', present: true, worldActive: false,
         relationshipImpact: 'meaningful',
         relationshipDelta: { trust: 6, affection: 4, desire: 2, tension: -5 },
-        relationshipChangeReason: 'Reassurance, bonding, attraction, and reduced fear all occur in the same event.',
+        relationshipEvidence: { trust: 'The player protected Myla, proving reliable.', affection: 'His care deepened their emotional bond.', desire: 'Myla explicitly admitted romantic attraction.', tension: 'The reassurance eased her fear and tension.' },
+        relationshipChangeReason: 'Protection, bonding, explicit attraction, and reduced fear all occur in the same event.',
     }] }, { turn: 2, relationshipCaps: { ordinary: 4, meaningful: 8, major: 15, extreme: 25 } });
     assert.deepEqual(merged.state.npcs[0].relationship, { trust: 6, affection: 0, desire: 0, tension: -5 }, 'custom legacy-sized caps remain user-authoritative, but meaningful still affects at most two axes');
     assert.deepEqual(merged.state.npcs[0].lastRelationshipChange.delta, { trust: 6, affection: 0, desire: 0, tension: -5 });
@@ -1715,6 +1722,7 @@ test('existing scanner deltas may use dossier id without repeating name or uncha
     const result = mergeScanResult({ npcs: [npc], turn: 4 }, { npcs: [{
         id: 'npc_myla', present: true, worldActive: false, mood: 'terrified',
         relationshipImpact: 'meaningful', relationshipDelta: { tension: 8 },
+        relationshipEvidence: { trust: '', affection: '', desire: '', tension: 'The threat created fear and unresolved tension.' },
         relationshipChangeReason: 'A threat in the current exchange raised Myla\'s tension.',
     }] }, { turn: 5, relationshipCaps: { ordinary: 4, meaningful: 8, major: 15, extreme: 25 } });
     const updated = result.state.npcs[0];
@@ -1970,12 +1978,13 @@ test('relationship delta engine enforces tier caps, score bounds, and normalized
     });
     const up = applyRelationshipDelta(
         { trust: 98, affection: 20, desire: 5, tension: 10 },
-        { trust: 40, affection: -40, desire: 9, tension: -99 },
+        { trust: 40, affection: -30, desire: 9, tension: -99 },
         'meaningful',
         { ordinary: 4, meaningful: 8, major: 15, extreme: 25 },
     );
-    assert.deepEqual(up.appliedDelta, { trust: 2, affection: 0, desire: 0, tension: -8 }, 'meaningful events affect at most two axes and deepening +98 trust is strongly inertial');
-    assert.deepEqual(up.relationship, { trust: 100, affection: 20, desire: 5, tension: 2 });
+    assert.deepEqual(up.appliedDelta, { trust: 0, affection: 0, desire: 0, tension: -8 }, 'meaningful events affect at most two axes while +98 trust accumulates fractional evidence');
+    assert.deepEqual(up.relationship, { trust: 98, affection: 20, desire: 5, tension: 2 });
+    assert.equal(up.relationshipProgress.trust, 0.8);
     const none = applyRelationshipDelta({ trust: 50, affection: 20, desire: 0, tension: 10 }, { trust: 50 }, 'none');
     assert.equal(none.relationship.trust, 50);
     assert.equal(none.appliedDelta.trust, 0);
@@ -1985,7 +1994,7 @@ test('relationship delta engine enforces tier caps, score bounds, and normalized
         'meaningful',
         { ordinary: 4, meaningful: 8, major: 15, extreme: 25 },
     );
-    assert.deepEqual(down.relationship, { trust: -100, affection: -97, desire: -99, tension: -97 });
+    assert.deepEqual(down.relationship, { trust: -98, affection: -95, desire: -99, tension: -97 }, 'ambiguous equal-sized excess axes are rejected instead of biased by fixed key order');
 });
 
 test('new NPC relationship baseline is neutral zero and legacy audit entries never produce NaN deltas', () => {
@@ -2014,7 +2023,7 @@ test('negative relationship values produce opposite behavioral meaning instead o
 test('custom relationship baseline is used only when a new NPC record is created', () => {
     const baseline = { trust: 25, affection: 5, desire: 1, tension: 30 };
     const result = mergeScanResult({ npcs: [], turn: 1 }, { npcs: [{
-        name: 'Luna', present: true, relationshipImpact: 'ordinary', relationshipDelta: { trust: 2 }, relationshipChangeReason: 'Luna relied on the player during the exchange.',
+        name: 'Luna', present: true, relationshipImpact: 'ordinary', relationshipDelta: { trust: 2 }, relationshipEvidence: { trust: 'Luna relied on the player and found them dependable.', affection: '', desire: '', tension: '' }, relationshipChangeReason: 'Luna relied on the player during the exchange.',
     }] }, { maxNpcs: 40, turn: 1, relationshipBaseline: baseline });
     assert.deepEqual(result.state.npcs[0].relationship, { trust: 26, affection: 5, desire: 1, tension: 30 });
 });
@@ -2026,7 +2035,7 @@ test('presence is reset for off-screen NPCs on each scan while persistent dossie
     const wiz = createNpcRecord('Wiz', [yunyun.id]);
     wiz.present = true;
     const result = mergeScanResult({ npcs: [yunyun, wiz], turn: 7 }, { npcs: [
-        { id: yunyun.id, name: 'Yunyun', present: true, relationshipImpact: 'ordinary', relationshipDelta: { desire: 3 }, relationshipChangeReason: 'Yunyun explicitly sought closer attention from the player.' },
+        { id: yunyun.id, name: 'Yunyun', present: true, relationshipImpact: 'ordinary', relationshipDelta: { desire: 3 }, relationshipEvidence: { trust: '', affection: '', desire: 'Yunyun explicitly admitted romantic attraction and wanted intimate closeness.', tension: '' }, relationshipChangeReason: 'Yunyun explicitly admitted romantic attraction to the player.' },
     ] }, { maxNpcs: 40, turn: 8 });
     assert.equal(result.state.npcs.length, 2, 'off-screen NPC should remain persisted');
     assert.equal(result.state.npcs.find(n => n.name === 'Yunyun').present, true);
@@ -2044,7 +2053,7 @@ test('manual stable profile fields are protected while dynamic state and relatio
     npc.mannerisms = ['user-authored habit'];
     npc.manualProfileFields = ['age', 'appearance', 'personality', 'speech', 'mannerisms'];
     const result = mergeScanResult({ npcs: [npc], turn: 3 }, { npcs: [{
-        id: npc.id, name: 'Yunyun', present: true, age: '25', appearance: 'scanner visual rewrite', personality: 'scanner rewrite', speech: 'scanner rewrite', mannerisms: ['scanner habit'], mood: 'flustered', relationshipImpact: 'ordinary', relationshipDelta: { trust: 4 }, relationshipChangeReason: 'Yunyun relied on the player during the current exchange.',
+        id: npc.id, name: 'Yunyun', present: true, age: '25', appearance: 'scanner visual rewrite', personality: 'scanner rewrite', speech: 'scanner rewrite', mannerisms: ['scanner habit'], mood: 'flustered', relationshipImpact: 'ordinary', relationshipDelta: { trust: 4 }, relationshipEvidence: { trust: 'Yunyun relied on the player and found them dependable.', affection: '', desire: '', tension: '' }, relationshipChangeReason: 'Yunyun relied on the player during the current exchange.',
     }] }, { maxNpcs: 40, turn: 4 });
     const updated = result.state.npcs[0];
     assert.equal(updated.age, '19');
@@ -2890,7 +2899,7 @@ test('v0.2.7 malformed relationship scores and caps fall back safely instead of 
         trust: 0, affection: 0, desire: 0, tension: 0,
     });
     assert.deepEqual(normalizeRelationshipCaps({ ordinary: 'many', meaningful: NaN, major: 'huge', extreme: null }), {
-        ordinary: 1, meaningful: 3, major: 8, extreme: 20,
+        ordinary: 1, meaningful: 2, major: 5, extreme: 10,
     });
 
     const stored = normalizeNpcRecord({ name: 'Falia', relationship: { trust: 'high' }, importance: 'important' });
@@ -3043,6 +3052,7 @@ test('v0.2.8 scanner relationship deltas require a reason grounded in the scanne
     const unrelated = mergeScanResult({ npcs: [npc], turn: 1 }, { npcs: [{
         id: npc.id, name: 'Brina', present: true,
         relationshipImpact: 'ordinary', relationshipDelta: { trust: 4 },
+        relationshipEvidence: { trust: 'Lucien proved dependable by giving Brina food and shelter.', affection: '', desire: '', tension: '' },
         relationshipChangeReason: 'Lucien gave Brina food and shelter.',
     }] }, { turn: 2, developmentContext: 'Rain struck the shutters while Brina counted her remaining thread.' });
     assert.equal(unrelated.state.npcs[0].relationship.trust, 0);
@@ -3050,6 +3060,7 @@ test('v0.2.8 scanner relationship deltas require a reason grounded in the scanne
     const grounded = mergeScanResult({ npcs: [npc], turn: 1 }, { npcs: [{
         id: npc.id, name: 'Brina', present: true,
         relationshipImpact: 'ordinary', relationshipDelta: { trust: 4 },
+        relationshipEvidence: { trust: 'Lucien proved dependable by giving Brina food and shelter.', affection: '', desire: '', tension: '' },
         relationshipChangeReason: 'Lucien gave Brina food and shelter.',
     }] }, { turn: 2, developmentContext: 'Lucien gave Brina food and shelter after learning her household had run short.' });
     assert.equal(grounded.state.npcs[0].relationship.trust, 1);
@@ -3143,13 +3154,13 @@ test('v0.2.8 manual relationship audit remains valid even without a generated ev
 });
 
 
-test('v0.2.9 stock relationship progression is deliberately slow and axis-limited', () => {
-    assert.deepEqual(DEFAULT_RELATIONSHIP_CAPS, { ordinary: 1, meaningful: 3, major: 8, extreme: 20 });
-    assert.deepEqual(normalizeRelationshipCaps({}), { ordinary: 1, meaningful: 3, major: 8, extreme: 20 });
+test('v0.2.10 stock relationship progression uses 1/2/5/10 raw weights and axis limits', () => {
+    assert.deepEqual(DEFAULT_RELATIONSHIP_CAPS, { ordinary: 1, meaningful: 2, major: 5, extreme: 10 });
+    assert.deepEqual(normalizeRelationshipCaps({}), { ordinary: 1, meaningful: 2, major: 5, extreme: 10 });
 
     const ordinary = applyRelationshipDelta(
         { trust: 0, affection: 0, desire: 0, tension: 0 },
-        { trust: 99, affection: 99, desire: 99, tension: 99 },
+        { trust: 100, affection: 99, desire: 99, tension: 99 },
         'ordinary',
     );
     assert.deepEqual(ordinary.appliedDelta, { trust: 1, affection: 0, desire: 0, tension: 0 }, 'ordinary affects at most one axis');
@@ -3159,36 +3170,50 @@ test('v0.2.9 stock relationship progression is deliberately slow and axis-limite
         { trust: 9, affection: 8, desire: 7, tension: 6 },
         'meaningful',
     );
-    assert.deepEqual(meaningful.appliedDelta, { trust: 3, affection: 3, desire: 0, tension: 0 }, 'meaningful affects at most two axes');
+    assert.deepEqual(meaningful.appliedDelta, { trust: 2, affection: 2, desire: 0, tension: 0 }, 'meaningful affects at most two axes');
 });
 
-test('v0.2.9 relationship inertia slows deepening high scores without shielding them from contrary evidence', () => {
-    const deepen = applyRelationshipDelta(
-        { trust: 85, affection: 0, desire: 0, tension: 0 },
-        { trust: 3 },
-        'meaningful',
-    );
-    assert.equal(deepen.appliedDelta.trust, 1, 'deepening an already-high score should be strongly inertial');
+test('v0.2.10 relationship weight accumulates fractionally and makes extremes progressively harder', () => {
+    let relationship = { trust: 90, affection: 0, desire: 0, tension: 0 };
+    let progress = normalizeRelationshipProgress();
+    for (let i = 0; i < 4; i += 1) {
+        const step = applyRelationshipDelta(relationship, { trust: 1 }, 'ordinary', DEFAULT_RELATIONSHIP_CAPS, progress);
+        relationship = step.relationship;
+        progress = step.relationshipProgress;
+        assert.equal(step.appliedDelta.trust, 0, 'high-score ordinary evidence should accumulate without forcing a visible point');
+    }
+    const fifth = applyRelationshipDelta(relationship, { trust: 1 }, 'ordinary', DEFAULT_RELATIONSHIP_CAPS, progress);
+    assert.equal(fifth.appliedDelta.trust, 1, 'five valid +1 beats at 90 should finally produce one visible point');
+    assert.equal(fifth.relationship.trust, 91);
 
-    const challenge = applyRelationshipDelta(
-        { trust: 85, affection: 0, desire: 0, tension: 0 },
-        { trust: -3 },
-        'meaningful',
+    const extreme = applyRelationshipDelta(
+        { trust: 90, affection: 0, desire: 0, tension: 0 },
+        { trust: 10 },
+        'extreme',
     );
-    assert.equal(challenge.appliedDelta.trust, -3, 'contrary evidence can pull an established score toward neutral at full tier strength');
+    assert.equal(extreme.appliedDelta.trust, 2, 'extreme +10 is raw evidence before high-score resistance');
 
-    const major = applyRelationshipDelta(
-        { trust: 85, affection: 0, desire: 0, tension: 0 },
-        { trust: 8 },
-        'major',
+    const minorSetback = applyRelationshipDelta(
+        { trust: 90, affection: 0, desire: 0, tension: 0 },
+        { trust: -1 },
+        'ordinary',
     );
-    assert.equal(major.appliedDelta.trust, 5, 'major turning points bypass much, but not all, high-score inertia');
+    assert.equal(minorSetback.appliedDelta.trust, 0, 'a minor setback should not instantly shave a point from very high trust');
+    assert.equal(minorSetback.relationshipProgress.trust, -0.4);
+
+    const catastrophic = applyRelationshipDelta(
+        { trust: 90, affection: 0, desire: 0, tension: 0 },
+        { trust: -10 },
+        'extreme',
+    );
+    assert.equal(catastrophic.appliedDelta.trust, -10, 'extreme contrary evidence can punch through established resilience');
 });
 
-test('v0.2.9 recent duplicate relationship awards are rejected while later distinct events remain possible', () => {
+test('v0.2.10 recent relationship event history rejects duplicate awards beyond only the last event', () => {
     const previous = {
         impact: 'meaningful',
         delta: { trust: 3, affection: 2, desire: 0, tension: 0 },
+        evidence: { trust: 'The rescue proved the player reliable.', affection: '', desire: '', tension: '' },
         reason: 'The player rescued Myla from the collapsing bridge.',
         sourceMessageId: 20,
         turn: 10,
@@ -3200,10 +3225,12 @@ test('v0.2.9 recent duplicate relationship awards are rejected while later disti
     npc.id = 'npc_myla';
     const first = mergeScanResult({ npcs: [npc], turn: 9 }, { npcs: [{
         id: npc.id, present: true, relationshipImpact: 'ordinary', relationshipDelta: { trust: 1 },
+        relationshipEvidence: { trust: 'Returning the medicine proved the player dependable.', affection: '', desire: '', tension: '' },
         relationshipChangeReason: 'The player returned Myla\'s lost medicine.',
     }] }, { turn: 10, sourceMessageId: 20, developmentContext: 'The player returned Myla\'s lost medicine.' });
     const second = mergeScanResult(first.state, { npcs: [{
         id: npc.id, present: true, relationshipImpact: 'ordinary', relationshipDelta: { trust: 1 },
+        relationshipEvidence: { trust: 'Returning the medicine proved the player dependable.', affection: '', desire: '', tension: '' },
         relationshipChangeReason: 'The player returned Myla\'s lost medicine.',
     }] }, { turn: 11, sourceMessageId: 22, developmentContext: 'Myla continues thanking the player for returning her lost medicine.' });
     assert.equal(second.state.npcs[0].relationship.trust, 1, 'the same event must not be re-awarded on its immediate aftermath');
@@ -3252,4 +3279,123 @@ test('v0.2.9 relevance recognizes a grounded first-name reference without restor
     falia.relationship = { trust: 0, affection: 0, desire: 0, tension: 0 };
     const selected = selectRelevantNpcs([falia], 'Falia steps between the caravan and the roadblock.', 100, 1);
     assert.equal(selected[0]?.id, falia.id);
+});
+
+test('v0.2.10 Desire requires attraction evidence in both axis explanation and narration', () => {
+    const rescueEvidence = 'Myla felt sexually attracted to the player after the rescue.';
+    assert.equal(
+        relationshipAxisEvidenceGrounded('desire', rescueEvidence, 'The player pulled Myla from the river and saved her life.'),
+        false,
+        'a model cannot manufacture Desire by adding attraction words to a non-romantic rescue',
+    );
+    assert.equal(
+        relationshipAxisEvidenceGrounded('desire', 'Myla explicitly admitted romantic attraction and wanted intimate closeness.', 'Myla admitted she was romantically attracted to the player and asked to kiss them.'),
+        true,
+        'explicit attraction in the narration can ground Desire',
+    );
+});
+
+test('v0.2.10 event history catches A-B-A replay instead of remembering only the last award', () => {
+    const history = [
+        {
+            impact: 'ordinary', reason: 'The player returned Myla\'s lost medicine.',
+            evidence: { trust: 'Returning the medicine proved the player dependable.', affection: '', desire: '', tension: '' },
+            sourceMessageId: 20, turn: 10,
+        },
+        {
+            impact: 'ordinary', reason: 'The player later respected Myla\'s request for privacy.',
+            evidence: { trust: 'Respecting the boundary reinforced that the player was reliable.', affection: '', desire: '', tension: '' },
+            sourceMessageId: 22, turn: 11,
+        },
+    ];
+    assert.equal(relationshipHistoryLooksDuplicate(
+        history,
+        'The player returned Myla\'s lost medicine.',
+        { sourceMessageId: 24, turn: 12, evidence: { trust: 'Returning the medicine proved the player dependable.' } },
+    ), true);
+});
+
+test('v0.2.10 a rejected duplicate relationship event cannot rewrite durable relationship prose', () => {
+    const npc = createNpcRecord('Myla');
+    npc.id = 'npc_myla_summary_gate';
+    npc.relationship = { trust: 35, affection: 15, desire: 0, tension: 0 };
+    npc.relationshipSummary = 'She cautiously appreciates the player as a dependable ally.';
+    npc.relationshipEventHistory = [{
+        impact: 'meaningful', reason: 'The player returned Myla\'s stolen medicine.',
+        evidence: { trust: 'Returning the stolen medicine proved the player dependable.', affection: '', desire: '', tension: '' },
+        sourceMessageId: 30, turn: 20,
+    }];
+    const result = mergeScanResult({ npcs: [npc], turn: 20 }, { npcs: [{
+        id: npc.id,
+        present: true,
+        relationshipImpact: 'meaningful',
+        relationshipDelta: { trust: 2, affection: 0, desire: 0, tension: 0 },
+        relationshipEvidence: { trust: 'Returning the stolen medicine proved the player dependable.', affection: '', desire: '', tension: '' },
+        relationshipChangeReason: 'The player returned Myla\'s stolen medicine.',
+        relationshipSummary: 'She now regards the player as one of her closest and most trusted companions.',
+    }] }, {
+        turn: 21,
+        sourceMessageId: 32,
+        developmentContext: 'Myla again thanks the player for returning her stolen medicine earlier.',
+    });
+    assert.equal(result.state.npcs[0].relationshipSummary, npc.relationshipSummary);
+    assert.equal(result.state.npcs[0].relationship.trust, 35);
+});
+
+test('v0.2.10 relationship summaries reject unsupported romance and possessive archetype claims', () => {
+    const poisoned = 'She is madly in love, sexually attracted, possessive, and would kill anyone who threatens the player.';
+    assert.equal(relationshipSummaryConsistent(poisoned, { trust: 20, affection: 20, desire: 0, tension: 0 }), false);
+    assert.equal(relationshipSummaryConsistent('She increasingly trusts the player as a dependable ally.', { trust: 35, affection: 10, desire: 0, tension: 0 }), true);
+});
+
+test('v0.2.10 RP injection exposes one qualitative relationship lens and no raw meter numbers', () => {
+    const npc = createNpcRecord('Falia Rendel');
+    Object.assign(npc, {
+        present: true,
+        personality: 'Reserved, duty-bound, kind, and independent.',
+        goal: 'Protect the caravan.',
+        relationship: { trust: 92, affection: 90, desire: 72, tension: 35 },
+        relationshipSummary: 'She cares deeply for the player but remains restrained and duty-bound.',
+    });
+    const injection = buildInjection([npc], 'Falia watches the caravan road.', 20, 1, DEFAULT_BEHAVIOR_CRITERIA, 900);
+    assert.doesNotMatch(injection, /trust\s*[+-]?\d+|affection\s*[+-]?\d+|desire\s*[+-]?\d+|tension\s*[+-]?\d+/i);
+    assert.equal((injection.match(/She cares deeply for the player but remains restrained and duty-bound\./g) || []).length, 1);
+});
+
+test('v0.2.10 the 95+ band needs ten ordinary evidence beats for one visible point', () => {
+    let relationship = { trust: 95, affection: 0, desire: 0, tension: 0 };
+    let progress = normalizeRelationshipProgress();
+    for (let i = 0; i < 9; i += 1) {
+        const step = applyRelationshipDelta(relationship, { trust: 1 }, 'ordinary', DEFAULT_RELATIONSHIP_CAPS, progress);
+        relationship = step.relationship;
+        progress = step.relationshipProgress;
+        assert.equal(step.appliedDelta.trust, 0);
+    }
+    const tenth = applyRelationshipDelta(relationship, { trust: 1 }, 'ordinary', DEFAULT_RELATIONSHIP_CAPS, progress);
+    assert.equal(tenth.appliedDelta.trust, 1);
+    assert.equal(tenth.relationship.trust, 96);
+});
+
+test('v0.2.10 ambiguous equal multi-axis overflow is rejected instead of favoring Trust and Affection', () => {
+    const result = applyRelationshipDelta(
+        { trust: 0, affection: 0, desire: 0, tension: 0 },
+        { trust: 2, affection: 2, desire: 2, tension: 0 },
+        'meaningful',
+    );
+    assert.deepEqual(result.appliedDelta, { trust: 0, affection: 0, desire: 0, tension: 0 });
+    assert.deepEqual(result.evidenceDelta, { trust: 0, affection: 0, desire: 0, tension: 0 });
+});
+
+test('v0.2.10 relationship event history is bounded to six recent evidence events', () => {
+    const history = Array.from({ length: 9 }, (_, i) => ({
+        impact: 'ordinary',
+        reason: `Distinct relationship event ${i}`,
+        evidence: { trust: `Trust evidence event ${i}`, affection: '', desire: '', tension: '' },
+        sourceMessageId: i,
+        turn: i,
+    }));
+    const normalized = normalizeNpcRecord({ name: 'Myla', relationshipEventHistory: history }).relationshipEventHistory;
+    assert.equal(normalized.length, 6);
+    assert.match(normalized[0].reason, /event 3$/);
+    assert.match(normalized[5].reason, /event 8$/);
 });

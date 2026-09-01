@@ -117,3 +117,24 @@ test('v0.2.7 import roster cap counts only active dossiers and preserves archive
     assert.equal(merged.npcs.filter(npc => !npc.archived).length, 1);
     assert.ok(merged.npcs.some(npc => npc.name === 'Falia'));
 });
+
+test('v0.2.10 bundle/import preserves hidden relationship weight progress and dedupe history', () => {
+    const npc = createNpcRecord('Myla');
+    npc.relationship = { trust: 95, affection: 40, desire: 0, tension: 0 };
+    npc.relationshipProgress = { trust: 0.7, affection: 0.25, desire: 0, tension: 0 };
+    npc.relationshipEventHistory = [{
+        impact: 'ordinary',
+        reason: 'The player returned Myla\'s medicine.',
+        evidence: { trust: 'Returning the medicine proved the player dependable.', affection: '', desire: '', tension: '' },
+        sourceMessageId: 10,
+        turn: 5,
+    }];
+    const bytes = encodeNpcStateBundle({ npcs: [npc], dismissed: [] }, { appVersion: '0.2.10', chatKey: 'chat:weight' });
+    const decoded = decodeNpcStateBundle(bytes);
+    assert.deepEqual(decoded.state.npcs[0].relationshipProgress, npc.relationshipProgress);
+    assert.equal(decoded.state.npcs[0].relationshipEventHistory.length, 1);
+
+    const merged = mergeImportedDossierState({ npcs: [], dismissed: [] }, decoded.state, { maxNpcs: 6 });
+    assert.deepEqual(merged.npcs[0].relationshipProgress, npc.relationshipProgress);
+    assert.match(merged.npcs[0].relationshipEventHistory[0].reason, /medicine/i);
+});

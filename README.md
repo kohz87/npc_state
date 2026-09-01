@@ -1,4 +1,4 @@
-# NPC State v0.2.9
+# NPC State v0.2.10
 
 NPC State is a standalone SillyTavern extension that maintains persistent, branch-aware NPC dossiers for roleplay. It tracks identity, durable characterization, live state, player relationships, important memories, portraits, and present-scene visibility without depending on Megumin Suite's NPC Bank.
 
@@ -142,6 +142,20 @@ v0.2.5 makes durable identity authoritative over relationship scores. Personalit
 **Behavioral Profile** is a compact point-form translation of established identity for smaller/non-frontier models. It holds up to six labeled cues such as `Disposition`, `Expressiveness`, `Independence`, `Care`, `Conflict`, or `Cruelty-Social`. It is deliberately bounded and shares the existing injection budget rather than becoming a second prose dossier.
 
 Kindness/empathy are target-general by default. A kind NPC may still use necessary lethal force, refuse the player, prioritize another duty, or dislike a particular person without becoming generically cruel. Relationship-specific behavior is kept relationship-specific instead of being learned back into global Personality/Speech/Mannerisms.
+
+## v0.2.10 relationship weighting and evidence accumulation
+
+v0.2.10 turns relationship change from a per-scene score bump into accumulated evidence. Stock raw event weights are now `ordinary 1`, `meaningful 2`, `major 5`, and `extreme 10`. These are evidence weights before resistance, not guaranteed visible points.
+
+Each relationship axis keeps a hidden fractional evidence remainder. Deepening an established polarity becomes progressively harder: below 30 uses full weight, 30-49 uses 75%, 50-69 uses 50%, 70-84 uses 35%, 85-94 uses 20%, and 95+ uses 10%. At Trust 95, ten distinct valid ordinary +1 beats are therefore required to earn one visible point. An extreme +10 at roughly 90 normally produces only about +2 visible points.
+
+Minor contrary evidence also meets resilience from an established relationship instead of instantly shaving visible points, while extreme betrayal/reconciliation can still punch through at full raw tier strength. The visible -100..+100 meter stays integer; fractional progress is internal bookkeeping and survives sidecar reloads, bundle import/export, and branch rollback.
+
+Every non-zero axis now requires its own grounded evidence. Desire has a strict narration firewall: rescue, gratitude, affection, trust, or proximity cannot become Desire unless the actual story contains attraction/romantic/intimate/physical evidence. Ambiguous equal-sized over-limit multi-axis proposals are rejected instead of silently favoring Trust/Affection.
+
+The extension keeps the six most recent scored relationship events for semantic deduplication, so `event A -> event B -> aftermath of A` cannot reward A again. A rejected/duplicate event also cannot rewrite the durable Relationship Summary. Unsupported romance, possessiveness, obsession, or absolute-dependency claims are rejected when the corresponding relationship state does not support them.
+
+Generation receives no raw relationship meter numbers. It gets one compact qualitative player-relationship lens after Identity, Agency/other bonds, and Current State, preventing the relationship layer from echoing itself or overpowering characterization.
 
 ## v0.2.9 relationship inertia and identity dominance
 
@@ -355,7 +369,7 @@ Auto-managed durable fields are bounded before storage and receive tighter bound
 
 ## Upgrade notes for v0.2.9
 
-Settings schema advances to v21. Existing dossier scores are preserved exactly; NPC State does not rescale old Trust/Affection/Desire/Tension values. If the saved v0.2.8 relationship caps are exactly the untouched stock `4/8/15/25`, they migrate to `1/3/8/20`. Customized caps are preserved. Untouched v0.2.8 stock relationship, impact-tier, and relationship-to-behavior rubrics migrate to the new slower/identity-dominant defaults; customized text remains authoritative.
+Settings schema is now v22. Existing visible Trust/Affection/Desire/Tension scores are preserved exactly and are never rescaled. Untouched v0.2.8 `4/8/15/25` or v0.2.9 `1/3/8/20` stock caps migrate to v0.2.10 `1/2/5/10`. Customized caps and customized relationship/impact/behavior rubrics remain authoritative. Existing dossiers gain zeroed fractional progress/history only when those hidden fields did not previously exist.
 
 ## Upgrade notes for v0.2.5
 

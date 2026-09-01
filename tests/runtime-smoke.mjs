@@ -360,7 +360,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.9');
+    assert.equal(globalThis.NPCState?.version, '0.2.10');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');
@@ -395,7 +395,7 @@ try {
     mockState.quietResponder = async (args = {}) => {
         if (args.jsonSchema) return '{"npcs":[]}';
         return JSON.stringify({ npcs: [
-            { name: 'Yunyun', present: true, role: 'adventurer', species: 'Crimson Demon', age: '18', appearance: 'Young woman with long dark brown hair, crimson eyes, a slim build, and a black-and-red adventurer outfit.', personality: 'proud but earnest', speech: 'formal when nervous', relationshipSummary: 'She is cautiously warming to Kazuma and beginning to trust him.', relationshipImpact: 'meaningful', relationshipDelta: { trust: 8, affection: 8, desire: 8, tension: 8 }, relationshipChangeReason: 'Yunyun tells Kazuma she trusts him more, is fond of him, and feels attracted but tense.', mannerisms: ['boasts when embarrassed'] },
+            { name: 'Yunyun', present: true, role: 'adventurer', species: 'Crimson Demon', age: '18', appearance: 'Young woman with long dark brown hair, crimson eyes, a slim build, and a black-and-red adventurer outfit.', personality: 'proud but earnest', speech: 'formal when nervous', relationshipSummary: 'She is cautiously warming to Kazuma and beginning to trust him.', relationshipImpact: 'meaningful', relationshipDelta: { trust: 3, affection: 2, desire: 0, tension: 0 }, relationshipEvidence: { trust: 'Yunyun explicitly says she trusts Kazuma more.', affection: 'Yunyun explicitly says she is fond of Kazuma.', desire: '', tension: '' }, relationshipChangeReason: 'Yunyun tells Kazuma she trusts him more and is fond of him.', mannerisms: ['boasts when embarrassed'] },
             { name: 'Wiz', present: false, worldActive: true, role: 'shopkeeper', location: 'Wiz\'s shop', relationshipImpact: 'ordinary', relationshipDelta: { tension: -4 } },
         ] });
     };
@@ -561,7 +561,7 @@ try {
         const systemPrompt = String(args.systemPrompt || '');
         if (/isolated relationship evaluator/i.test(systemPrompt)) {
             return JSON.stringify({ npcs: [
-                { id: yunyunBeforeRepair.id, relationshipImpact: 'major', relationshipDelta: { trust: -99, affection: -99, desire: 0, tension: 99 }, relationshipSummary: 'She feels deeply betrayed by Kazuma and no longer trusts him, while their former warmth now leaves her hurt and conflicted.', relationshipChangeReason: 'Kazuma reveals Yunyun\'s private confidence to the guild, a severe betrayal that shatters her confidence in him.' },
+                { id: yunyunBeforeRepair.id, relationshipImpact: 'major', relationshipDelta: { trust: -99, affection: -99, desire: 0, tension: 99 }, relationshipEvidence: { trust: 'Kazuma exposed Yunyun\'s private confidence, betraying her trust.', affection: 'The betrayal deeply hurt Yunyun and damaged her warmth toward Kazuma.', desire: '', tension: 'The public betrayal created severe unresolved conflict and tension.' }, relationshipSummary: 'She feels deeply betrayed by Kazuma and no longer trusts him, while their former warmth now leaves her hurt and conflicted.', relationshipChangeReason: 'Kazuma reveals Yunyun\'s private confidence to the guild, a severe betrayal that shatters her confidence in him.' },
                 { id: wizBeforeRepair.id, relationshipImpact: 'none', relationshipDelta: { trust: 0, affection: 0, desire: 0, tension: 0 }, relationshipSummary: wizBeforeRepair.relationshipSummary || '', relationshipChangeReason: '' },
             ] });
         }
@@ -611,7 +611,7 @@ try {
         const systemPrompt = String(args.systemPrompt || '');
         if (/isolated relationship evaluator/i.test(systemPrompt)) {
             return JSON.stringify({ npcs: [
-                { id: yunyunBeforeRepair.id, relationshipImpact: 'extreme', relationshipDelta: { trust: 18, affection: 12, desire: 0, tension: -18 }, relationshipChangeReason: 'Kazuma risked his life to save Yunyun immediately after the betrayal, forcing a profound reassessment.' },
+                { id: yunyunBeforeRepair.id, relationshipImpact: 'extreme', relationshipDelta: { trust: 18, affection: 0, desire: 0, tension: 0 }, relationshipEvidence: { trust: 'Kazuma risked his life to save Yunyun, forcing her to reassess whether she can trust him.', affection: '', desire: '', tension: '' }, relationshipChangeReason: 'Kazuma risked his life to save Yunyun immediately after the betrayal, forcing a profound reassessment.' },
             ] });
         }
         return JSON.stringify({ npcs: [
