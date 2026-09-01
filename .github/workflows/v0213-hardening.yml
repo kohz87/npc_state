@@ -16,7 +16,16 @@ jobs:
         with:
           node-version: 22
       - name: Apply runtime hardening
-        run: python3 tools/apply-v0213-hardening.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('tools/apply-v0213-hardening.py')
+          s=p.read_text()
+          s=re.sub(r"r\(\"        requestedAt:.*?'backfill metadata'\)\n", "", s, count=1, flags=re.S)
+          p.write_text(s)
+          PY
+          python3 tools/apply-v0213-hardening.py
       - name: Advance release metadata
         run: |
           node --input-type=module <<'NODE'
