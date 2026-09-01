@@ -28,3 +28,21 @@ test('manual trash removes narrative name suppression and branch inheritance acc
   assert.match(source,/working\.dismissed = .*?working\.dismissed/s);
   assert.match(source,/chat\.length < 1/);
 });
+
+
+test('deep hardening gates rendering and injection on hydration readiness',()=>{
+  assert.match(source,/chatHydrationStatus\(chatKey\) !== 'ready'/);
+  assert.match(source,/chatHydrationStatus\(injectionKey\) !== 'ready'/);
+});
+
+test('busy automatic scans coalesce instead of being silently dropped',()=>{
+  assert.match(source,/const pendingAutoScans = new Map\(\)/);
+  assert.match(source,/queuePendingAutoScan\(scanChatKey, messageId, 'busy-auto-scan'\)/);
+  assert.match(source,/drainPendingAutoScan\(scanChatKey\)/);
+  assert.doesNotMatch(source,/attempt < 250/);
+});
+
+test('chat change hydration is chat-affine and stale async completion is rejected',()=>{
+  assert.match(source,/if \(getChatKey\(\) !== key\) return;/);
+  assert.match(source,/queueBranchReconcile\(\{ chatKey: key,/);
+});
