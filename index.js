@@ -866,7 +866,8 @@ async function moveRenamedChatState(eventData = {}) {
     const settings = getSettings();
     let changed = false;
 
-    for (const prefix of ['chat:', 'group:']) {
+    const currentPrefix = getChatKey().startsWith('group:') ? 'group:' : 'chat:';
+    for (const prefix of [currentPrefix]) {
         const oldKey = `${prefix}${oldId}`;
         const newKey = `${prefix}${newId}`;
         const hasOld = Boolean(settings.dataFiles?.[oldKey] || settings.chats?.[oldKey] || chatStateCache.has(oldKey));
@@ -905,6 +906,12 @@ async function moveRenamedChatState(eventData = {}) {
     }
     if (changed) persistSettings();
     return changed;
+}
+
+function flushCurrentChatOnPageHide() {
+    const key = getChatKey();
+    if (key === 'no-chat' || !loadedChatKeys.has(key) || !chatStateCache.has(key)) return;
+    void settleStateFileWrite(key, { flush: true }).catch(error => console.debug('[NPC State] page-hide flush deferred', error));
 }
 
 function cleanMessage(message) {
@@ -4342,6 +4349,8 @@ async function init() {
     installUiCaptureBridge();
     registerEvents();
     startInlineWatchdog();
+    globalThis.addEventListener?.('pagehide', flushCurrentChatOnPageHide);
+    globalThis.document?.addEventListener?.('visibilitychange', () => { if (globalThis.document?.visibilityState === 'hidden') flushCurrentChatOnPageHide(); });
     scheduleSettingsMountRetries();
     updateInjection();
     console.log(`[NPC State] v${NPC_STATE_VERSION} loaded`);
