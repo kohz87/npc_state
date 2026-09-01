@@ -32,6 +32,49 @@ test('extension-owned JSON payload round-trips full chat state', () => {
     assert.equal(decoded.state.checkpoints[0].messageId, 9);
 });
 
+test('v0.2.11 sidecar round-trips exact sibling checkpoints, root anchor, and relationship milestone internals', () => {
+    const npc = createNpcRecord('Myla');
+    npc.relationship = { trust: 50, affection: 0, desire: 0, tension: 0 };
+    npc.relationshipProgress = { trust: 0.4, affection: 0, desire: 0, tension: 0 };
+    npc.relationshipMilestones = [{
+        axis: 'trust', polarity: 1, threshold: 25,
+        reason: 'Myla deliberately entrusted the player with a dangerous confidence.',
+        sourceMessageId: 3, turn: 2, inferred: false,
+    }];
+    npc.relationshipEventHistory = [{
+        impact: 'meaningful',
+        reason: 'The player kept Myla\'s confidence.',
+        evidence: { trust: 'The secret remained protected.', affection: '', desire: '', tension: '' },
+        sourceMessageId: 4, turn: 3,
+    }];
+    const rootNpc = createNpcRecord('Myla');
+    const state = {
+        npcs: [npc],
+        lineage: ['line-a', 'line-b'],
+        branchLineageVersion: 2,
+        userDismissedGroups: [{ primary: 'old clerk', labels: ['old clerk', 'the clerk'], createdAt: 99 }],
+        branchRootSnapshot: { npcs: [rootNpc], candidates: [], pendingBackfills: [], dismissed: [], turn: 0, assistantSinceScan: 0, lastScanAt: 0, lastScannedMessageId: null, scanCount: 0, processedOocMessageId: null },
+        checkpoints: [{
+            messageId: 1,
+            fingerprint: 'finger-b',
+            lineageKey: 'branch-b',
+            parentLineageKey: 'branch-a',
+            reason: 'scan',
+            createdAt: 123,
+            snapshot: { npcs: [npc], candidates: [], pendingBackfills: [], dismissed: [], turn: 3, assistantSinceScan: 0, lastScanAt: 10, lastScannedMessageId: 1, scanCount: 2, processedOocMessageId: null },
+        }],
+    };
+    const decoded = decodeStateFilePayload(encodeStateFilePayload('chat:branches', state, '0.2.11'));
+    assert.equal(decoded.state.branchLineageVersion, 2);
+    assert.deepEqual(decoded.state.userDismissedGroups[0].labels, ['old clerk', 'the clerk']);
+    assert.equal(decoded.state.checkpoints[0].lineageKey, 'branch-b');
+    assert.equal(decoded.state.checkpoints[0].parentLineageKey, 'branch-a');
+    assert.equal(decoded.state.checkpoints[0].snapshot.npcs[0].relationshipProgress.trust, 0.4);
+    assert.equal(decoded.state.checkpoints[0].snapshot.npcs[0].relationshipMilestones[0].threshold, 25);
+    assert.match(decoded.state.checkpoints[0].snapshot.npcs[0].relationshipEventHistory[0].reason, /kept Myla's confidence/i);
+    assert.equal(decoded.state.branchRootSnapshot.npcs[0].relationship.trust, 0);
+});
+
 test('data-file API writes JSON bytes, reads them back, and deletes the sidecar', async () => {
     const files = new Map();
     const fetchFn = async (url, options = {}) => {

@@ -118,10 +118,16 @@ test('v0.2.7 import roster cap counts only active dossiers and preserves archive
     assert.ok(merged.npcs.some(npc => npc.name === 'Falia'));
 });
 
-test('v0.2.10 bundle/import preserves hidden relationship weight progress and dedupe history', () => {
+test('v0.2.11 bundle/import preserves hidden relationship weight progress, milestone audit, and dedupe history', () => {
     const npc = createNpcRecord('Myla');
     npc.relationship = { trust: 95, affection: 40, desire: 0, tension: 0 };
     npc.relationshipProgress = { trust: 0.7, affection: 0.25, desire: 0, tension: 0 };
+    npc.relationshipMilestones = [
+        { axis: 'trust', polarity: 1, threshold: 25, reason: 'Myla first entrusted the player with her medicine.', sourceMessageId: 4, turn: 2, inferred: false },
+        { axis: 'trust', polarity: 1, threshold: 50, reason: 'The player kept a dangerous confidence despite pressure.', sourceMessageId: 12, turn: 6, inferred: false },
+        { axis: 'trust', polarity: 1, threshold: 75, reason: 'Myla placed her life in the player\'s hands during the evacuation.', sourceMessageId: 30, turn: 15, inferred: false },
+        { axis: 'trust', polarity: 1, threshold: 90, reason: 'The player accepted irreversible personal risk rather than abandon Myla.', sourceMessageId: 44, turn: 22, inferred: false },
+    ];
     npc.relationshipEventHistory = [{
         impact: 'ordinary',
         reason: 'The player returned Myla\'s medicine.',
@@ -132,9 +138,13 @@ test('v0.2.10 bundle/import preserves hidden relationship weight progress and de
     const bytes = encodeNpcStateBundle({ npcs: [npc], dismissed: [] }, { appVersion: '0.2.10', chatKey: 'chat:weight' });
     const decoded = decodeNpcStateBundle(bytes);
     assert.deepEqual(decoded.state.npcs[0].relationshipProgress, npc.relationshipProgress);
+    assert.equal(decoded.state.npcs[0].relationshipMilestones.filter(item => item.axis === 'trust' && item.polarity === 1).length, 4);
+    assert.match(decoded.state.npcs[0].relationshipMilestones.find(item => item.threshold === 75).reason, /life in the player/i);
     assert.equal(decoded.state.npcs[0].relationshipEventHistory.length, 1);
 
     const merged = mergeImportedDossierState({ npcs: [], dismissed: [] }, decoded.state, { maxNpcs: 6 });
     assert.deepEqual(merged.npcs[0].relationshipProgress, npc.relationshipProgress);
+    assert.equal(merged.npcs[0].relationshipMilestones.filter(item => item.axis === 'trust' && item.polarity === 1).length, 4);
+    assert.match(merged.npcs[0].relationshipMilestones.find(item => item.threshold === 90).reason, /irreversible personal risk/i);
     assert.match(merged.npcs[0].relationshipEventHistory[0].reason, /medicine/i);
 });

@@ -360,7 +360,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.10');
+    assert.equal(globalThis.NPCState?.version, '0.2.11');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');
@@ -683,7 +683,7 @@ try {
     assert.match(state.npcs.find(n => n.name === 'Yunyun').appearance, /crimson eyes/);
     assert.equal('thoughts' in state.npcs.find(n => n.name === 'Yunyun'), false);
     assert.equal(state.npcs.find(n => n.name === 'Wiz').present, false);
-    assert.equal(state.inlineCards.some(entry => entry.messageId === 2), false);
+    assert.equal(state.inlineCards.some(entry => entry.messageId === 2), true, 'inactive sibling inline snapshot stays stored for exact branch revisit');
     assert.equal(inlineAnchors.length, 1, 'rollback should remount one live present-cast roster');
     assert.equal(inlineAnchors[0].dataset.npcStateMessageId, '1');
     assert.match(inlineAnchors[0].innerHTML, /Yunyun/);

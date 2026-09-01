@@ -1,4 +1,4 @@
-export const NPC_STATE_VERSION = '0.2.10';
+export const NPC_STATE_VERSION = '0.2.11';
 
 export const NPC_LIFE_STATES = Object.freeze(['unknown', 'alive', 'deceased']);
 export const NPC_ARCHIVE_REASONS = Object.freeze(['', 'manual', 'deceased', 'stale']);
@@ -57,6 +57,20 @@ export const DEFAULT_RELATIONSHIP_PROGRESS = Object.freeze({
     desire: 0,
     tension: 0,
 });
+export const RELATIONSHIP_MILESTONE_THRESHOLDS = Object.freeze([25, 50, 75, 90]);
+export const RELATIONSHIP_MILESTONE_REQUIREMENTS = Object.freeze({
+    25: 'meaningful',
+    50: 'major',
+    75: 'extreme',
+    90: 'extreme',
+});
+export const RELATIONSHIP_MILESTONE_MIN_RAW = Object.freeze({
+    25: 1,
+    50: 3,
+    75: 5,
+    90: 8,
+});
+export const RELATIONSHIP_MILESTONE_LIMIT = RELATIONSHIP_KEYS.length * 2 * RELATIONSHIP_MILESTONE_THRESHOLDS.length;
 export const DEFAULT_RELATIONSHIP_CRITERIA = `All relationship stats use a bipolar -100 to +100 scale with 0 as neutral. Positive and negative values are durable relationship states, not percentages or per-turn rewards. Routine continuation of an established dynamic normally causes NO numeric movement; score only genuinely new evidence.
 Trust: confidence, reliance, safety, and willingness to be vulnerable. Increase for newly demonstrated dependability, kept promises, costly protection, honest support, entrusted vulnerability, or comparable trust evidence. Decrease for betrayal, deception, abandonment, unreliability, violated confidence, or comparable distrust evidence. Trust is not obedience.
 Affection: fondness, attachment, warmth, and personal care. Increase for newly meaningful kindness, companionship, shared vulnerability, comfort, bonding, or comparable emotional attachment. Decrease for supported dislike, resentment, cruelty, rejection, humiliation, neglect, or emotional injury. Affection is not devotion, clinginess, jealousy, or self-erasure.
@@ -269,6 +283,141 @@ export function normalizeRelationshipProgress(value = {}) {
     }));
 }
 
+function normalizeMilestonePolarity(value) {
+    const number = Number(value);
+    if (number > 0) return 1;
+    if (number < 0) return -1;
+    const text = String(value ?? '').trim().toLowerCase();
+    if (['positive', 'pos', '+', 'plus'].includes(text)) return 1;
+    if (['negative', 'neg', '-', 'minus'].includes(text)) return -1;
+    return 0;
+}
+
+function relationshipImpactRank(value) {
+    return { none: 0, ordinary: 1, meaningful: 2, major: 3, extreme: 4 }[normalizeRelationshipImpact(value, false)] || 0;
+}
+
+function relationshipMilestoneRequirement(threshold) {
+    return RELATIONSHIP_MILESTONE_REQUIREMENTS[Number(threshold)] || 'extreme';
+}
+
+function relationshipMilestoneImpactQualifies(impact, threshold) {
+    return relationshipImpactRank(impact) >= relationshipImpactRank(relationshipMilestoneRequirement(threshold));
+}
+
+function relationshipMilestoneRawRequirement(threshold, tierCap) {
+    const configuredCap = Math.max(0, Number(tierCap) || 0);
+    const stockMinimum = Math.max(1, Number(RELATIONSHIP_MILESTONE_MIN_RAW[Number(threshold)]) || 1);
+    return configuredCap > 0 ? Math.min(configuredCap, stockMinimum) : stockMinimum;
+}
+
+function relationshipMilestoneEventQualifies(impact, threshold, rawWeight, tierCap) {
+    return relationshipMilestoneImpactQualifies(impact, threshold)
+        && Math.abs(Number(rawWeight) || 0) >= relationshipMilestoneRawRequirement(threshold, tierCap);
+}
+
+function milestoneIdentity(entry) {
+    return `${entry.axis}:${entry.polarity}:${entry.threshold}`;
+}
+
+function inferredMilestoneEntries(relationship = DEFAULT_RELATIONSHIP, { includeBoundary = false, reason = 'Existing relationship depth predates milestone tracking.' } = {}) {
+    const rel = normalizeRelationshipBaseline(relationship || DEFAULT_RELATIONSHIP);
+    const out = [];
+    for (const axis of RELATIONSHIP_KEYS) {
+        const score = rel[axis];
+        const polarity = Math.sign(score);
+        if (!polarity) continue;
+        const magnitude = Math.abs(score);
+        for (const threshold of RELATIONSHIP_MILESTONE_THRESHOLDS) {
+            const established = includeBoundary ? magnitude >= threshold : magnitude > threshold;
+            if (!established) continue;
+            out.push({
+                axis,
+                polarity,
+                threshold,
+                reason,
+                sourceMessageId: null,
+                turn: null,
+                inferred: true,
+            });
+        }
+    }
+    return out;
+}
+
+export function normalizeRelationshipMilestones(value, relationship = DEFAULT_RELATIONSHIP, { inferFromRelationship = true } = {}) {
+    const source = Array.isArray(value) ? value : [];
+    const map = new Map();
+    for (const raw of source) {
+        if (!raw || typeof raw !== 'object') continue;
+        const axis = RELATIONSHIP_KEYS.includes(String(raw.axis || '').trim().toLowerCase()) ? String(raw.axis).trim().toLowerCase() : '';
+        const polarity = normalizeMilestonePolarity(raw.polarity);
+        const threshold = Number(raw.threshold);
+        if (!axis || !polarity || !RELATIONSHIP_MILESTONE_THRESHOLDS.includes(threshold)) continue;
+        const entry = {
+            axis,
+            polarity,
+            threshold,
+            reason: cleanText(raw.reason, 300) || 'Relationship depth established.',
+            sourceMessageId: Number.isInteger(raw.sourceMessageId) ? raw.sourceMessageId : null,
+            turn: Number.isFinite(Number(raw.turn)) ? Number(raw.turn) : null,
+            inferred: Boolean(raw.inferred),
+        };
+        map.set(milestoneIdentity(entry), entry);
+    }
+    if (inferFromRelationship) {
+        for (const entry of inferredMilestoneEntries(relationship)) {
+            const key = milestoneIdentity(entry);
+            if (!map.has(key)) map.set(key, entry);
+        }
+    }
+    return [...map.values()]
+        .sort((a, b) => RELATIONSHIP_KEYS.indexOf(a.axis) - RELATIONSHIP_KEYS.indexOf(b.axis)
+            || a.polarity - b.polarity
+            || a.threshold - b.threshold)
+        .slice(0, RELATIONSHIP_MILESTONE_LIMIT);
+}
+
+export function relationshipMilestoneUnlocked(milestones, axis, polarity, threshold) {
+    const normalized = normalizeRelationshipMilestones(milestones, DEFAULT_RELATIONSHIP, { inferFromRelationship: false });
+    const key = String(axis || '').trim().toLowerCase();
+    const sign = normalizeMilestonePolarity(polarity);
+    const point = Number(threshold);
+    return normalized.some(entry => entry.axis === key && entry.polarity === sign && entry.threshold === point);
+}
+
+export function inferManualRelationshipMilestones(milestones, relationship, reason = 'Manual dossier adjustment established this relationship depth.', sourceMessageId = null, turn = null) {
+    const map = new Map(normalizeRelationshipMilestones(milestones, relationship).map(entry => [milestoneIdentity(entry), entry]));
+    for (const entry of inferredMilestoneEntries(relationship, { includeBoundary: true, reason })) {
+        entry.inferred = false;
+        entry.sourceMessageId = Number.isInteger(sourceMessageId) ? sourceMessageId : null;
+        entry.turn = Number.isFinite(Number(turn)) ? Number(turn) : null;
+        map.set(milestoneIdentity(entry), entry);
+    }
+    return normalizeRelationshipMilestones([...map.values()], relationship, { inferFromRelationship: false });
+}
+
+export function applyRelationshipMilestoneCrossings(milestones, crossings = [], { reason = '', sourceMessageId = null, turn = null } = {}) {
+    const map = new Map(normalizeRelationshipMilestones(milestones, DEFAULT_RELATIONSHIP, { inferFromRelationship: false }).map(entry => [milestoneIdentity(entry), entry]));
+    for (const raw of Array.isArray(crossings) ? crossings : []) {
+        const axis = RELATIONSHIP_KEYS.includes(String(raw?.axis || '').trim().toLowerCase()) ? String(raw.axis).trim().toLowerCase() : '';
+        const polarity = normalizeMilestonePolarity(raw?.polarity);
+        const threshold = Number(raw?.threshold);
+        if (!axis || !polarity || !RELATIONSHIP_MILESTONE_THRESHOLDS.includes(threshold)) continue;
+        const entry = {
+            axis,
+            polarity,
+            threshold,
+            reason: cleanText(reason || raw.reason, 300) || `Relationship crossed the ${polarity > 0 ? '+' : '-'}${threshold} ${axis} milestone.`,
+            sourceMessageId: Number.isInteger(sourceMessageId) ? sourceMessageId : null,
+            turn: Number.isFinite(Number(turn)) ? Number(turn) : null,
+            inferred: false,
+        };
+        map.set(milestoneIdentity(entry), entry);
+    }
+    return normalizeRelationshipMilestones([...map.values()], DEFAULT_RELATIONSHIP, { inferFromRelationship: false });
+}
+
 function relationshipInertiaFactor(currentValue, proposedDelta, impact = 'ordinary') {
     const current = Number(currentValue) || 0;
     const delta = Number(proposedDelta) || 0;
@@ -336,9 +485,10 @@ function selectRelationshipAxes(delta, axisLimit) {
     return new Set([...above, ...acceptedTied].map(item => item.key));
 }
 
-export function applyRelationshipDelta(current, proposedDelta, impact, caps = DEFAULT_RELATIONSHIP_CAPS, progress = DEFAULT_RELATIONSHIP_PROGRESS) {
+export function applyRelationshipDelta(current, proposedDelta, impact, caps = DEFAULT_RELATIONSHIP_CAPS, progress = DEFAULT_RELATIONSHIP_PROGRESS, milestones = []) {
     const baseline = normalizeRelationshipBaseline(current || DEFAULT_RELATIONSHIP);
     const priorProgress = normalizeRelationshipProgress(progress);
+    const establishedMilestones = normalizeRelationshipMilestones(milestones, baseline);
     const delta = normalizeRelationshipDelta(proposedDelta);
     const hasDelta = RELATIONSHIP_KEYS.some(key => delta[key] !== 0);
     const level = normalizeRelationshipImpact(impact, hasDelta);
@@ -350,25 +500,121 @@ export function applyRelationshipDelta(current, proposedDelta, impact, caps = DE
     const evidenceDelta = {};
     const relationship = {};
     const relationshipProgress = {};
+    const milestoneCrossings = [];
+    const milestoneBlocks = [];
+
     for (const key of RELATIONSHIP_KEYS) {
         const capped = allowedAxes.has(key) ? Math.max(-cap, Math.min(cap, delta[key])) : 0;
         const factor = relationshipInertiaFactor(baseline[key], capped, level);
         const weighted = capped * factor;
-        const accumulated = priorProgress[key] + weighted;
+        let accumulated = priorProgress[key] + weighted;
+        const baselineValue = baseline[key];
+        const proposedPolarity = Math.sign(capped);
+        const baselinePolarity = Math.sign(baselineValue);
+        const deepeningSamePolarity = Boolean(capped)
+            && (baselinePolarity === 0 || baselinePolarity === proposedPolarity)
+            && Math.abs(baselineValue + accumulated) >= Math.abs(baselineValue);
+
+        // Sitting exactly on a locked checkpoint never banks outward fractional evidence.
+        // A qualifying event may cross it immediately; otherwise the attempted outward
+        // evidence is acknowledged but cannot accumulate behind the gate.
+        if (deepeningSamePolarity && baselinePolarity === proposedPolarity) {
+            const lockedBoundary = RELATIONSHIP_MILESTONE_THRESHOLDS.find(threshold =>
+                Math.abs(baselineValue) === threshold
+                && !relationshipMilestoneUnlocked(establishedMilestones, key, proposedPolarity, threshold));
+            if (lockedBoundary) {
+                if (!relationshipMilestoneEventQualifies(level, lockedBoundary, capped, cap)) {
+                    accumulated = 0;
+                    milestoneBlocks.push({
+                        axis: key,
+                        polarity: proposedPolarity,
+                        threshold: lockedBoundary,
+                        requiredImpact: relationshipMilestoneRequirement(lockedBoundary),
+                        requiredRaw: relationshipMilestoneRawRequirement(lockedBoundary, cap),
+                    });
+                } else if (!milestoneCrossings.some(entry => entry.axis === key && entry.polarity === proposedPolarity && entry.threshold === lockedBoundary)) {
+                    // The qualifying event itself opens a checkpoint even when inertia leaves
+                    // less than one whole visible point on this turn.
+                    milestoneCrossings.push({ axis: key, polarity: proposedPolarity, threshold: lockedBoundary, requiredImpact: relationshipMilestoneRequirement(lockedBoundary) });
+                }
+            }
+        }
+
         let whole = Math.trunc(accumulated);
-        const nextValue = Math.round(clamp(baseline[key] + whole, -100, 100));
-        whole = nextValue - baseline[key];
+        let nextValue = Math.round(clamp(baselineValue + whole, -100, 100));
+        let blockedAt = null;
+
+        if (capped && Math.abs(nextValue) >= Math.abs(baselineValue)) {
+            const movementPolarity = Math.sign(nextValue) || proposedPolarity;
+            const baselineMagnitude = baselinePolarity === movementPolarity ? Math.abs(baselineValue) : 0;
+            const reachedMagnitude = Math.abs(nextValue);
+            for (const threshold of RELATIONSHIP_MILESTONE_THRESHOLDS) {
+                if (!(baselineMagnitude < threshold && reachedMagnitude === threshold)) continue;
+                if (relationshipMilestoneUnlocked(establishedMilestones, key, movementPolarity, threshold)) continue;
+                if (!relationshipMilestoneEventQualifies(level, threshold, capped, cap)) continue;
+                if (!milestoneCrossings.some(entry => entry.axis === key && entry.polarity === movementPolarity && entry.threshold === threshold)) {
+                    milestoneCrossings.push({ axis: key, polarity: movementPolarity, threshold, requiredImpact: relationshipMilestoneRequirement(threshold) });
+                }
+            }
+        }
+
+        if (capped && Math.abs(nextValue) > Math.abs(baselineValue)) {
+            const movementPolarity = Math.sign(nextValue) || proposedPolarity;
+            const lowMagnitude = baselinePolarity === movementPolarity ? Math.abs(baselineValue) : 0;
+            const highMagnitude = Math.abs(nextValue);
+            for (const threshold of RELATIONSHIP_MILESTONE_THRESHOLDS) {
+                if (!(lowMagnitude <= threshold && highMagnitude > threshold)) continue;
+                if (relationshipMilestoneUnlocked(establishedMilestones, key, movementPolarity, threshold)) continue;
+                if (relationshipMilestoneEventQualifies(level, threshold, capped, cap)) {
+                    milestoneCrossings.push({ axis: key, polarity: movementPolarity, threshold, requiredImpact: relationshipMilestoneRequirement(threshold) });
+                    continue;
+                }
+                blockedAt = threshold;
+                milestoneBlocks.push({
+                    axis: key,
+                    polarity: movementPolarity,
+                    threshold,
+                    requiredImpact: relationshipMilestoneRequirement(threshold),
+                    requiredRaw: relationshipMilestoneRawRequirement(threshold, cap),
+                });
+                nextValue = movementPolarity * threshold;
+                break;
+            }
+        }
+
+        whole = nextValue - baselineValue;
         let remainder = accumulated - whole;
+        const finalPolarity = Math.sign(nextValue);
+        const finalMagnitude = Math.abs(nextValue);
+        const lockedFinalBoundary = finalPolarity && RELATIONSHIP_MILESTONE_THRESHOLDS.find(threshold =>
+            finalMagnitude === threshold
+            && !relationshipMilestoneUnlocked(establishedMilestones, key, finalPolarity, threshold)
+            && !milestoneCrossings.some(entry => entry.axis === key && entry.polarity === finalPolarity && entry.threshold === threshold));
+        if (blockedAt || (lockedFinalBoundary && Math.sign(remainder) === finalPolarity)) remainder = 0;
         if ((nextValue >= 100 && remainder > 0) || (nextValue <= -100 && remainder < 0)) remainder = 0;
         if (Math.abs(remainder) < 0.000001) remainder = 0;
+
         appliedDelta[key] = whole;
         evidenceDelta[key] = Number(weighted.toFixed(6));
         relationship[key] = nextValue;
         relationshipProgress[key] = Number(Math.max(-0.999999, Math.min(0.999999, remainder)).toFixed(6));
     }
+
     const evidenceAccepted = RELATIONSHIP_KEYS.some(key => evidenceDelta[key] !== 0);
     const progressChanged = RELATIONSHIP_KEYS.some(key => relationshipProgress[key] !== priorProgress[key]);
-    return { relationship, relationshipProgress, appliedDelta, evidenceDelta, evidenceAccepted, progressChanged, impact: level, cap, axisLimit };
+    return {
+        relationship,
+        relationshipProgress,
+        appliedDelta,
+        evidenceDelta,
+        evidenceAccepted,
+        progressChanged,
+        milestoneCrossings,
+        milestoneBlocks,
+        impact: level,
+        cap,
+        axisLimit,
+    };
 }
 
 function relationshipReasonSimilarity(a, b) {
@@ -467,23 +713,41 @@ export function relationshipChangeReasonGrounded(reason, context = '') {
     return durableSeedGrounded(explanation, source);
 }
 
-function relationshipSummaryHasUnsupportedClaims(value, relationship = DEFAULT_RELATIONSHIP) {
+function relationshipSummaryHasUnsupportedClaims(value, relationship = DEFAULT_RELATIONSHIP, milestones = null) {
     const text = String(value || '').trim();
     if (!text) return false;
     const rel = normalizeRelationshipBaseline(relationship || DEFAULT_RELATIONSHIP);
     const positiveStrength = Math.max(0, rel.trust, rel.affection, rel.desire);
+    const milestoneState = normalizeRelationshipMilestones(
+        milestones,
+        rel,
+        { inferFromRelationship: milestones == null },
+    );
+    const unlocked = (axis, polarity, threshold) => relationshipMilestoneUnlocked(milestoneState, axis, polarity, threshold);
     const desireClaims = /\b(madly in love|in love|romantic|romance|sexually|sexual attraction|lust|desire[sd]?|intimate attraction|physically attracted|yearns? for|wants? (?:him|her|them|the player) physically)\b/i;
     const tropeClaims = /\b(possessive|jealous|obsessive|obsessed|would kill|kill anyone|belongs to (?:him|her|them|the player)|cannot bear (?:him|her|them|the player) with|unconditionally devoted|utterly devoted)\b/i;
     const absoluteClaims = /\b(indispensable|everything to (?:her|him|them)|cannot live without|can't live without|completely dependent|utterly dependent)\b/i;
+    const deepTrustClaims = /\b(deep(?:est)? trust|deeply trusts?|profound trust|unwavering trust|unquestion(?:ing|ed) trust|complete trust|implicit trust|central to (?:her|his|their) (?:deepest )?trust)\b/i;
+    const exceptionalTrustClaims = /\b(absolute trust|unbreakable trust|trusts? (?:him|her|them|the player) with (?:her|his|their) life|trusts? (?:him|her|them|the player) without reservation)\b/i;
+    const deepAffectionClaims = /\b(deep affection|deeply attached|profound attachment|central to (?:her|his|their) life|one of (?:her|his|their) most important people)\b/i;
+    const exceptionalAffectionClaims = /\b(inseparable|irreplaceable|life-defining bond|devoted to (?:him|her|them|the player))\b/i;
+    const deepDistrustClaims = /\b(deep distrust|profound distrust|deeply distrusts?|cannot trust (?:him|her|them|the player) at all)\b/i;
+    const deepDislikeClaims = /\b(deep hatred|profound hatred|deep resentment|utterly hates?)\b/i;
     if (rel.desire < 30 && desireClaims.test(text)) return true;
     if (tropeClaims.test(text)) return true;
     if (positiveStrength < 70 && absoluteClaims.test(text)) return true;
+    if (deepTrustClaims.test(text) && !unlocked('trust', 1, 50)) return true;
+    if (exceptionalTrustClaims.test(text) && !unlocked('trust', 1, 75)) return true;
+    if (deepAffectionClaims.test(text) && !unlocked('affection', 1, 50)) return true;
+    if (exceptionalAffectionClaims.test(text) && !unlocked('affection', 1, 75)) return true;
+    if (deepDistrustClaims.test(text) && !unlocked('trust', -1, 50)) return true;
+    if (deepDislikeClaims.test(text) && !unlocked('affection', -1, 50)) return true;
     return false;
 }
 
-export function relationshipSummaryConsistent(value, relationship = DEFAULT_RELATIONSHIP, context = '') {
+export function relationshipSummaryConsistent(value, relationship = DEFAULT_RELATIONSHIP, context = '', milestones = null) {
     const summary = compactDurableText(value, DURABLE_PROFILE_LIMITS.relationshipSummary, 6);
-    if (!summary || relationshipSummaryHasUnsupportedClaims(summary, relationship)) return false;
+    if (!summary || relationshipSummaryHasUnsupportedClaims(summary, relationship, milestones)) return false;
     const source = String(context || '').trim();
     if (!source) return true;
     return durableSeedGrounded(summary, source) || durableSemanticSimilarity(summary, source) >= 0.24;
@@ -2411,6 +2675,7 @@ export function normalizeNpcRecord(raw = {}) {
     const relationship = raw.relationship && typeof raw.relationship === 'object' ? raw.relationship : {};
     npc.relationship = normalizeRelationshipBaseline(relationship);
     npc.relationshipProgress = normalizeRelationshipProgress(raw.relationshipProgress ?? raw.relationship_progress);
+    npc.relationshipMilestones = normalizeRelationshipMilestones(raw.relationshipMilestones ?? raw.relationship_milestones, npc.relationship);
     npc.relationshipEventHistory = normalizeRelationshipEventHistory(raw.relationshipEventHistory ?? raw.relationship_event_history);
     npc.relationshipSummary = calibrateRelationshipSummary(npc.relationshipSummary, npc.relationship);
     const lastChange = raw.lastRelationshipChange && typeof raw.lastRelationshipChange === 'object' ? raw.lastRelationshipChange : {};
@@ -2502,6 +2767,7 @@ export function createNpcRecord(name, existingIds = [], baseline = DEFAULT_RELAT
         archiveSourceMessageId: null,
         relationship: normalizeRelationshipBaseline(baseline),
         relationshipProgress: normalizeRelationshipProgress(),
+        relationshipMilestones: [],
         relationshipEventHistory: [],
         lastRelationshipChange: { impact: 'none', delta: { trust: 0, affection: 0, desire: 0, tension: 0 }, evidence: normalizeRelationshipEvidence(), reason: '', sourceMessageId: null },
         portrait: null,
@@ -2923,6 +3189,7 @@ function applyIncoming(existing, incoming, turn, relationshipCaps = DEFAULT_RELA
     }
     merged.importance = Number.isFinite(Number(existing.importance)) ? clamp(existing.importance) : 50;
     let relationshipEventAccepted = false;
+    let relationshipNarrativeAdvance = false;
     if (!lifecycleOptions.skipRelationshipUpdate) {
         let proposedRelationshipDelta = incoming.relationshipDelta;
         let proposedRelationshipImpact = incoming.relationshipImpact;
@@ -2959,11 +3226,28 @@ function applyIncoming(existing, incoming, turn, relationshipCaps = DEFAULT_RELA
             proposedRelationshipImpact,
             relationshipCaps,
             existing.relationshipProgress || DEFAULT_RELATIONSHIP_PROGRESS,
+            existing.relationshipMilestones || [],
         );
         merged.relationship = relationshipUpdate.relationship;
         merged.relationshipProgress = relationshipUpdate.relationshipProgress;
+        merged.relationshipMilestones = applyRelationshipMilestoneCrossings(
+            existing.relationshipMilestones,
+            relationshipUpdate.milestoneCrossings,
+            {
+                reason: incoming.relationshipChangeReason || '',
+                sourceMessageId: Number.isInteger(sourceMessageId) ? sourceMessageId : null,
+                turn: Number.isFinite(Number(turn)) ? Number(turn) : null,
+            },
+        );
         relationshipEventAccepted = relationshipUpdate.evidenceAccepted;
         const relationshipActuallyChanged = RELATIONSHIP_KEYS.some(key => relationshipUpdate.appliedDelta[key] !== 0);
+        const relationshipStateAdvanced = relationshipActuallyChanged
+            || relationshipUpdate.progressChanged
+            || relationshipUpdate.milestoneCrossings.length > 0;
+        relationshipNarrativeAdvance = relationshipEventAccepted && (
+            relationshipStateAdvanced
+            || relationshipUpdate.milestoneBlocks.length === 0
+        );
         if (relationshipEventAccepted) {
             const event = {
                 impact: relationshipUpdate.impact,
@@ -2973,8 +3257,10 @@ function applyIncoming(existing, incoming, turn, relationshipCaps = DEFAULT_RELA
                 sourceMessageId: Number.isInteger(sourceMessageId) ? sourceMessageId : null,
                 turn: Number.isFinite(Number(turn)) ? Number(turn) : null,
             };
-            merged.lastRelationshipChange = event;
             merged.relationshipEventHistory = appendRelationshipEvent(existing.relationshipEventHistory, event);
+            merged.lastRelationshipChange = relationshipStateAdvanced
+                ? event
+                : structuredClone(existing.lastRelationshipChange || { impact: 'none', delta: { trust: 0, affection: 0, desire: 0, tension: 0 }, evidence: normalizeRelationshipEvidence(), reason: '', sourceMessageId: null });
         } else {
             merged.lastRelationshipChange = structuredClone(existing.lastRelationshipChange || { impact: 'none', delta: { trust: 0, affection: 0, desire: 0, tension: 0 }, evidence: normalizeRelationshipEvidence(), reason: '', sourceMessageId: null });
             merged.relationshipEventHistory = normalizeRelationshipEventHistory(existing.relationshipEventHistory);
@@ -2983,6 +3269,7 @@ function applyIncoming(existing, incoming, turn, relationshipCaps = DEFAULT_RELA
     } else {
         merged.relationship = normalizeRelationshipBaseline(existing.relationship || DEFAULT_RELATIONSHIP);
         merged.relationshipProgress = normalizeRelationshipProgress(existing.relationshipProgress);
+        merged.relationshipMilestones = normalizeRelationshipMilestones(existing.relationshipMilestones, merged.relationship);
         merged.relationshipEventHistory = normalizeRelationshipEventHistory(existing.relationshipEventHistory);
         merged.lastRelationshipChange = structuredClone(existing.lastRelationshipChange || { impact: 'none', delta: { trust: 0, affection: 0, desire: 0, tension: 0 }, evidence: normalizeRelationshipEvidence(), reason: '', sourceMessageId: null });
     }
@@ -2994,10 +3281,10 @@ function applyIncoming(existing, incoming, turn, relationshipCaps = DEFAULT_RELA
         const proposedSummary = cleanText(incoming.relationshipSummary, DURABLE_PROFILE_LIMITS.relationshipSummary);
         const mayInitialize = !String(existing.relationshipSummary || '').trim()
             && proposedSummary
-            && relationshipSummaryConsistent(proposedSummary, merged.relationship, lifecycleOptions.developmentContext);
-        const mayUpdate = relationshipEventAccepted
+            && relationshipSummaryConsistent(proposedSummary, merged.relationship, lifecycleOptions.developmentContext, merged.relationshipMilestones);
+        const mayUpdate = relationshipNarrativeAdvance
             && proposedSummary
-            && relationshipSummaryConsistent(proposedSummary, merged.relationship, lifecycleOptions.developmentContext);
+            && relationshipSummaryConsistent(proposedSummary, merged.relationship, lifecycleOptions.developmentContext, merged.relationshipMilestones);
         if (mayInitialize || mayUpdate) merged.relationshipSummary = calibrateRelationshipSummary(proposedSummary, merged.relationship);
         else merged.relationshipSummary = calibrateRelationshipSummary(existing.relationshipSummary || merged.relationshipSummary, merged.relationship);
     } else {

@@ -1,4 +1,4 @@
-/* NPC State v0.2.10 - standalone SillyTavern extension */
+/* NPC State v0.2.11 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';
 import {
@@ -26,6 +26,9 @@ import {
     normalizeRelationshipBaseline,
     normalizeRelationshipCaps,
     normalizeRelationshipProgress,
+    normalizeRelationshipMilestones,
+    inferManualRelationshipMilestones,
+    applyRelationshipMilestoneCrossings,
     normalizeRelationshipEvidence,
     normalizeRelationshipEventHistory,
     appendRelationshipEvent,
@@ -69,10 +72,17 @@ import {
     mergeImportedDossierState,
 } from './bundle.js';
 import {
+    BRANCH_LINEAGE_VERSION,
     bestAncestorState,
     chatLineage,
     fingerprintMessage,
     firstLineageDivergence,
+    lineageCheckpointKey,
+    addUserDismissedGroup,
+    clearUserDismissedGroupsFor,
+    ensureBranchParentAnchor,
+    migrateLegacyBranchState,
+    normalizeUserDismissedGroups,
     recordBranchCheckpoint,
     reconcileBranchState,
 } from './branch.js';
@@ -155,7 +165,7 @@ const PORTRAIT_THEME_PRESETS = Object.freeze({
 const DURABLE_COMPACTION_VERSION = 1;
 
 const DEFAULTS = Object.freeze({
-    schemaVersion: 22,
+    schemaVersion: 23,
     enabled: true,
     autoScan: true,
     fullScanEveryTurn: false,
@@ -271,6 +281,11 @@ function getSettings() {
         if (isLegacyStockImpactCriteriaV029(settings.relationshipImpactCriteria)) assign('relationshipImpactCriteria', DEFAULT_IMPACT_CRITERIA);
         if (isLegacyStockBehaviorCriteriaV029(settings.behaviorCriteria)) assign('behaviorCriteria', DEFAULT_BEHAVIOR_CRITERIA);
     }
+    if (previousSchema < 23) {
+        // v0.2.11 stores directional relationship milestone history and exact sibling-swipe
+        // checkpoints in per-chat state. NPC/chat normalization performs the data migration;
+        // no user-tuned relationship settings are rewritten here.
+    }
 
     // Canonicalize every current setting. This also repairs malformed values from
     // hand-edited settings without requiring a future schema bump.
@@ -330,14 +345,23 @@ function freshChatState() {
         portraitAssets: {},
         checkpoints: [],
         lineage: [],
+        branchLineageVersion: BRANCH_LINEAGE_VERSION,
         branchParent: null,
         branchForkMessageId: null,
+        branchRootSnapshot: null,
+        userDismissedGroups: [],
         durableCompactionVersion: DURABLE_COMPACTION_VERSION,
     };
 }
 
 function normalizeChatState(raw = {}) {
     const state = { ...freshChatState(), ...(raw && typeof raw === 'object' ? structuredClone(raw) : {}) };
+    const hasLegacyBranchData = raw && typeof raw === 'object'
+        && !Object.prototype.hasOwnProperty.call(raw, 'branchLineageVersion')
+        && ((Array.isArray(raw.lineage) && raw.lineage.length) || (Array.isArray(raw.checkpoints) && raw.checkpoints.length));
+    state.branchLineageVersion = hasLegacyBranchData
+        ? 0
+        : Math.max(0, Number(state.branchLineageVersion || 0));
     state.npcs = Array.isArray(state.npcs) ? state.npcs.map(normalizeNpcRecord) : [];
     state.candidates = Array.isArray(state.candidates) ? state.candidates.map(normalizeNpcCandidate).filter(Boolean) : [];
     state.pendingBackfills = Array.isArray(state.pendingBackfills) ? state.pendingBackfills.map(item => ({
@@ -347,6 +371,7 @@ function normalizeChatState(raw = {}) {
         requestedAt: Number(item?.requestedAt || 0) || Date.now(),
     })).filter(item => item.npcId && item.label) : [];
     state.dismissed = Array.isArray(state.dismissed) ? [...state.dismissed] : [];
+    state.userDismissedGroups = normalizeUserDismissedGroups(state.userDismissedGroups);
     state.inlineCards = Array.isArray(state.inlineCards) ? state.inlineCards.map(entry => ({
         ...entry,
         cards: Array.isArray(entry?.cards) ? entry.cards.map(card => normalizeNpcRecord(card)) : [],
@@ -359,6 +384,14 @@ function normalizeChatState(raw = {}) {
         snapshot.candidates = Array.isArray(snapshot.candidates) ? snapshot.candidates.map(normalizeNpcCandidate).filter(Boolean) : [];
         return { ...checkpoint, snapshot };
     }).filter(Boolean) : [];
+    if (state.branchRootSnapshot && typeof state.branchRootSnapshot === 'object') {
+        const root = { ...state.branchRootSnapshot };
+        root.npcs = Array.isArray(root.npcs) ? root.npcs.map(normalizeNpcRecord) : [];
+        root.candidates = Array.isArray(root.candidates) ? root.candidates.map(normalizeNpcCandidate).filter(Boolean) : [];
+        state.branchRootSnapshot = root;
+    } else {
+        state.branchRootSnapshot = null;
+    }
     state.lineage = Array.isArray(state.lineage) ? state.lineage : [];
     state.durableCompactionVersion = DURABLE_COMPACTION_VERSION;
     for (const npc of state.npcs) {
@@ -532,7 +565,12 @@ function commitBranchCheckpoint(state, messageId, reason = 'state') {
 }
 
 function seedBranchTracking(state = getChatState()) {
-    const lineage = chatLineage(getContext().chat || []);
+    const chat = getContext().chat || [];
+    if (Number(state?.branchLineageVersion || 0) < BRANCH_LINEAGE_VERSION) {
+        migrateLegacyBranchState(state, chat);
+        return state;
+    }
+    const lineage = chatLineage(chat);
     if (!Array.isArray(state.lineage) || state.lineage.length === 0) state.lineage = lineage;
     if (!Array.isArray(state.checkpoints)) state.checkpoints = [];
     return state;
@@ -612,7 +650,8 @@ function queueSettledSwipeReconcile(options = {}) {
         deferredSwipeMessageId = null;
 
         try {
-            await reconcileCurrentBranch({ ...pending, rescan: false, reason: `${pending.reason || 'message-swiped'}-settled` });
+            const reconciliation = await reconcileCurrentBranch({ ...pending, rescan: false, reason: `${pending.reason || 'message-swiped'}-settled` });
+            if (reconciliation?.exactRestored) return;
             const chat = getContext().chat || [];
             const received = Number.isInteger(receivedMessageId) ? chat[receivedMessageId] : null;
             if (received && !received.is_user && !received.is_system && String(received.mes || '').trim()) {
@@ -676,7 +715,7 @@ async function reconcileCurrentBranch({ explicitDivergence = null, rescan = true
     }
 
     const targetAssistant = findLatestAssistantAtOrAfter(result.divergence);
-    if (rescan && getSettings().branchRescan !== false && targetAssistant >= 0) {
+    if (rescan && !result.exactRestored && getSettings().branchRescan !== false && targetAssistant >= 0) {
         if (scanBusy) queueBranchRescan(targetAssistant);
         else await scanNow({ manual: false, messageId: targetAssistant });
     }
@@ -1614,16 +1653,34 @@ function applyFocusedRelationshipDecisions(state, decisions, caps, sourceMessage
             validReason ? decision.relationshipImpact : 'none',
             caps,
             npc.relationshipProgress,
+            npc.relationshipMilestones,
         );
         npc.relationship = update.relationship;
         npc.relationshipProgress = update.relationshipProgress;
+        npc.relationshipMilestones = applyRelationshipMilestoneCrossings(
+            npc.relationshipMilestones,
+            update.milestoneCrossings,
+            {
+                reason: decision.relationshipChangeReason || '',
+                sourceMessageId: Number.isInteger(sourceMessageId) ? sourceMessageId : null,
+                turn: Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
+            },
+        );
         const eventAccepted = Boolean(validReason && update.evidenceAccepted);
+        const relationshipActuallyChanged = Object.values(update.appliedDelta || {}).some(value => Number(value) !== 0);
+        const relationshipStateAdvanced = relationshipActuallyChanged
+            || update.progressChanged
+            || update.milestoneCrossings.length > 0;
+        const narrativeAdvance = eventAccepted && (
+            relationshipStateAdvanced
+            || update.milestoneBlocks.length === 0
+        );
         let summaryChanged = false;
-        if (eventAccepted
+        if (narrativeAdvance
             && decision.relationshipSummaryDecisionProvided
             && !(Array.isArray(npc.manualProfileFields) && npc.manualProfileFields.includes('relationshipSummary'))) {
             const proposedSummary = String(decision.relationshipSummary || '').trim().slice(0, 700);
-            if (relationshipSummaryConsistent(proposedSummary, npc.relationship)) {
+            if (relationshipSummaryConsistent(proposedSummary, npc.relationship, '', npc.relationshipMilestones)) {
                 const calibrated = calibrateRelationshipSummary(proposedSummary, npc.relationship);
                 if (calibrated && calibrated !== String(npc.relationshipSummary || '').trim()) {
                     npc.relationshipSummary = calibrated;
@@ -1640,8 +1697,8 @@ function applyFocusedRelationshipDecisions(state, decisions, caps, sourceMessage
                 sourceMessageId: Number.isInteger(sourceMessageId) ? sourceMessageId : null,
                 turn: Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
             };
-            npc.lastRelationshipChange = event;
             npc.relationshipEventHistory = appendRelationshipEvent(npc.relationshipEventHistory, event);
+            if (relationshipStateAdvanced) npc.lastRelationshipChange = event;
         } else {
             npc.relationshipEventHistory = normalizeRelationshipEventHistory(npc.relationshipEventHistory);
         }
@@ -2125,6 +2182,23 @@ function snapshotNpc(npc) {
     };
 }
 
+function currentLineageKeyForMessage(messageId) {
+    const lineage = chatLineage(getContext().chat || []);
+    return lineageCheckpointKey(lineage, messageId);
+}
+
+function clearUserDismissedSuppression(state, target) {
+    if (!state || typeof state !== 'object') return state;
+    const cleared = clearUserDismissedGroupsFor(state.userDismissedGroups, target);
+    state.userDismissedGroups = cleared.groups;
+    if (cleared.removedLabels.length) {
+        const removed = new Set(cleared.removedLabels.map(normalizeName).filter(Boolean));
+        state.dismissed = (Array.isArray(state.dismissed) ? state.dismissed : [])
+            .filter(label => !removed.has(normalizeName(label)));
+    }
+    return state;
+}
+
 function recordInlineCardsInState(state, messageId, npcIds, reason = 'scan') {
     if (!Number.isInteger(messageId) || messageId < 0) return state;
     if (!Array.isArray(state.inlineCards)) state.inlineCards = [];
@@ -2132,12 +2206,15 @@ function recordInlineCardsInState(state, messageId, npcIds, reason = 'scan') {
     const cards = ids.map(id => state.npcs.find(npc => npc.id === id)).filter(Boolean).map(snapshotNpc);
     if (!cards.length) return state;
     const messageFingerprint = fingerprintMessage((getContext().chat || [])[messageId] || {});
-    let entry = state.inlineCards.find(item => item.messageId === messageId);
+    const lineageKey = currentLineageKeyForMessage(messageId);
+    let entry = state.inlineCards.find(item => lineageKey && item.lineageKey === lineageKey);
     if (!entry) {
-        entry = { messageId, fingerprint: messageFingerprint, reason, createdAt: Date.now(), cards: [] };
+        entry = { messageId, fingerprint: messageFingerprint, lineageKey, reason, createdAt: Date.now(), cards: [] };
         state.inlineCards.push(entry);
     }
+    entry.messageId = messageId;
     entry.fingerprint = messageFingerprint;
+    entry.lineageKey = lineageKey;
     entry.reason = reason || entry.reason;
     entry.createdAt = Date.now();
     for (const card of cards) {
@@ -2145,21 +2222,29 @@ function recordInlineCardsInState(state, messageId, npcIds, reason = 'scan') {
         if (index >= 0) entry.cards[index] = card;
         else entry.cards.push(card);
     }
-    state.inlineCards.sort((a, b) => Number(a.messageId) - Number(b.messageId));
+    state.inlineCards.sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
     if (state.inlineCards.length > INLINE_HISTORY_LIMIT) state.inlineCards.splice(0, state.inlineCards.length - INLINE_HISTORY_LIMIT);
     return state;
 }
 
 function clearInlineCardsAtMessage(state, messageId) {
     if (!Array.isArray(state.inlineCards)) state.inlineCards = [];
-    state.inlineCards = state.inlineCards.filter(entry => Number(entry?.messageId) !== Number(messageId));
+    const lineageKey = currentLineageKeyForMessage(messageId);
+    state.inlineCards = state.inlineCards.filter(entry => {
+        if (lineageKey && entry?.lineageKey) return entry.lineageKey !== lineageKey;
+        return !(Number(entry?.messageId) === Number(messageId) && entry?.fingerprint === fingerprintMessage((getContext().chat || [])[messageId] || {}));
+    });
     return state;
 }
 
 function removeNpcInlineCardAtMessage(state, messageId, npcId) {
     if (!Array.isArray(state.inlineCards) || !Number.isInteger(messageId) || messageId < 0 || !npcId) return state;
+    const lineageKey = currentLineageKeyForMessage(messageId);
     state.inlineCards = state.inlineCards.map(entry => {
-        if (Number(entry?.messageId) !== Number(messageId)) return entry;
+        const matches = lineageKey && entry?.lineageKey
+            ? entry.lineageKey === lineageKey
+            : Number(entry?.messageId) === Number(messageId);
+        if (!matches) return entry;
         return { ...entry, cards: (entry.cards || []).filter(card => card.id !== npcId) };
     }).filter(entry => (entry.cards || []).length);
     return state;
@@ -3361,6 +3446,13 @@ function saveNpcEditor(npcId, { close = true, silent = false } = {}) {
         const progress = normalizeRelationshipProgress(current.relationshipProgress);
         for (const key of ['trust', 'affection', 'desire', 'tension']) if (relationshipDelta[key] !== 0) progress[key] = 0;
         next.relationshipProgress = progress;
+        next.relationshipMilestones = inferManualRelationshipMilestones(
+            current.relationshipMilestones,
+            next.relationship,
+            'Manual dossier adjustment established this relationship depth.',
+            latestMessageId(false),
+            Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
+        );
         next.lastRelationshipChange = {
             impact: 'manual',
             delta: relationshipDelta,
@@ -3421,6 +3513,7 @@ function deleteNpcById(npcId, { confirmAction = true } = {}) {
     });
     const working = result.state;
     if (result.report.status !== 'removed') return false;
+    working.userDismissedGroups = addUserDismissedGroup(state.userDismissedGroups, current);
     purgeInlineCardsInState(working, result.report.npcId, result.report.name);
     const reportKey = normalizeName(result.report.name);
     working.pendingBackfills = (working.pendingBackfills || []).filter(item => item.npcId !== result.report.npcId && normalizeName(item.label) !== reportKey);
@@ -3588,6 +3681,9 @@ function importBundleBytes(bytes) {
         maxNpcs: settings.maxNpcs,
         excludeNames: currentExclusions(),
     });
+    for (const importedNpc of Array.isArray(decoded.state?.npcs) ? decoded.state.npcs : []) {
+        clearUserDismissedSuppression(merged, importedNpc);
+    }
     if (!merged.portraitAssets || typeof merged.portraitAssets !== 'object') merged.portraitAssets = {};
     for (const npc of merged.npcs) if (npc.portrait?.dataUrl) merged.portraitAssets[npc.id] = structuredClone(npc.portrait);
     const targetMessageId = latestMessageId(false);
@@ -3767,6 +3863,7 @@ function bindUi() {
         });
         if (result.report.status === 'excluded') return globalThis.toastr?.warning?.('NPC State: player/main character cannot be added as an NPC.');
         if (result.report.status === 'full') return globalThis.toastr?.warning?.(`NPC State: active roster cap is ${settings.maxNpcs}. Archived dossiers do not count.`);
+        if (['added', 'exists', 'restored'].includes(result.report.status)) clearUserDismissedSuppression(result.state, name);
         const targetMessageId = latestMessageId(false);
         if (targetMessageId >= 0) commitBranchCheckpoint(result.state, targetMessageId, 'manual-add');
         setChatState(getChatKey(), result.state);
@@ -3873,6 +3970,7 @@ function processOocCommands(messageId = null) {
     const commands = parseOocNpcStateCommands(message.mes || '');
     if (!commands.length) return [];
 
+    ensureBranchParentAnchor(state, chat, resolvedId, 'ooc-parent');
     let working = state;
     const reports = [];
     for (const command of commands) {
@@ -3885,6 +3983,7 @@ function processOocCommands(messageId = null) {
         working = result.state;
         reports.push(result.report);
         if (command.action === 'add' && ['added', 'exists', 'restored'].includes(result.report.status) && result.report.npcId) {
+            clearUserDismissedSuppression(working, command.name || result.report.name);
             queueNpcBackfillInState(working, result.report.npcId, command.name || result.report.name, resolvedId);
         }
     }
@@ -3933,6 +4032,7 @@ async function handleAssistantMessageReceived(messageId, { bypassSwipeGuard = fa
 
     const state = getChatState();
     if (state.lastScannedMessageId === messageId && !forceBranchRescan) return;
+    if (Number.isInteger(messageId)) ensureBranchParentAnchor(state, getContext().chat || [], messageId, 'assistant-parent');
     state.turn = Number(state.turn || 0) + 1;
     const receivedMessage = Number.isInteger(messageId) ? getContext().chat?.[messageId] : null;
     const compactWorldStateTurn = hasCompactMeguminWorldState(receivedMessage?.mes || '');
@@ -3941,15 +4041,16 @@ async function handleAssistantMessageReceived(messageId, { bypassSwipeGuard = fa
         if (!compactWorldStateTurn) npc.worldActive = false;
     }
     state.assistantSinceScan = Number(state.assistantSinceScan || 0) + 1;
-    if (Number.isInteger(messageId)) commitBranchCheckpoint(state, messageId, 'turn');
+    const shouldForceBranchScan = forceBranchRescan && settings.branchRescan !== false;
+    const autoScanDue = settings.autoScan && (settings.fullScanEveryTurn || state.assistantSinceScan >= settings.scanEvery);
+    const scanExpected = shouldForceBranchScan || autoScanDue;
+    if (Number.isInteger(messageId) && !scanExpected) commitBranchCheckpoint(state, messageId, 'turn');
     else state.lineage = chatLineage(getContext().chat || []);
     persist();
     renderDossier();
     updateInjection();
 
-    const shouldForceBranchScan = forceBranchRescan && settings.branchRescan !== false;
-    const autoScanDue = settings.autoScan && (settings.fullScanEveryTurn || state.assistantSinceScan >= settings.scanEvery);
-    if (shouldForceBranchScan || autoScanDue) {
+    if (scanExpected) {
         await scanNow({ manual: false, messageId, allowDuringSwipe: bypassSwipeGuard });
     }
     await processPendingBackfills(messageId);

@@ -1,9 +1,10 @@
 import { normalizeName } from './core.js';
 
 export const BRANCH_HISTORY_LIMIT = 160;
+export const BRANCH_LINEAGE_VERSION = 2;
 
-function fnv1a(text) {
-    let hash = 0x811c9dc5;
+function fnv1a32(text, seed = 0x811c9dc5) {
+    let hash = seed >>> 0;
     const input = String(text ?? '');
     for (let i = 0; i < input.length; i += 1) {
         hash ^= input.charCodeAt(i);
@@ -12,7 +13,14 @@ function fnv1a(text) {
     return hash.toString(36);
 }
 
-export function fingerprintMessage(message = {}) {
+function branchHash(text) {
+    // Two independently seeded 32-bit lanes make accidental sibling-state collisions
+    // vanishingly unlikely without relying on async WebCrypto or BigInt serialization.
+    const input = String(text ?? '');
+    return `${fnv1a32(input, 0x811c9dc5)}.${fnv1a32(input, 0x9e3779b9)}`;
+}
+
+function legacyFingerprintMessageV0210(message = {}) {
     const payload = JSON.stringify({
         user: Boolean(message.is_user),
         system: Boolean(message.is_system),
@@ -20,7 +28,19 @@ export function fingerprintMessage(message = {}) {
         text: String(message.mes || ''),
         swipe: Number.isInteger(message.swipe_id) ? message.swipe_id : null,
     });
-    return fnv1a(payload);
+    return fnv1a32(payload);
+}
+
+export function fingerprintMessage(message = {}) {
+    // Branch identity is narrative-content based. SillyTavern can renumber swipe_id when
+    // an alternate is deleted, so the UI index must never be part of durable branch identity.
+    const payload = JSON.stringify({
+        user: Boolean(message.is_user),
+        system: Boolean(message.is_system),
+        name: String(message.name || ''),
+        text: String(message.mes || ''),
+    });
+    return branchHash(payload);
 }
 
 export function chatLineage(chat = []) {
@@ -40,6 +60,22 @@ export function firstLineageDivergence(previous = [], current = []) {
 export function commonPrefixLength(a = [], b = []) {
     const divergence = firstLineageDivergence(a, b);
     return divergence < 0 ? Math.min(a.length, b.length) : divergence;
+}
+
+export function lineageCheckpointKeys(lineage = []) {
+    const source = Array.isArray(lineage) ? lineage : [];
+    const keys = [];
+    let parent = 'root';
+    for (let i = 0; i < source.length; i += 1) {
+        parent = branchHash(`${parent}|${i}|${source[i]}`);
+        keys.push(parent);
+    }
+    return keys;
+}
+
+export function lineageCheckpointKey(lineage = [], messageId = -1) {
+    if (!Number.isInteger(messageId) || messageId < 0) return '';
+    return lineageCheckpointKeys(lineage)[messageId] || '';
 }
 
 function cloneNpcList(npcs) {
@@ -82,28 +118,6 @@ export function restoreSnapshotIntoState(current = {}, snapshot = null) {
     };
 }
 
-export function recordBranchCheckpoint(state, chat, messageId, reason = 'state', limit = BRANCH_HISTORY_LIMIT) {
-    if (!state || typeof state !== 'object') return state;
-    const lineage = chatLineage(chat);
-    state.lineage = lineage;
-    if (!Number.isInteger(messageId) || messageId < 0 || messageId >= lineage.length) return state;
-    if (!Array.isArray(state.checkpoints)) state.checkpoints = [];
-    const checkpoint = {
-        messageId,
-        fingerprint: lineage[messageId],
-        reason: String(reason || 'state'),
-        createdAt: Date.now(),
-        snapshot: snapshotBranchState(state),
-    };
-    const existingIndex = state.checkpoints.findIndex(item => item.messageId === messageId);
-    if (existingIndex >= 0) state.checkpoints[existingIndex] = checkpoint;
-    else state.checkpoints.push(checkpoint);
-    state.checkpoints.sort((a, b) => a.messageId - b.messageId);
-    const cap = Math.max(8, Number(limit) || BRANCH_HISTORY_LIMIT);
-    if (state.checkpoints.length > cap) state.checkpoints.splice(0, state.checkpoints.length - cap);
-    return state;
-}
-
 function npcLabels(npc) {
     return [npc?.name, ...(Array.isArray(npc?.aliases) ? npc.aliases : [])]
         .map(normalizeName)
@@ -116,13 +130,293 @@ function sameNpc(a, b) {
     return npcLabels(b).some(label => labels.has(label));
 }
 
-export function preservePortraitAssets(restoredNpcs = [], currentNpcs = []) {
+export function normalizeUserDismissedGroups(value = []) {
+    const groups = [];
+    for (const raw of Array.isArray(value) ? value : []) {
+        const labels = [...new Set((Array.isArray(raw?.labels) ? raw.labels : [raw?.primary || raw])
+            .map(normalizeName)
+            .filter(Boolean))];
+        if (!labels.length) continue;
+        const primary = normalizeName(raw?.primary) || labels[0];
+        groups.push({
+            primary,
+            labels,
+            createdAt: Number(raw?.createdAt || 0) || Date.now(),
+        });
+    }
+    return groups;
+}
+
+export function addUserDismissedGroup(groups, npc) {
+    const labels = [...new Set(npcLabels(npc))];
+    if (!labels.length) return normalizeUserDismissedGroups(groups);
+    const existing = normalizeUserDismissedGroups(groups);
+    const mergedLabels = new Set(labels);
+    const kept = [];
+    for (const group of existing) {
+        if (group.labels.some(label => mergedLabels.has(label))) {
+            for (const label of group.labels) mergedLabels.add(label);
+        } else kept.push(group);
+    }
+    kept.push({
+        primary: normalizeName(npc?.name) || labels[0],
+        labels: [...mergedLabels],
+        createdAt: Date.now(),
+    });
+    return kept;
+}
+
+export function clearUserDismissedGroupsFor(groups, target) {
+    const targetLabels = new Set(typeof target === 'string' ? [normalizeName(target)].filter(Boolean) : npcLabels(target));
+    const kept = [];
+    const removedLabels = new Set();
+    for (const group of normalizeUserDismissedGroups(groups)) {
+        if (group.labels.some(label => targetLabels.has(label))) {
+            for (const label of group.labels) removedLabels.add(label);
+        } else kept.push(group);
+    }
+    return { groups: kept, removedLabels: [...removedLabels] };
+}
+
+function enforceUserDismissals(state, groups) {
+    const normalizedGroups = normalizeUserDismissedGroups(groups);
+    const blocked = new Set(normalizedGroups.flatMap(group => group.labels));
+    state.userDismissedGroups = normalizedGroups;
+    if (!blocked.size) return state;
+    state.npcs = (Array.isArray(state.npcs) ? state.npcs : []).filter(npc => !npcLabels(npc).some(label => blocked.has(label)));
+    state.candidates = (Array.isArray(state.candidates) ? state.candidates : []).filter(candidate => !npcLabels(candidate).some(label => blocked.has(label)));
+    state.pendingBackfills = (Array.isArray(state.pendingBackfills) ? state.pendingBackfills : []).filter(item => {
+        const label = normalizeName(item?.label);
+        return !label || !blocked.has(label);
+    });
+    state.dismissed = [...new Set([...(Array.isArray(state.dismissed) ? state.dismissed : []).map(normalizeName).filter(Boolean), ...blocked])];
+    return state;
+}
+
+export function preserveUserNpcMetadata(restoredNpcs = [], currentNpcs = []) {
     const restored = cloneNpcList(restoredNpcs);
+    const globallyPreserved = [
+        'portraitPromptPositive', 'portraitPromptNegative', 'portraitPromptReplace',
+        'retentionProtected', 'minor', 'importance',
+    ];
     for (const npc of restored) {
         const current = (currentNpcs || []).find(candidate => sameNpc(npc, candidate));
+        if (!current) continue;
         if (current?.portrait?.dataUrl) npc.portrait = structuredClone(current.portrait);
+        for (const field of globallyPreserved) {
+            if (Object.prototype.hasOwnProperty.call(current, field)) npc[field] = structuredClone(current[field]);
+        }
+        if (current.manualProfileLocksExplicit) {
+            const locked = Array.isArray(current.manualProfileFields) ? [...current.manualProfileFields] : [];
+            for (const field of locked) {
+                if (Object.prototype.hasOwnProperty.call(current, field)) npc[field] = structuredClone(current[field]);
+            }
+            npc.manualProfileFields = locked;
+            npc.manualProfileLocksExplicit = true;
+            if (locked.includes('name')) npc.aliases = structuredClone(current.aliases || npc.aliases || []);
+        }
     }
     return restored;
+}
+
+// Backward-compatible export used by existing tests/callers.
+export function preservePortraitAssets(restoredNpcs = [], currentNpcs = []) {
+    return preserveUserNpcMetadata(restoredNpcs, currentNpcs);
+}
+
+function normalizeCheckpoint(checkpoint, activeLineage = []) {
+    if (!checkpoint || typeof checkpoint !== 'object' || !checkpoint.snapshot || typeof checkpoint.snapshot !== 'object') return null;
+    const messageId = Number(checkpoint.messageId);
+    if (!Number.isInteger(messageId) || messageId < 0) return null;
+    const fallbackFingerprint = activeLineage[messageId] || '';
+    const fingerprint = String(checkpoint.fingerprint || fallbackFingerprint);
+    let lineageKey = String(checkpoint.lineageKey || checkpoint.branchKey || '');
+    if (!lineageKey && fallbackFingerprint && (!checkpoint.fingerprint || checkpoint.fingerprint === fallbackFingerprint)) {
+        lineageKey = lineageCheckpointKey(activeLineage, messageId);
+    }
+    if (!lineageKey) return null;
+    return {
+        ...checkpoint,
+        messageId,
+        fingerprint,
+        lineageKey,
+        parentLineageKey: String(checkpoint.parentLineageKey || (messageId > 0 ? lineageCheckpointKey(activeLineage, messageId - 1) : 'root')),
+        reason: String(checkpoint.reason || 'state'),
+        createdAt: Number(checkpoint.createdAt || 0) || Date.now(),
+    };
+}
+
+export function normalizeBranchCheckpoints(checkpoints = [], activeLineage = []) {
+    const byKey = new Map();
+    for (const raw of Array.isArray(checkpoints) ? checkpoints : []) {
+        const checkpoint = normalizeCheckpoint(raw, activeLineage);
+        if (!checkpoint) continue;
+        const existing = byKey.get(checkpoint.lineageKey);
+        if (!existing || checkpoint.createdAt >= existing.createdAt) byKey.set(checkpoint.lineageKey, checkpoint);
+    }
+    return [...byKey.values()];
+}
+
+export function migrateLegacyBranchState(state, chat, limit = BRANCH_HISTORY_LIMIT) {
+    if (!state || typeof state !== 'object') return state;
+    if (Number(state.branchLineageVersion || 0) >= BRANCH_LINEAGE_VERSION) return state;
+    const messages = Array.isArray(chat) ? chat : [];
+    const contentLineage = chatLineage(messages);
+    const legacyCurrentLineage = messages.map(legacyFingerprintMessageV0210);
+    const storedLegacyLineage = Array.isArray(state.lineage) ? state.lineage : [];
+    const keys = lineageCheckpointKeys(contentLineage);
+    const prefixMatches = messageId => {
+        if (!Number.isInteger(messageId) || messageId < 0 || messageId >= contentLineage.length) return false;
+        for (let i = 0; i <= messageId; i += 1) {
+            if (!storedLegacyLineage[i] || storedLegacyLineage[i] !== legacyCurrentLineage[i]) return false;
+        }
+        return true;
+    };
+
+    const migratedCheckpoints = [];
+    for (const raw of Array.isArray(state.checkpoints) ? state.checkpoints : []) {
+        if (!raw || typeof raw !== 'object' || !raw.snapshot || typeof raw.snapshot !== 'object') continue;
+        if (raw.lineageKey || raw.branchKey) {
+            migratedCheckpoints.push(raw);
+            continue;
+        }
+        const messageId = Number(raw.messageId);
+        if (!prefixMatches(messageId)) continue;
+        if (raw.fingerprint && raw.fingerprint !== legacyCurrentLineage[messageId]) continue;
+        migratedCheckpoints.push({
+            ...raw,
+            messageId,
+            fingerprint: contentLineage[messageId],
+            lineageKey: keys[messageId],
+            parentLineageKey: messageId > 0 ? keys[messageId - 1] : 'root',
+            reason: String(raw.reason || 'legacy-migrated'),
+        });
+    }
+
+    state.checkpoints = pruneBranchCheckpoints(migratedCheckpoints, contentLineage, limit);
+    state.inlineCards = (Array.isArray(state.inlineCards) ? state.inlineCards : []).map(entry => {
+        if (!entry || typeof entry !== 'object' || entry.lineageKey) return entry;
+        const messageId = Number(entry.messageId);
+        if (!prefixMatches(messageId)) return null;
+        if (entry.fingerprint && entry.fingerprint !== legacyCurrentLineage[messageId]) return null;
+        return {
+            ...entry,
+            messageId,
+            fingerprint: contentLineage[messageId],
+            lineageKey: keys[messageId],
+        };
+    }).filter(Boolean);
+    state.lineage = contentLineage;
+    state.branchLineageVersion = BRANCH_LINEAGE_VERSION;
+    return state;
+}
+
+export function pruneBranchCheckpoints(checkpoints = [], activeLineage = [], limit = BRANCH_HISTORY_LIMIT) {
+    const cap = Math.max(8, Number(limit) || BRANCH_HISTORY_LIMIT);
+    const normalized = normalizeBranchCheckpoints(checkpoints, activeLineage);
+    if (normalized.length <= cap) return normalized.sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
+
+    const activeKeys = new Set(lineageCheckpointKeys(activeLineage));
+    const active = normalized.filter(item => activeKeys.has(item.lineageKey)).sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
+    const siblings = normalized.filter(item => !activeKeys.has(item.lineageKey)).sort((a, b) => b.createdAt - a.createdAt || b.messageId - a.messageId);
+    const siblingBudget = Math.min(siblings.length, Math.max(8, Math.floor(cap * 0.25)));
+    const activeBudget = Math.max(1, cap - siblingBudget);
+    const keep = new Map();
+
+    if (active.length) {
+        // Keep one old anchor so an ancient edit can still rebuild from a safe ancestor,
+        // then devote the rest of the active budget to the newest checkpoints.
+        keep.set(active[0].lineageKey, active[0]);
+        for (const item of active.slice(1).reverse()) {
+            if ([...keep.values()].filter(entry => activeKeys.has(entry.lineageKey)).length >= activeBudget) break;
+            keep.set(item.lineageKey, item);
+        }
+    }
+    for (const item of siblings.slice(0, siblingBudget)) keep.set(item.lineageKey, item);
+
+    // Fill unused capacity with the newest omitted checkpoints regardless of category.
+    if (keep.size < cap) {
+        const omitted = normalized
+            .filter(item => !keep.has(item.lineageKey))
+            .sort((a, b) => b.createdAt - a.createdAt || b.messageId - a.messageId);
+        for (const item of omitted) {
+            if (keep.size >= cap) break;
+            keep.set(item.lineageKey, item);
+        }
+    }
+    return [...keep.values()].sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
+}
+
+export function ensureBranchParentAnchor(state, chat, messageId, reason = 'parent-anchor', limit = BRANCH_HISTORY_LIMIT) {
+    if (!state || typeof state !== 'object' || !Number.isInteger(messageId) || messageId < 0) return state;
+    const lineage = chatLineage(chat);
+    state.lineage = lineage;
+    state.branchLineageVersion = BRANCH_LINEAGE_VERSION;
+    if (messageId === 0) {
+        if (!state.branchRootSnapshot || typeof state.branchRootSnapshot !== 'object') {
+            state.branchRootSnapshot = snapshotBranchState(state);
+        }
+        return state;
+    }
+    if (messageId > lineage.length - 1) return state;
+    const keys = lineageCheckpointKeys(lineage);
+    const parentId = messageId - 1;
+    const parentKey = keys[parentId];
+    const checkpoints = normalizeBranchCheckpoints(state.checkpoints, lineage);
+    if (!checkpoints.some(item => item.lineageKey === parentKey)) {
+        checkpoints.push({
+            messageId: parentId,
+            fingerprint: lineage[parentId],
+            lineageKey: parentKey,
+            parentLineageKey: parentId > 0 ? keys[parentId - 1] : 'root',
+            reason: String(reason || 'parent-anchor'),
+            createdAt: Date.now(),
+            snapshot: snapshotBranchState(state),
+        });
+    }
+    state.checkpoints = pruneBranchCheckpoints(checkpoints, lineage, limit);
+    return state;
+}
+
+export function recordBranchCheckpoint(state, chat, messageId, reason = 'state', limit = BRANCH_HISTORY_LIMIT) {
+    if (!state || typeof state !== 'object') return state;
+    const lineage = chatLineage(chat);
+    state.lineage = lineage;
+    state.branchLineageVersion = BRANCH_LINEAGE_VERSION;
+    if (!Number.isInteger(messageId) || messageId < 0 || messageId >= lineage.length) return state;
+    const keys = lineageCheckpointKeys(lineage);
+    if (!Array.isArray(state.checkpoints)) state.checkpoints = [];
+    const checkpoint = {
+        messageId,
+        fingerprint: lineage[messageId],
+        lineageKey: keys[messageId],
+        parentLineageKey: messageId > 0 ? keys[messageId - 1] : 'root',
+        reason: String(reason || 'state'),
+        createdAt: Date.now(),
+        snapshot: snapshotBranchState(state),
+    };
+    const checkpoints = normalizeBranchCheckpoints(state.checkpoints, lineage);
+    const existingIndex = checkpoints.findIndex(item => item.lineageKey === checkpoint.lineageKey);
+    if (existingIndex >= 0) checkpoints[existingIndex] = checkpoint;
+    else checkpoints.push(checkpoint);
+    state.checkpoints = pruneBranchCheckpoints(checkpoints, lineage, limit);
+    return state;
+}
+
+function latestAssistantMessageId(chat = []) {
+    for (let i = (Array.isArray(chat) ? chat.length : 0) - 1; i >= 0; i -= 1) {
+        const message = chat[i];
+        if (message && !message.is_user && !message.is_system && String(message.mes || '').trim()) return i;
+    }
+    return -1;
+}
+
+function matchingCheckpoints(checkpoints, lineage) {
+    const keys = lineageCheckpointKeys(lineage);
+    return checkpoints
+        .filter(item => Number.isInteger(item?.messageId) && item.messageId >= 0 && item.messageId < keys.length)
+        .filter(item => item.lineageKey === keys[item.messageId])
+        .sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
 }
 
 export function reconcileBranchState(state, chat, { explicitDivergence = null } = {}) {
@@ -134,59 +428,89 @@ export function reconcileBranchState(state, chat, { explicitDivergence = null } 
     }
 
     if (divergence < 0) {
-        return { state: { ...state, lineage: currentLineage }, divergence: -1, restoredFromMessageId: null, invalidated: false };
+        return { state: { ...state, lineage: currentLineage }, divergence: -1, restoredFromMessageId: null, invalidated: false, exactRestored: false };
     }
 
     const currentNpcs = cloneNpcList(state?.npcs);
-    const checkpoints = Array.isArray(state?.checkpoints) ? state.checkpoints : [];
-    const validBeforeDivergence = checkpoints.filter(checkpoint => {
-        if (!Number.isInteger(checkpoint?.messageId) || checkpoint.messageId >= divergence) return false;
-        return currentLineage[checkpoint.messageId] && currentLineage[checkpoint.messageId] === checkpoint.fingerprint;
-    });
-    const checkpoint = validBeforeDivergence.at(-1) || null;
+    const checkpoints = normalizeBranchCheckpoints(state?.checkpoints, previousLineage);
+    const matches = matchingCheckpoints(checkpoints, currentLineage);
+    const deepestMatch = matches.at(-1) || null;
+    const lastAssistantId = latestAssistantMessageId(chat);
+    const exactCheckpoint = deepestMatch && deepestMatch.messageId >= lastAssistantId ? deepestMatch : null;
 
-    // Old v0.1.4 state has no checkpoints. Preserve its live registry rather than destructively
-    // zeroing it, then future checkpoints make rewinds exact from this version onward.
-    let restored = checkpoint
-        ? restoreSnapshotIntoState(state, checkpoint.snapshot)
-        : { ...state, processedOocMessageId: null, lastScannedMessageId: null, assistantSinceScan: 0 };
+    let restored;
+    let checkpoint;
+    let exactRestored = false;
+    if (exactCheckpoint) {
+        checkpoint = exactCheckpoint;
+        restored = restoreSnapshotIntoState(state, checkpoint.snapshot);
+        exactRestored = true;
+    } else {
+        checkpoint = deepestMatch || null;
+        // Old pre-checkpoint state is preserved rather than destructively zeroed. New state
+        // keeps a root anchor, so this path should normally be limited to legacy/pruned data.
+        restored = checkpoint
+            ? restoreSnapshotIntoState(state, checkpoint.snapshot)
+            : (state?.branchRootSnapshot && typeof state.branchRootSnapshot === 'object'
+                ? restoreSnapshotIntoState(state, state.branchRootSnapshot)
+                : { ...state, processedOocMessageId: null, lastScannedMessageId: null, assistantSinceScan: 0 });
+    }
 
-    if (checkpoint) restored.npcs = preservePortraitAssets(restored.npcs, currentNpcs);
+    restored.npcs = preserveUserNpcMetadata(restored.npcs, currentNpcs);
+    enforceUserDismissals(restored, state?.userDismissedGroups);
     restored.lineage = currentLineage;
-    restored.checkpoints = validBeforeDivergence;
-    restored.inlineCards = (Array.isArray(state?.inlineCards) ? state.inlineCards : [])
-        .filter(entry => Number.isInteger(entry?.messageId) && entry.messageId < divergence && entry.messageId < currentLineage.length)
-        .filter(entry => !entry.fingerprint || entry.fingerprint === currentLineage[entry.messageId]);
+    restored.checkpoints = pruneBranchCheckpoints(checkpoints, currentLineage);
+    // Inline-card history is branch-keyed independently and must retain sibling entries.
+    restored.inlineCards = Array.isArray(state?.inlineCards) ? structuredClone(state.inlineCards) : [];
 
-    if (Number.isInteger(restored.lastScannedMessageId) && restored.lastScannedMessageId >= divergence) restored.lastScannedMessageId = null;
-    if (Number.isInteger(restored.processedOocMessageId) && restored.processedOocMessageId >= divergence) restored.processedOocMessageId = null;
+    if (!exactRestored) {
+        if (Number.isInteger(restored.lastScannedMessageId) && restored.lastScannedMessageId >= divergence) restored.lastScannedMessageId = null;
+        if (Number.isInteger(restored.processedOocMessageId) && restored.processedOocMessageId >= divergence) restored.processedOocMessageId = null;
+    }
 
     return {
         state: restored,
         divergence,
         restoredFromMessageId: checkpoint?.messageId ?? null,
+        restoredLineageKey: checkpoint?.lineageKey || '',
         invalidated: true,
-        legacyFallback: !checkpoint && checkpoints.length === 0,
+        exactRestored,
+        restoredFromRoot: !checkpoint && Boolean(state?.branchRootSnapshot),
+        legacyFallback: !checkpoint && checkpoints.length === 0 && !state?.branchRootSnapshot,
     };
 }
 
 export function bestAncestorState(chats = {}, currentKey = '', currentChat = []) {
     const lineage = chatLineage(currentChat);
+    const currentKeys = lineageCheckpointKeys(lineage);
     let best = null;
     for (const [key, state] of Object.entries(chats || {})) {
         if (key === currentKey || !state || !Array.isArray(state.lineage) || !Array.isArray(state.checkpoints)) continue;
         const prefixLength = commonPrefixLength(state.lineage, lineage);
         if (prefixLength < 2) continue;
-        const checkpoint = state.checkpoints.filter(item => item.messageId < prefixLength).at(-1);
+        const checkpoints = normalizeBranchCheckpoints(state.checkpoints, state.lineage);
+        const checkpoint = checkpoints
+            .filter(item => item.messageId < prefixLength && item.lineageKey === currentKeys[item.messageId])
+            .sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt)
+            .at(-1);
         if (!checkpoint) continue;
-        if (!best || checkpoint.messageId > best.checkpoint.messageId) best = { key, state, checkpoint, prefixLength };
+        if (!best || checkpoint.messageId > best.checkpoint.messageId) best = { key, state, checkpoint, prefixLength, checkpoints };
     }
     if (!best) return null;
     const inherited = restoreSnapshotIntoState({}, best.checkpoint.snapshot);
     inherited.lineage = lineage;
-    inherited.checkpoints = structuredClone(best.state.checkpoints.filter(item => item.messageId <= best.checkpoint.messageId));
-    inherited.inlineCards = structuredClone((best.state.inlineCards || []).filter(item => item.messageId <= best.checkpoint.messageId));
+    inherited.checkpoints = pruneBranchCheckpoints(
+        best.checkpoints.filter(item => item.messageId <= best.checkpoint.messageId && item.lineageKey === currentKeys[item.messageId]),
+        lineage,
+    );
+    inherited.inlineCards = structuredClone((best.state.inlineCards || []).filter(item => {
+        const messageId = Number(item?.messageId);
+        if (!Number.isInteger(messageId) || messageId > best.checkpoint.messageId) return false;
+        return !item.lineageKey || item.lineageKey === currentKeys[messageId];
+    }));
     inherited.portraitAssets = structuredClone(best.state.portraitAssets || {});
+    inherited.userDismissedGroups = structuredClone(normalizeUserDismissedGroups(best.state.userDismissedGroups));
+    enforceUserDismissals(inherited, inherited.userDismissedGroups);
     inherited.branchParent = best.key;
     inherited.branchForkMessageId = best.checkpoint.messageId;
     return inherited;

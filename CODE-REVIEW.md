@@ -1,4 +1,34 @@
-# NPC State v0.2.10 Code Review
+# NPC State v0.2.11 Code Review
+
+## v0.2.11 triple deep-pass findings
+
+### Pass 1 - relationship milestone semantics
+
+**High: checkpoint-blocked evidence could overwrite Last Relationship Change.** A valid event stopped by a locked boundary changed neither the visible meter nor fractional progress, but could still become the latest relationship-change audit. The event is now retained only in recent dedupe history unless it changes score/progress or unlocks a milestone.
+
+**High: Relationship Summary could outrun a locked milestone.** An empty summary could initialize with deepest/absolute trust or exceptional attachment language while the numeric axis was parked at a locked 25/50/75 boundary. Summary validation now checks directional milestone depth as part of canon consistency.
+
+**Medium: first-message swipes had no parent checkpoint.** A greeting/opening swipe at message 0 could fall back to live state from the previous sibling. A pre-message root snapshot now anchors first-message alternatives.
+
+### Pass 2 - exact sibling swipe restoration
+
+**High: v0.2.10 branch fingerprints were not directly reusable.** They included `swipe_id`, while v0.2.11 content-lineage identity intentionally does not. Legacy checkpoints now migrate only when the complete old fingerprint prefix still matches the loaded chat; edited/stale history is dropped.
+
+**High: a provisional turn checkpoint could falsely mark an unfinished sibling exact.** The assistant handler used to checkpoint a scan-due child before its asynchronous scan completed. Swiping away could discard the stale scan but leave that provisional state available as an exact restore. Scan-due turns now become exact only when the completed scan lands.
+
+**Medium: swipe-index identity was unstable after alternate deletion.** Sibling identity now uses content lineage, not SillyTavern's renumberable `swipe_id`; inline cards use the same lineage key. Branch pruning remains bounded and preserves active/recent sibling anchors.
+
+### Pass 3 - persistence, concurrency, migration, and user state
+
+**High: milestone qualification trusted impact labels too much.** A weak evaluator could label a tiny change `extreme`. Checkpoint crossing now requires both the minimum impact tier and a minimum raw evidence weight, scaled safely against custom caps.
+
+**High: manual UI deletion could be resurrected by an old sibling snapshot.** Permanent user deletion suppression now lives outside narrative snapshots and is re-applied after branch restoration. Explicit Add/import can lift the matching alias group deliberately; story/OOC removals remain branch-specific.
+
+**Medium: branch exactness needed stronger collision resistance and persistence coverage.** New lineage keys use two independent hash lanes, and tests now round-trip root snapshots, sibling keys, fractional relationship progress, milestone audit entries, recent evidence history, and user deletion suppression through sidecar/bundle/branch paths.
+
+### Compatibility
+
+Settings schema advances to v23. Existing visible relationship scores are not rescaled. Established v0.2.10 scores infer already-passed directional milestones strictly below their current magnitude, customized tuning remains authoritative, and exact legacy branch conversion requires verified history rather than optimistic migration.
 
 ## v0.2.10 weighting hard-pass findings
 

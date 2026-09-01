@@ -2,12 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createNpcRecord } from '../core.js';
 import {
+    BRANCH_LINEAGE_VERSION,
+    addUserDismissedGroup,
     bestAncestorState,
+    clearUserDismissedGroupsFor,
     chatLineage,
     fingerprintMessage,
     firstLineageDivergence,
+    lineageCheckpointKey,
+    lineageCheckpointKeys,
+    ensureBranchParentAnchor,
+    migrateLegacyBranchState,
+    normalizeBranchCheckpoints,
+    pruneBranchCheckpoints,
     recordBranchCheckpoint,
     reconcileBranchState,
+    snapshotBranchState,
 } from '../branch.js';
 
 function user(text, name = 'Kazuma') {
@@ -20,18 +30,35 @@ function assistant(text, swipe = 0, name = 'Megumin') {
 function baseState() {
     return {
         npcs: [], dismissed: [], inlineCards: [], checkpoints: [], lineage: [],
+        branchLineageVersion: BRANCH_LINEAGE_VERSION,
         turn: 0, assistantSinceScan: 0, lastScanAt: 0, lastScannedMessageId: null,
         scanCount: 0, processedOocMessageId: null,
     };
 }
 
-test('message fingerprint detects text and swipe branch changes', () => {
+function legacyFingerprintV0210(message = {}) {
+    let hash = 0x811c9dc5;
+    const input = JSON.stringify({
+        user: Boolean(message.is_user),
+        system: Boolean(message.is_system),
+        name: String(message.name || ''),
+        text: String(message.mes || ''),
+        swipe: Number.isInteger(message.swipe_id) ? message.swipe_id : null,
+    });
+    for (let i = 0; i < input.length; i += 1) {
+        hash ^= input.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash.toString(36);
+}
+
+test('message fingerprint follows narrative content and ignores unstable swipe index numbering', () => {
     const a = assistant('Yunyun enters.', 0);
     const b = assistant('Yunyun leaves.', 0);
     const c = assistant('Yunyun enters.', 1);
     assert.notEqual(fingerprintMessage(a), fingerprintMessage(b));
-    assert.notEqual(fingerprintMessage(a), fingerprintMessage(c));
-    assert.equal(firstLineageDivergence(chatLineage([user('Hi'), a]), chatLineage([user('Hi'), c])), 1);
+    assert.equal(fingerprintMessage(a), fingerprintMessage(c), 'identical narrative content remains the same branch when swipe indices renumber');
+    assert.equal(firstLineageDivergence(chatLineage([user('Hi'), a]), chatLineage([user('Hi'), c])), -1);
 });
 
 test('tail deletion restores the latest surviving checkpoint and removes downstream inline state', () => {
@@ -53,8 +80,9 @@ test('tail deletion restores the latest surviving checkpoint and removes downstr
     assert.equal(result.divergence, 2);
     assert.equal(result.restoredFromMessageId, 1);
     assert.deepEqual(result.state.npcs.map(n => n.name), ['Yunyun']);
-    assert.deepEqual(result.state.inlineCards.map(entry => entry.messageId), [0]);
-    assert.equal(result.state.checkpoints.at(-1).messageId, 1);
+    assert.deepEqual(result.state.inlineCards.map(entry => entry.messageId), [0, 2], 'sibling/tail inline snapshots remain stored even when inactive');
+    const activeKey = lineageCheckpointKey(chatLineage(surviving), 1);
+    assert.ok(result.state.checkpoints.some(item => item.lineageKey === activeKey));
 });
 
 test('swiping an assistant message rolls back to the checkpoint before that message', () => {
@@ -79,7 +107,85 @@ test('swiping an assistant message rolls back to the checkpoint before that mess
     assert.equal(result.restoredFromMessageId, 0);
     assert.deepEqual(result.state.npcs.map(n => n.name), ['Yunyun']);
     assert.equal(result.state.npcs[0].relationship.trust, 0, 'old swipe relationship update must be removed');
-    assert.equal(result.state.checkpoints.at(-1).messageId, 0);
+    const activeKeys = new Set([lineageCheckpointKey(chatLineage(swiped), 0)]);
+    assert.deepEqual(result.state.checkpoints.filter(item => activeKeys.has(item.lineageKey)).map(item => item.messageId), [0]);
+    assert.ok(result.state.checkpoints.some(item => item.messageId === 1), 'old sibling checkpoint is retained for exact revisit');
+});
+
+test('v0.2.11 revisiting a previously scanned sibling swipe restores its exact snapshot without reconstruction', () => {
+    const swipe0 = [user('Choose.'), assistant('Myla smiles and accepts the promise.', 0)];
+    const state = baseState();
+    const myla = createNpcRecord('Myla');
+    state.npcs = [myla];
+    ensureBranchParentAnchor(state, swipe0, 1, 'assistant-parent');
+    state.npcs[0].relationship.trust = 61;
+    state.npcs[0].relationshipProgress.trust = 0.65;
+    state.lastScannedMessageId = 1;
+    recordBranchCheckpoint(state, swipe0, 1, 'scan');
+
+    const swipe1 = [user('Choose.'), assistant('Myla refuses and walks away.', 1)];
+    const firstSwitch = reconcileBranchState(state, swipe1, { explicitDivergence: 1 });
+    assert.equal(firstSwitch.exactRestored, false);
+    firstSwitch.state.npcs[0].relationship.trust = 12;
+    firstSwitch.state.npcs[0].relationshipProgress.trust = -0.4;
+    firstSwitch.state.lastScannedMessageId = 1;
+    recordBranchCheckpoint(firstSwitch.state, swipe1, 1, 'scan');
+
+    const back = reconcileBranchState(firstSwitch.state, swipe0, { explicitDivergence: 1 });
+    assert.equal(back.exactRestored, true);
+    assert.equal(back.restoredFromMessageId, 1);
+    assert.equal(back.state.npcs[0].relationship.trust, 61);
+    assert.equal(back.state.npcs[0].relationshipProgress.trust, 0.65);
+
+    const again = reconcileBranchState(back.state, swipe1, { explicitDivergence: 1 });
+    assert.equal(again.exactRestored, true);
+    assert.equal(again.state.npcs[0].relationship.trust, 12);
+    assert.equal(again.state.npcs[0].relationshipProgress.trust, -0.4);
+});
+
+test('v0.2.11 sibling identity survives swipe-index renumbering after an alternate is deleted', () => {
+    const original = [user('Choose.'), assistant('Myla nods.', 2)];
+    const state = baseState();
+    const myla = createNpcRecord('Myla');
+    state.npcs = [myla];
+    ensureBranchParentAnchor(state, original, 1, 'assistant-parent');
+    state.npcs[0].relationship.affection = 44;
+    state.lastScannedMessageId = 1;
+    recordBranchCheckpoint(state, original, 1, 'scan');
+
+    const renumbered = [user('Choose.'), assistant('Myla nods.', 0)];
+    const restored = reconcileBranchState(state, renumbered, { explicitDivergence: 1 });
+    assert.equal(restored.exactRestored, true);
+    assert.equal(restored.state.npcs[0].relationship.affection, 44);
+});
+
+test('v0.2.11 branch restore overlays user-owned portrait/profile metadata without contaminating narrative relationship state', () => {
+    const chat = [user('Wait.'), assistant('Myla agrees.', 0)];
+    const state = baseState();
+    const myla = createNpcRecord('Myla');
+    myla.personality = 'Reserved.';
+    state.npcs = [myla];
+    ensureBranchParentAnchor(state, chat, 1, 'assistant-parent');
+    state.npcs[0].relationship.trust = 20;
+    recordBranchCheckpoint(state, chat, 1, 'scan');
+
+    state.npcs[0].portraitPromptPositive = 'custom portrait override';
+    state.npcs[0].retentionProtected = true;
+    state.npcs[0].minor = true;
+    state.npcs[0].importance = 77;
+    state.npcs[0].personality = 'Reserved and dryly humorous.';
+    state.npcs[0].manualProfileFields = ['personality'];
+    state.npcs[0].manualProfileLocksExplicit = true;
+    state.npcs[0].relationship.trust = 88;
+
+    const sibling = [user('Wait.'), assistant('Myla refuses.', 1)];
+    const result = reconcileBranchState(state, sibling, { explicitDivergence: 1 });
+    assert.equal(result.state.npcs[0].portraitPromptPositive, 'custom portrait override');
+    assert.equal(result.state.npcs[0].retentionProtected, true);
+    assert.equal(result.state.npcs[0].minor, true);
+    assert.equal(result.state.npcs[0].importance, 77);
+    assert.equal(result.state.npcs[0].personality, 'Reserved and dryly humorous.');
+    assert.equal(result.state.npcs[0].relationship.trust, 0, 'relationship remains narrative branch state rather than user-metadata overlay');
 });
 
 test('branch checkpoints do not duplicate portrait binary data', () => {
@@ -205,4 +311,141 @@ test('v0.2.10 branch rollback restores fractional relationship progress and rece
     assert.equal(result.state.npcs[0].relationshipProgress.trust, 0.7);
     assert.equal(result.state.npcs[0].relationshipEventHistory.length, 1);
     assert.match(result.state.npcs[0].relationshipEventHistory[0].reason, /medicine/i);
+});
+
+test('v0.2.11 first-message sibling swipes restore from a clean root anchor and later revisit exact state', () => {
+    const swipeA = [assistant('Myla smiles and offers her hand.', 0)];
+    const stateA = baseState();
+    ensureBranchParentAnchor(stateA, swipeA, 0, 'pre-first-swipe');
+    const myla = createNpcRecord('Myla');
+    myla.relationship.trust = 25;
+    myla.relationshipProgress.trust = 0.4;
+    stateA.npcs = [myla];
+    stateA.turn = 1;
+    recordBranchCheckpoint(stateA, swipeA, 0, 'scan-a');
+
+    const swipeB = [assistant('Myla recoils and shuts the door.', 1)];
+    const toB = reconcileBranchState(stateA, swipeB, { explicitDivergence: 0 });
+    assert.equal(toB.exactRestored, false);
+    assert.equal(toB.restoredFromRoot, true);
+    assert.equal(toB.state.npcs.length, 0, 'unseen first-message sibling must not inherit narrative effects from swipe A');
+
+    const stateB = toB.state;
+    const mylaB = createNpcRecord('Myla');
+    mylaB.relationship.trust = -3;
+    stateB.npcs = [mylaB];
+    stateB.turn = 1;
+    recordBranchCheckpoint(stateB, swipeB, 0, 'scan-b');
+
+    const backToA = reconcileBranchState(stateB, swipeA, { explicitDivergence: 0 });
+    assert.equal(backToA.exactRestored, true);
+    assert.equal(backToA.state.npcs[0].relationship.trust, 25);
+    assert.equal(backToA.state.npcs[0].relationshipProgress.trust, 0.4);
+});
+
+test('v0.2.11 v0.2.10 swipe-index checkpoints migrate only when their legacy narrative prefix still matches', () => {
+    const original = [user('Wait here.'), assistant('Myla nods.'), user('Continue.')];
+    const legacy = baseState();
+    legacy.branchLineageVersion = 0;
+    legacy.lineage = original.map(legacyFingerprintV0210);
+    const myla = createNpcRecord('Myla');
+    myla.relationship.trust = 12;
+    legacy.npcs = [myla];
+    legacy.checkpoints = [{
+        messageId: 1,
+        fingerprint: legacy.lineage[1],
+        reason: 'legacy-scan',
+        createdAt: 100,
+        snapshot: snapshotBranchState(legacy),
+    }];
+
+    migrateLegacyBranchState(legacy, original);
+    assert.equal(legacy.branchLineageVersion, BRANCH_LINEAGE_VERSION);
+    const normalized = normalizeBranchCheckpoints(legacy.checkpoints, legacy.lineage);
+    assert.equal(normalized.length, 1);
+    assert.equal(normalized[0].lineageKey, lineageCheckpointKey(legacy.lineage, 1));
+
+    const changedTail = [user('Wait here.'), assistant('Myla nods.'), user('Leave instead.')];
+    const restored = reconcileBranchState(legacy, changedTail, { explicitDivergence: 2 });
+    assert.equal(restored.restoredFromMessageId, 1);
+    assert.equal(restored.exactRestored, true);
+    assert.equal(restored.state.npcs[0].relationship.trust, 12);
+
+    const stale = baseState();
+    stale.branchLineageVersion = 0;
+    stale.lineage = original.map(legacyFingerprintV0210);
+    stale.checkpoints = [{
+        messageId: 1,
+        fingerprint: stale.lineage[1],
+        reason: 'legacy-scan',
+        createdAt: 100,
+        snapshot: snapshotBranchState({ ...stale, npcs: [myla] }),
+    }];
+    const editedBeforeLoad = [user('Wait somewhere else.'), assistant('Myla nods.'), user('Continue.')];
+    migrateLegacyBranchState(stale, editedBeforeLoad);
+    assert.equal(stale.checkpoints.length, 0, 'an edited legacy prefix must never be relabeled as an exact current-branch checkpoint');
+});
+
+test('v0.2.11 checkpoint pruning keeps a safe active anchor, recent active state, and recent sibling heads', () => {
+    const activeChat = Array.from({ length: 30 }, (_, index) => index % 2 === 0
+        ? user(`User line ${index}`)
+        : assistant(`Assistant line ${index}`));
+    const activeLineage = chatLineage(activeChat);
+    const activeKeys = lineageCheckpointKeys(activeLineage);
+    const snapshot = snapshotBranchState(baseState());
+    const checkpoints = activeKeys.map((lineageKey, messageId) => ({
+        messageId,
+        fingerprint: activeLineage[messageId],
+        lineageKey,
+        parentLineageKey: messageId > 0 ? activeKeys[messageId - 1] : 'root',
+        reason: 'active',
+        createdAt: messageId + 1,
+        snapshot,
+    }));
+    const siblingKeys = [];
+    for (let i = 0; i < 20; i += 1) {
+        const siblingChat = structuredClone(activeChat);
+        siblingChat[29] = assistant(`Sibling ending ${i}`, i);
+        const siblingLineage = chatLineage(siblingChat);
+        const siblingKey = lineageCheckpointKey(siblingLineage, 29);
+        siblingKeys.push(siblingKey);
+        checkpoints.push({
+            messageId: 29,
+            fingerprint: siblingLineage[29],
+            lineageKey: siblingKey,
+            parentLineageKey: lineageCheckpointKey(siblingLineage, 28),
+            reason: 'sibling',
+            createdAt: 1000 + i,
+            snapshot,
+        });
+    }
+
+    const pruned = pruneBranchCheckpoints(checkpoints, activeLineage, 16);
+    const kept = new Set(pruned.map(item => item.lineageKey));
+    assert.equal(pruned.length, 16);
+    assert.ok(kept.has(activeKeys[0]), 'oldest active anchor must survive bounded pruning');
+    assert.ok(kept.has(activeKeys.at(-1)), 'latest active checkpoint must survive bounded pruning');
+    for (const siblingKey of siblingKeys.slice(-4)) assert.ok(kept.has(siblingKey), 'newest sibling heads should retain a bounded exact-restore cache');
+});
+
+test('v0.2.11 permanent UI deletion suppression survives exact sibling restore and explicit re-add can lift the whole alias group', () => {
+    const chat = [user('Enter.'), assistant('The innkeeper Brina greets you.')];
+    const state = baseState();
+    const brina = createNpcRecord('Brina Hael');
+    brina.aliases = ['the innkeeper', 'Brina'];
+    state.npcs = [brina];
+    recordBranchCheckpoint(state, chat, 1, 'scan');
+
+    state.userDismissedGroups = addUserDismissedGroup([], brina);
+    state.npcs = [];
+    state.dismissed = ['brina hael', 'the innkeeper', 'brina'];
+    const restored = reconcileBranchState(state, chat, { explicitDivergence: 1 });
+    assert.equal(restored.exactRestored, true);
+    assert.equal(restored.state.npcs.length, 0, 'an old sibling snapshot cannot resurrect a dossier explicitly deleted in the UI');
+    assert.ok(restored.state.dismissed.includes('brina hael'));
+
+    const cleared = clearUserDismissedGroupsFor(restored.state.userDismissedGroups, 'Brina');
+    assert.equal(cleared.groups.length, 0);
+    assert.ok(cleared.removedLabels.includes('brina hael'));
+    assert.ok(cleared.removedLabels.includes('the innkeeper'));
 });

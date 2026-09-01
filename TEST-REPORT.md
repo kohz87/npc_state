@@ -1,4 +1,4 @@
-# NPC State v0.2.10 Test Report
+# NPC State v0.2.11 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
@@ -8,14 +8,30 @@ Target: SillyTavern 1.18.0 extension contract.
 
 The reviewed working tree completed:
 
-- **258/258 Node tests passed**
+- **270/270 Node tests passed**
 - SillyTavern 1.18 compatibility/import/event contract passed
 - Megumin Suite isolation and master-block integration checks passed
 - Mocked browser/runtime smoke passed
-- Legacy settings and sidecar migration smoke passed
+- Schema-v23 settings/sidecar migration smoke passed
 - One-level extension package-layout check passed
 
 The bounded routine scanner fixture measured **7,115 non-story prompt characters**, below the existing 7,200-character ceiling.
+
+## v0.2.11 milestone / exact-swipe coverage
+
+- Directional `25/50/75/90` relationship milestones are tested independently for positive and negative polarity; movement toward neutral never hits a milestone gate.
+- Hidden fractional progress operates only inside unlocked bands. Non-qualifying outward evidence cannot bank behind a locked boundary, while an eligible breakthrough unlocks the checkpoint without releasing a stored jump.
+- Milestone qualification requires both the semantic impact tier and minimum raw evidence weight; a tiny `+1` labeled extreme cannot unlock 90.
+- Legacy established scores infer only already-passed directional milestones, and manual relationship edits infer milestones through the explicitly entered depth without rescaling the score.
+- Checkpoint-blocked evidence remains available for semantic dedupe but does not replace Last Relationship Change when score/progress/milestones are unchanged. Relationship Summary cannot claim depth beyond the unlocked milestone state.
+- Two different swipes at the same assistant message preserve independent exact sibling checkpoints, and A -> B -> A restores the original A snapshot rather than rescanning it.
+- First-message/greeting swipes restore from a pre-message root anchor. Deleted-swipe index renumbering does not break sibling identity because branch keys depend on content lineage, not `swipe_id`.
+- Actual v0.2.10 swipe-index fingerprints migrate only when their entire legacy prefix matches the loaded chat; edited/stale legacy prefixes are rejected.
+- Scan-due assistant turns are not marked exact before their asynchronous scan completes, preventing stale pre-scan state from suppressing a required rescan.
+- Lineage-specific inline cards, bounded sibling-history pruning, and two-lane branch fingerprints are covered.
+- Permanent manual UI deletion suppression survives exact sibling restoration; explicit re-add can lift the matching alias group.
+- Sidecar and bundle tests preserve branch root/sibling state, fractional relationship progress, milestone audit reasons, recent relationship evidence, and user deletion suppression.
+- Schema-v23 migration preserves visible relationship scores/custom tuning while inferring already-passed milestones and retaining v0.2.8/v0.2.9 stock-cap migration behavior.
 
 ## v0.2.10 relationship-weighting coverage
 
@@ -58,7 +74,7 @@ The bounded routine scanner fixture measured **7,115 non-story prompt characters
 - Ambiguous `(deceased)` Key Relationship wording is rewritten with an explicit surviving/deceased subject.
 - Scanner importance cannot change durable Importance; new scanned dossiers keep neutral 50 while contextual salience controls prompt selection.
 - Runtime smoke fixtures now require narrated evidence for relationship changes rather than silently accepting ungrounded deltas.
-- v0.2.8 canon-hygiene behavior remains covered under the current v0.2.10 / schema v22 package.
+- v0.2.8 canon-hygiene behavior remains covered under the current v0.2.11 / schema v23 package.
 
 ## v0.2.7 final hard-pass coverage
 
@@ -73,7 +89,7 @@ The bounded routine scanner fixture measured **7,115 non-story prompt characters
 - First Mannerisms require recurrence or repeated cross-scan evidence.
 - Repeated evidence can seed an empty trait only when it supports the proposed trait.
 - Runtime smoke covers stale in-flight scan discard after dossier state mutation.
-- Historical v0.2.7 migration/persistence contracts remain covered; current package version is v0.2.10 with schema v22.
+- Historical v0.2.7 migration/persistence contracts remain covered; current package version is v0.2.11 with schema v23.
 
 ## v0.2.6 hard-pass coverage
 
