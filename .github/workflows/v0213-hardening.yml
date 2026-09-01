@@ -19,10 +19,8 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p=Path('tools/apply-v0213-hardening.py')
-          s=p.read_text()
-          s=re.sub(r"r\(\"        requestedAt:.*?'backfill metadata'\)\n", "", s, count=1, flags=re.S)
+          s=p.read_text().replace('requestedAt: Number(item?.requestedAt || 0) || Date.now()', 'requestedAt: Math.max(0, Number(item?.requestedAt || 0))')
           p.write_text(s)
           PY
           python3 tools/apply-v0213-hardening.py
