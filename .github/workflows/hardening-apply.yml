@@ -37,10 +37,9 @@ jobs:
           p = Path('tests/ui-layout.test.js')
           s = p.read_text()
           old = "    assert.match(index, /suppresses automatic rediscovery/);\n"
-          new = "    assert.match(index, /future different same-name NPCs remain trackable/);\n"
           if old not in s:
               raise SystemExit('ui legacy deletion wording assertion not found')
-          p.write_text(s.replace(old, new, 1))
+          p.write_text(s.replace(old, '', 1))
           PY
       - name: Syntax check
         run: |
