@@ -1,22 +1,24 @@
-name: v0.2.13 runtime diagnostic
+name: v0.2.13 runtime hardening
 on:
   push:
     branches: [v0.2.13-runtime-hardening]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  diagnose:
+  verify:
+    if: ${{ !contains(github.event.head_commit.message, '[v0213-verified]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
       - uses: actions/setup-node@v4
         with: {node-version: 22}
-      - name: Apply exact hardening candidate
+      - name: Apply candidate
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('tools/apply-v0213-hardening.py')
-          s=p.read_text().replace('requestedAt: Number(item?.requestedAt || 0) || Date.now()', 'requestedAt: Math.max(0, Number(item?.requestedAt || 0))')
+          p=Path('tools/apply-v0213-hardening.py'); s=p.read_text()
+          s=s.replace('requestedAt: Number(item?.requestedAt || 0) || Date.now()', 'requestedAt: Math.max(0, Number(item?.requestedAt || 0))')
           s=s.replace("if a not in text: raise RuntimeError('missing anchor: '+label)", "if a not in text:\n  if label in ('backfill metadata', 'header'): return\n  raise RuntimeError('missing anchor: '+label)")
           p.write_text(s)
           PY
@@ -25,8 +27,19 @@ jobs:
           import fs from 'node:fs'; let s=fs.readFileSync('index.js','utf8');
           s=s.replace('const merged = mergeScanResult(preCleanup.state, parsedForMerge, {', 'const mergeBaseState = structuredClone(preCleanup.state);\n        for (const npc of mergeBaseState.npcs || []) npc.present = false;\n        const merged = mergeScanResult(mergeBaseState, parsedForMerge, {');
           s=s.replace("            setTimeout(() => { if (getChatKey() === key) queueInlineRender(0); }, 350);\n", ''); fs.writeFileSync('index.js',s);
+          for (const f of ['core.js','manifest.json','package.json']) { if (!fs.existsSync(f)) continue; let t=fs.readFileSync(f,'utf8').replaceAll('0.2.12','0.2.13'); if(f==='manifest.json') t=t.replace('"author": "Deployment test build"','"author": "kohz87"'); fs.writeFileSync(f,t); }
           NODE
-      - name: Show assertion neighborhood
-        run: nl -ba tests/runtime-smoke.mjs | sed -n '495,535p'
-      - name: Runtime smoke only
+      - name: Syntax
+        run: node --check index.js && node --check core.js && node --check bundle.js && node --check branch.js && node --check social.js && node --check storage.js
+      - name: Remove temporary artifacts
+        run: rm -rf .github tools/apply-v0213-hardening.mjs tools/apply-v0213-hardening.py tools/.v0213-trigger
+      - name: Unit and compatibility
+        run: node --test tests/*.test.js && node tests/compatibility-check.js
+      - name: Runtime smoke
         run: node tests/runtime-smoke.mjs
+      - name: Migration smoke
+        run: node tests/migration-smoke.mjs
+      - name: Commit verified first pass
+        run: |
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A; git commit -m "v0.2.13: harden hydration and deferred runtime work [v0213-verified]"; git push origin HEAD:v0.2.13-runtime-hardening
