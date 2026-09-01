@@ -1,0 +1,40 @@
+name: v0.2.13 version bump
+on:
+  push:
+    branches: [v0.2.13-version-bump]
+permissions:
+  contents: write
+jobs:
+  bump:
+    if: ${{ !contains(github.event.head_commit.message, '[v0213-bumped]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - name: Bump synchronized version
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const edits = [
+            ['core.js', "export const NPC_STATE_VERSION = '0.2.12';", "export const NPC_STATE_VERSION = '0.2.13';"],
+            ['manifest.json', '"version": "0.2.12"', '"version": "0.2.13"'],
+            ['tests/package.test.js', "assert.equal(manifest.version, '0.2.12');", "assert.equal(manifest.version, '0.2.13');"],
+          ];
+          for (const [file, from, to] of edits) {
+            let s = fs.readFileSync(file, 'utf8');
+            if (!s.includes(from)) throw new Error(`Version anchor missing in ${file}`);
+            fs.writeFileSync(file, s.replace(from, to));
+          }
+          NODE
+      - name: Verify full suite
+        run: npm test
+      - name: Remove temporary workflow and commit
+        run: |
+          rm -rf .github
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Bump NPC State to v0.2.13 [v0213-bumped]"
+          git push origin HEAD:v0.2.13-version-bump
