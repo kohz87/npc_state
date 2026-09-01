@@ -51,6 +51,8 @@ jobs:
           node --check storage.js
       - name: Remove temporary hardening artifacts before package tests
         run: rm -rf .github tools/apply-v0213-hardening.mjs tools/apply-v0213-hardening.py tools/.v0213-trigger
+      - name: Show runtime assertion window
+        run: nl -ba tests/runtime-smoke.mjs | sed -n '500,515p'
       - name: Full repository test suite
         run: npm test
       - name: Commit verified first pass
