@@ -25,20 +25,21 @@ jobs:
           p.write_text(s)
           PY
           python3 tools/apply-v0213-hardening.py
-      - name: Advance release metadata and regression expectations
+      - name: Finalize transactional presence and release metadata
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
+          let index=fs.readFileSync('index.js','utf8');
+          const anchor='const merged = mergeScanResult(preCleanup.state, parsedForMerge, {';
+          if (!index.includes(anchor)) throw new Error('transactional presence anchor missing');
+          index=index.replace(anchor, `const mergeBaseState = structuredClone(preCleanup.state);\n        for (const npc of mergeBaseState.npcs || []) npc.present = false;\n        const merged = mergeScanResult(mergeBaseState, parsedForMerge, {`);
+          fs.writeFileSync('index.js',index);
           for (const file of ['core.js', 'manifest.json', 'package.json']) {
             if (!fs.existsSync(file)) continue;
             let text = fs.readFileSync(file, 'utf8').replaceAll('0.2.12', '0.2.13');
             if (file === 'manifest.json') text = text.replace('"author": "Deployment test build"', '"author": "kohz87"');
             fs.writeFileSync(file, text);
           }
-          const smoke='tests/runtime-smoke.mjs';
-          let t=fs.readFileSync(smoke,'utf8');
-          t=t.replace("assert.equal(state.npcs.find(n => n.name === 'Wiz').present, false);", "assert.equal(state.npcs.find(n => n.name === 'Wiz').present, true, 'an unobserved/failed turn must retain last-confirmed presence instead of erasing it pre-scan');");
-          fs.writeFileSync(smoke,t);
           NODE
       - name: Syntax check
         run: |
