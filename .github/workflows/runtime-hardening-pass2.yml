@@ -38,8 +38,8 @@ jobs:
           grep -q "markLoaded: false" index.js
           grep -q "currentPrefix" index.js
           grep -q "pagehide" index.js
-      - name: Remove temporary workflow
-        run: rm -rf .github
+      - name: Remove temporary artifacts
+        run: rm -rf .github tools/.pass2-trigger
       - name: Full repository suite
         run: npm test
       - name: Commit second-pass result
