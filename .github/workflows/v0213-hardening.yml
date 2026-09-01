@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: 22
       - name: Apply runtime hardening
-        run: node tools/apply-v0213-hardening.mjs
+        run: python3 tools/apply-v0213-hardening.py
       - name: Advance release metadata
         run: |
           node --input-type=module <<'NODE'
@@ -39,8 +39,8 @@ jobs:
           node --check storage.js
       - name: Full repository test suite
         run: npm test
-      - name: Remove temporary patch driver
-        run: rm -f tools/apply-v0213-hardening.mjs
+      - name: Remove temporary helpers
+        run: rm -f tools/apply-v0213-hardening.mjs tools/apply-v0213-hardening.py tools/.v0213-trigger
       - name: Commit verified first pass
         run: |
           git config user.name "github-actions[bot]"
