@@ -37,50 +37,6 @@ jobs:
           sed -i '1s/# NPC State v0\.2\.13 Code Review/# NPC State v0.2.14 Code Review/' CODE-REVIEW.md
           sed -i '1s/# NPC State v0\.2\.13 Test Report/# NPC State v0.2.14 Test Report/' TEST-REPORT.md
           sed -i 's/\*\*320\/320 Node tests passed\*\*/**327\/327 Node tests passed**/' TEST-REPORT.md
-          if ! grep -Fq '## v0.2.14 runtime data-safety hardening' CODE-REVIEW.md; then
-            tmp="$(mktemp)"
-            {
-              head -n 1 CODE-REVIEW.md
-              cat <<'EOF'
-
-## v0.2.14 runtime data-safety hardening
-
-**High: unhydrated fallback state could become writable authority.** Successful sidecar hydration is now the only default authority transition. Load failures expose an explicit read-only retry surface and dossier mutations remain blocked until the chat state loads successfully.
-
-**High: chat rename could switch ownership before destination storage was proven durable.** Rename now writes and verifies the new-key sidecar first, then switches ownership, with old-file deletion treated as cleanup only.
-
-**Medium: timed-out scans could strand coalesced automatic work.** Timeout cleanup now drains pending automatic scans for the same chat instead of leaving valid work queued indefinitely.
-
-**Medium: automatic dossier backfill could retry without durable bounds.** Retry attempts and cooldown timestamps are persisted, automatic retries are capped at three attempts, and the bare dossier is preserved when retries are exhausted.
-
-**High: editor and portrait async work could finish against the wrong chat.** Both workflows are chat-affine and stale completion is rejected after chat changes.
-
-**Verification:** two complete hard passes each finished at 327/327 tests with zero failures, plus 7/7 dedicated v0.2.14 adversarial assertions, syntax checks, SillyTavern 1.18 compatibility, runtime smoke, migration smoke, package-layout checks, and successful workflow commit to `main`.
-EOF
-              tail -n +2 CODE-REVIEW.md
-            } > "$tmp"
-            mv "$tmp" CODE-REVIEW.md
-          fi
-          if ! grep -Fq '## v0.2.14 hardening coverage' TEST-REPORT.md; then
-            tmp="$(mktemp)"
-            {
-              head -n 16 TEST-REPORT.md
-              cat <<'EOF'
-
-## v0.2.14 hardening coverage
-
-- Successful hydration is the only default authority transition for sidecar-backed chat state.
-- Hydration errors render an explicit read-only Retry Load surface and block dossier mutation until recovery.
-- Chat rename writes and verifies destination storage before ownership changes.
-- Scan timeout cleanup drains coalesced automatic work rather than silently abandoning it.
-- Automatic backfill retries persist attempt/cooldown metadata and stop after three failed automatic attempts without deleting the dossier.
-- Editor and portrait workflows remain bound to their origin chat and reject stale asynchronous completion.
-- Release metadata, runtime version, manifest version, migration/runtime smoke, syntax, package layout, and SillyTavern 1.18 compatibility all pass under v0.2.14.
-EOF
-              tail -n +17 TEST-REPORT.md
-            } > "$tmp"
-            mv "$tmp" TEST-REPORT.md
-          fi
           git diff --check
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
