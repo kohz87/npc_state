@@ -17,10 +17,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Normalize source for reviewed patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('index.js')
+          s = p.read_text()
+          s = s.replace('    removeStructuredReferencesForNpc,\n', '')
+          p.write_text(s)
+          PY
       - name: Apply reviewed hardening patch
         run: |
           python3 tools/apply-hardening.py
           python3 tools/apply-remaining-hardening-tests.py
+      - name: Restore structured-reference import if needed
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('index.js')
+          s = p.read_text()
+          if 'removeStructuredReferencesForNpc(' in s and '    removeStructuredReferencesForNpc,\n' not in s:
+              needle = '    reconcileNpcSocialGraph,\n'
+              if needle not in s:
+                  raise SystemExit('Unable to restore removeStructuredReferencesForNpc import')
+              s = s.replace(needle, '    removeStructuredReferencesForNpc,\n' + needle, 1)
+              p.write_text(s)
+          PY
       - name: Syntax check
         run: |
           node --check index.js
