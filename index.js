@@ -1,4 +1,4 @@
-/* NPC State v0.2.11 - standalone SillyTavern extension */
+/* NPC State v0.2.12 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';
 import {
@@ -87,6 +87,13 @@ import {
     reconcileBranchState,
 } from './branch.js';
 import {
+    normalizeSocialGraph,
+    reconcileSocialState,
+    applyManualKeyRelationshipEdit,
+    removeNpcFromSocialGraph,
+    purgeNpcStructuredReferences,
+} from './social.js';
+import {
     deleteNpcStateDataFile,
     readNpcStateDataFile,
     writeNpcStateDataFile,
@@ -165,7 +172,7 @@ const PORTRAIT_THEME_PRESETS = Object.freeze({
 const DURABLE_COMPACTION_VERSION = 1;
 
 const DEFAULTS = Object.freeze({
-    schemaVersion: 23,
+    schemaVersion: 24,
     enabled: true,
     autoScan: true,
     fullScanEveryTurn: false,
@@ -334,6 +341,7 @@ function freshChatState() {
         npcs: [],
         candidates: [],
         pendingBackfills: [],
+        socialGraph: normalizeSocialGraph(),
         turn: 0,
         assistantSinceScan: 0,
         lastScanAt: 0,
@@ -364,6 +372,7 @@ function normalizeChatState(raw = {}) {
         : Math.max(0, Number(state.branchLineageVersion || 0));
     state.npcs = Array.isArray(state.npcs) ? state.npcs.map(normalizeNpcRecord) : [];
     state.candidates = Array.isArray(state.candidates) ? state.candidates.map(normalizeNpcCandidate).filter(Boolean) : [];
+    state.socialGraph = normalizeSocialGraph(state.socialGraph);
     state.pendingBackfills = Array.isArray(state.pendingBackfills) ? state.pendingBackfills.map(item => ({
         npcId: String(item?.npcId || '').slice(0, 100),
         label: String(item?.label || '').trim().slice(0, 120),
@@ -382,18 +391,23 @@ function normalizeChatState(raw = {}) {
         const snapshot = { ...checkpoint.snapshot };
         snapshot.npcs = Array.isArray(snapshot.npcs) ? snapshot.npcs.map(normalizeNpcRecord) : [];
         snapshot.candidates = Array.isArray(snapshot.candidates) ? snapshot.candidates.map(normalizeNpcCandidate).filter(Boolean) : [];
+        snapshot.socialGraph = normalizeSocialGraph(snapshot.socialGraph);
         return { ...checkpoint, snapshot };
     }).filter(Boolean) : [];
     if (state.branchRootSnapshot && typeof state.branchRootSnapshot === 'object') {
         const root = { ...state.branchRootSnapshot };
         root.npcs = Array.isArray(root.npcs) ? root.npcs.map(normalizeNpcRecord) : [];
         root.candidates = Array.isArray(root.candidates) ? root.candidates.map(normalizeNpcCandidate).filter(Boolean) : [];
+        root.socialGraph = normalizeSocialGraph(root.socialGraph);
         state.branchRootSnapshot = root;
     } else {
         state.branchRootSnapshot = null;
     }
     state.lineage = Array.isArray(state.lineage) ? state.lineage : [];
     state.durableCompactionVersion = DURABLE_COMPACTION_VERSION;
+    const socialMigration = reconcileSocialState(state, { provenance: 'migration', confidence: 'migration' });
+    state.socialGraph = socialMigration.socialGraph;
+    state.npcs = socialMigration.state.npcs;
     for (const npc of state.npcs) {
         if (npc?.portrait?.dataUrl && !state.portraitAssets[npc.id]) state.portraitAssets[npc.id] = structuredClone(npc.portrait);
         if (!npc?.portrait?.dataUrl && state.portraitAssets[npc.id]?.dataUrl) npc.portrait = structuredClone(state.portraitAssets[npc.id]);
@@ -891,7 +905,7 @@ function updateInjection() {
         return;
     }
     const state = getChatState();
-    const prompt = buildInjection(state.npcs, recentTranscript(4), state.turn, settings.injectLimit, settings.behaviorCriteria, settings.injectBudgetTokens);
+    const prompt = buildInjection(state.npcs, recentTranscript(4), state.turn, settings.injectLimit, settings.behaviorCriteria, settings.injectBudgetTokens, state.socialGraph);
     ctx.setExtensionPrompt?.(
         PROMPT_KEY,
         prompt,
@@ -3399,6 +3413,8 @@ function saveNpcEditor(npcId, { close = true, silent = false } = {}) {
     const index = state.npcs.findIndex(item => item.id === npcId);
     if (index < 0) { if (close) closeNpcEditor(); return false; }
     const current = state.npcs[index];
+    const beforeKeyRelationships = [...(current.keyRelationships || [])];
+    const previousCanonicalName = current.name;
     const next = structuredClone(current);
     const oldRelationship = { ...(current.relationship || DEFAULT_RELATIONSHIP) };
     const stableInputs = {
@@ -3483,6 +3499,20 @@ function saveNpcEditor(npcId, { close = true, silent = false } = {}) {
     state.npcs[index] = normalizeNpcRecord(next);
     if (next.lastRelationshipChange?.impact === 'manual') state.npcs[index].lastRelationshipChange = structuredClone(next.lastRelationshipChange);
     const targetMessageId = latestMessageId(false);
+    applyManualKeyRelationshipEdit(state, npcId, beforeKeyRelationships, state.npcs[index].keyRelationships || [], {
+        sourceMessageId: targetMessageId,
+        turn: Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
+    });
+    const reconciledSocial = reconcileSocialState(state, {
+        provenance: 'manual', confidence: 'manual', sourceMessageId: targetMessageId,
+        turn: Number.isFinite(Number(state.turn)) ? Number(state.turn) : null,
+    });
+    state.socialGraph = reconciledSocial.socialGraph;
+    state.npcs = reconciledSocial.state.npcs;
+    if (previousCanonicalName !== state.npcs.find(item => item.id === npcId)?.name) {
+        // Old canonical name remains an alias, while every structured neighbor reference
+        // now renders the promoted/manual canonical name through the stable NPC id.
+    }
     if (targetMessageId >= 0) commitBranchCheckpoint(state, targetMessageId, 'manual-edit');
     persist();
     if (close) closeNpcEditor();
@@ -3514,6 +3544,11 @@ function deleteNpcById(npcId, { confirmAction = true } = {}) {
     const working = result.state;
     if (result.report.status !== 'removed') return false;
     working.userDismissedGroups = addUserDismissedGroup(state.userDismissedGroups, current);
+    working.socialGraph = removeNpcFromSocialGraph(working.socialGraph, current.id);
+    purgeNpcStructuredReferences(working.npcs, current);
+    const socialAfterDelete = reconcileSocialState(working, { provenance: 'manual', confidence: 'manual' });
+    working.socialGraph = socialAfterDelete.socialGraph;
+    working.npcs = socialAfterDelete.state.npcs;
     purgeInlineCardsInState(working, result.report.npcId, result.report.name);
     const reportKey = normalizeName(result.report.name);
     working.pendingBackfills = (working.pendingBackfills || []).filter(item => item.npcId !== result.report.npcId && normalizeName(item.label) !== reportKey);
@@ -3686,6 +3721,9 @@ function importBundleBytes(bytes) {
     }
     if (!merged.portraitAssets || typeof merged.portraitAssets !== 'object') merged.portraitAssets = {};
     for (const npc of merged.npcs) if (npc.portrait?.dataUrl) merged.portraitAssets[npc.id] = structuredClone(npc.portrait);
+    const socialImport = reconcileSocialState(merged, { provenance: 'migration', confidence: 'migration' });
+    merged.socialGraph = socialImport.socialGraph;
+    merged.npcs = socialImport.state.npcs;
     const targetMessageId = latestMessageId(false);
     if (targetMessageId >= 0) commitBranchCheckpoint(merged, targetMessageId, 'import');
     setChatState(getChatKey(), merged);
@@ -3990,11 +4028,19 @@ function processOocCommands(messageId = null) {
     working.processedOocMessageId = resolvedId;
     for (const report of reports) {
         if (report.status === 'removed' || report.status === 'suppressed') {
+            const removedNpc = state.npcs.find(item => item.id === report.npcId || npcMatchesLabel(item, report.name));
+            if (removedNpc) {
+                working.socialGraph = removeNpcFromSocialGraph(working.socialGraph, removedNpc.id);
+                purgeNpcStructuredReferences(working.npcs, removedNpc);
+            }
             purgeInlineCardsInState(working, report.npcId, report.name);
             const reportKey = normalizeName(report.name);
             working.pendingBackfills = (working.pendingBackfills || []).filter(item => item.npcId !== report.npcId && normalizeName(item.label) !== reportKey);
         }
     }
+    const oocSocial = reconcileSocialState(working, { provenance: 'manual', confidence: 'manual', sourceMessageId: resolvedId, turn: state.turn });
+    working.socialGraph = oocSocial.socialGraph;
+    working.npcs = oocSocial.state.npcs;
     if (resolvedId >= 0) commitBranchCheckpoint(working, resolvedId, 'ooc');
     setChatState(getChatKey(), working);
     persist();

@@ -9,7 +9,7 @@ const sourceRoot = path.resolve(here, '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'npc-state-runtime-'));
 const extRoot = path.join(tempRoot, 'public', 'scripts', 'extensions', 'third-party', 'npc_state');
 fs.mkdirSync(extRoot, { recursive: true });
-for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'storage.js']) {
+for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js']) {
     fs.copyFileSync(path.join(sourceRoot, name), path.join(extRoot, name));
 }
 fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ type: 'module' }));
@@ -360,7 +360,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.11');
+    assert.equal(globalThis.NPCState?.version, '0.2.12');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');

@@ -1,4 +1,4 @@
-# NPC State v0.2.11
+# NPC State v0.2.12
 
 NPC State is a standalone SillyTavern extension that maintains persistent, branch-aware NPC dossiers for roleplay. It tracks identity, durable characterization, live state, player relationships, important memories, portraits, and present-scene visibility without depending on Megumin Suite's NPC Bank.
 
@@ -142,6 +142,16 @@ v0.2.5 makes durable identity authoritative over relationship scores. Personalit
 **Behavioral Profile** is a compact point-form translation of established identity for smaller/non-frontier models. It holds up to six labeled cues such as `Disposition`, `Expressiveness`, `Independence`, `Care`, `Conflict`, or `Cruelty-Social`. It is deliberately bounded and shares the existing injection budget rather than becoming a second prose dossier.
 
 Kindness/empathy are target-general by default. A kind NPC may still use necessary lethal force, refuse the player, prioritize another duty, or dislike a particular person without becoming generically cruel. Relationship-specific behavior is kept relationship-specific instead of being learned back into global Personality/Speech/Mannerisms.
+
+## v0.2.12 Social Graph and canonical identity resolution
+
+NPC State now keeps a hidden ID-backed Social Graph beneath the visible `Key Relationships` list. Names are labels, not identity keys: when an interim identity is formally resolved (`Thunderbird -> Mina`), the dossier keeps the same stable identity, `Thunderbird` remains an alias for recognition, and structured relationships elsewhere display only the current canonical name. Existing alias/canonical duplicates are collapsed conservatively, while ordinary memories/background prose is never globally search-and-replaced.
+
+Unnamed family members can remain useful before they receive names. Explicit facts such as `Brina has two daughters`, `Brina has a daughter`, `Brina has twin daughters`, or `Brina is the mother of two daughters` create hidden unresolved family slots rather than fake NPC names. A later explicit daughter edge resolves a slot into that NPC id; one named daughter leaves the other unresolved, and a proper name appearing without family evidence does not get guessed into the family. Twin/shared-parent relationships can infer sibling continuity without inventing older/younger birth order, biological status, or other unstated details.
+
+The graph can retain more durable social edges than the max-five Key Relationships projection. Runtime salience may notice an off-screen relative mentioned in the scene even when that bond is not currently visible in the five-entry dossier list, but generation still receives only confirmed-present NPC dossiers and never sees unresolved slots, graph ids, confidence/provenance, or instructions to force a family introduction.
+
+Social Graph state is branch-specific and follows the v0.2.11 exact-swipe model. A family name resolved in Swipe A does not leak into Swipe B. Sidecar reloads, bundles/imports, branch roots, archive/death, manual edits, permanent deletion suppression, and identity migration all preserve or clean graph state deterministically.
 
 ## v0.2.11 relationship milestones and exact swipe branches
 
@@ -383,7 +393,7 @@ Auto-managed durable fields are bounded before storage and receive tighter bound
 
 ## Upgrade notes for v0.2.9
 
-Settings schema is now v23. Existing visible Trust/Affection/Desire/Tension scores are preserved exactly and are never rescaled. Untouched v0.2.8 `4/8/15/25` or v0.2.9 `1/3/8/20` stock caps still migrate to the current `1/2/5/10` weighting, while customized caps and customized relationship/impact/behavior rubrics remain authoritative. Existing v0.2.10 scores infer directional milestones strictly below their established magnitude (`Trust +63` infers positive 25/50, while 75 remains locked) so upgrades do not retroactively erase earned depth. Legacy v0.2.10 swipe checkpoints are converted only when their entire stored old-fingerprint prefix still matches the loaded chat; stale/edited legacy history is discarded rather than falsely marked exact.
+Settings schema is now v24. Existing visible Trust/Affection/Desire/Tension scores are preserved exactly and are never rescaled. Untouched v0.2.8 `4/8/15/25` or v0.2.9 `1/3/8/20` stock caps still migrate to the current `1/2/5/10` weighting, while customized caps and customized relationship/impact/behavior rubrics remain authoritative. Existing v0.2.10 scores infer directional milestones strictly below their established magnitude (`Trust +63` infers positive 25/50, while 75 remains locked) so upgrades do not retroactively erase earned depth. Legacy v0.2.10 swipe checkpoints are converted only when their entire stored old-fingerprint prefix still matches the loaded chat; stale/edited legacy history is discarded rather than falsely marked exact.
 
 ## Upgrade notes for v0.2.5
 

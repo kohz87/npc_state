@@ -1,4 +1,11 @@
-export const NPC_STATE_VERSION = '0.2.11';
+import {
+    reconcileSocialState,
+    remapSocialGraphNpcId,
+    canonicalizeNpcKeyRelationships,
+    socialGraphLabelsForNpc,
+} from './social.js';
+
+export const NPC_STATE_VERSION = '0.2.12';
 
 export const NPC_LIFE_STATES = Object.freeze(['unknown', 'alive', 'deceased']);
 export const NPC_ARCHIVE_REASONS = Object.freeze(['', 'manual', 'deceased', 'stale']);
@@ -3644,6 +3651,124 @@ export function resolveInterimIdentityPromotions(scanResult, existingNpcs = [], 
     return clone;
 }
 
+
+function explicitAliasLink(a, b) {
+    if (!a || !b || a.id === b.id) return false;
+    const aName = normalizeName(a.name);
+    const bName = normalizeName(b.name);
+    if (!aName || !bName) return false;
+    const aAliases = new Set((a.aliases || []).map(normalizeName).filter(Boolean));
+    const bAliases = new Set((b.aliases || []).map(normalizeName).filter(Boolean));
+    return aAliases.has(bName) || bAliases.has(aName);
+}
+
+function duplicateRelationshipWeight(npc) {
+    const rel = normalizeRelationshipBaseline(npc?.relationship || DEFAULT_RELATIONSHIP);
+    return (npc?.relationshipEventHistory?.length || 0) * 20
+        + RELATIONSHIP_KEYS.reduce((sum, key) => sum + Math.abs(Number(rel[key] || 0)), 0)
+        + Number(npc?.seenCount || 0);
+}
+
+function chooseDuplicateCanonicalName(a, b) {
+    const aName = normalizeName(a?.name);
+    const bName = normalizeName(b?.name);
+    const aClaimsB = (a?.aliases || []).some(alias => normalizeName(alias) === bName);
+    const bClaimsA = (b?.aliases || []).some(alias => normalizeName(alias) === aName);
+    // A record that explicitly carries the other record's label as its alias is the
+    // strongest deterministic signal that its own name is the later canonical identity.
+    if (aClaimsB !== bClaimsA) return aClaimsB ? a.name : b.name;
+    const aInterim = isInterimNpcLabel(a?.name, a?.identityKind);
+    const bInterim = isInterimNpcLabel(b?.name, b?.identityKind);
+    if (aInterim !== bInterim) return aInterim ? b.name : a.name;
+    const aUpdated = Number(a?.updatedAt || 0);
+    const bUpdated = Number(b?.updatedAt || 0);
+    return bUpdated > aUpdated ? b.name : a.name;
+}
+
+function mergeAliasLinkedNpcPair(a, b) {
+    const canonicalName = cleanText(chooseDuplicateCanonicalName(a, b), 120) || a.name || b.name;
+    const older = Number(a?.createdAt || Infinity) <= Number(b?.createdAt || Infinity) ? a : b;
+    const newer = older === a ? b : a;
+    const relationshipSource = duplicateRelationshipWeight(a) >= duplicateRelationshipWeight(b) ? a : b;
+    const merged = structuredClone(older);
+    merged.name = canonicalName;
+    merged.identityKind = inferNpcIdentityKind(canonicalName, 'proper_name');
+    merged.aliases = mergeLists(
+        [a.name, ...(a.aliases || []), b.name, ...(b.aliases || [])],
+        [], 8,
+    ).filter(alias => normalizeName(alias) !== normalizeName(canonicalName));
+    for (const field of ['role','species','age','apparentAge','personality','speech','appearance','background','relationshipSummary','mood','location','goal','status','lifeStateReason']) {
+        const av = cleanText(a?.[field], field === 'appearance' ? 1800 : 1200);
+        const bv = cleanText(b?.[field], field === 'appearance' ? 1800 : 1200);
+        merged[field] = bv.length > av.length ? bv : av;
+    }
+    merged.memories = normalizeStoredMemories([...(a.memories || []), ...(b.memories || [])]);
+    merged.mannerisms = normalizeMannerisms([...(a.mannerisms || []), ...(b.mannerisms || [])]);
+    merged.behaviorProfile = normalizeBehaviorProfile([...(a.behaviorProfile || []), ...(b.behaviorProfile || [])]);
+    merged.keyRelationships = mergeKeyRelationshipUpdates(a.keyRelationships || [], b.keyRelationships || []);
+    merged.profileEvidence = normalizeProfileEvidence({
+        personality: [...(a.profileEvidence?.personality || []), ...(b.profileEvidence?.personality || [])],
+        speech: [...(a.profileEvidence?.speech || []), ...(b.profileEvidence?.speech || [])],
+        appearance: [...(a.profileEvidence?.appearance || []), ...(b.profileEvidence?.appearance || [])],
+        mannerisms: [...(a.profileEvidence?.mannerisms || []), ...(b.profileEvidence?.mannerisms || [])],
+        behaviorProfile: [...(a.profileEvidence?.behaviorProfile || []), ...(b.profileEvidence?.behaviorProfile || [])],
+    });
+    merged.relationship = structuredClone(relationshipSource.relationship || DEFAULT_RELATIONSHIP);
+    merged.relationshipProgress = structuredClone(relationshipSource.relationshipProgress || DEFAULT_RELATIONSHIP_PROGRESS);
+    merged.relationshipMilestones = structuredClone(relationshipSource.relationshipMilestones || []);
+    merged.relationshipEventHistory = structuredClone(relationshipSource.relationshipEventHistory || []);
+    merged.lastRelationshipChange = structuredClone(relationshipSource.lastRelationshipChange || merged.lastRelationshipChange);
+    const lifecycleSource = Number(a?.updatedAt || 0) >= Number(b?.updatedAt || 0) ? a : b;
+    for (const field of ['present','worldActive','lifeState','lifeStateCertainty','archived','archiveReason','archivedAt','archiveSourceMessageId']) merged[field] = structuredClone(lifecycleSource?.[field]);
+    merged.portrait = a?.portrait?.dataUrl ? structuredClone(a.portrait) : (b?.portrait?.dataUrl ? structuredClone(b.portrait) : (a?.portrait || b?.portrait || null));
+    merged.portraitPromptPositive = cleanText(newer?.portraitPromptPositive || older?.portraitPromptPositive, 1800);
+    merged.portraitPromptNegative = cleanText(newer?.portraitPromptNegative || older?.portraitPromptNegative, 1800);
+    merged.portraitPromptReplace = Boolean(newer?.portraitPromptReplace || older?.portraitPromptReplace);
+    merged.importance = Math.max(Number(a?.importance || 0), Number(b?.importance || 0));
+    merged.seenCount = Math.max(Number(a?.seenCount || 0), Number(b?.seenCount || 0));
+    merged.lastSeenTurn = Math.max(Number(a?.lastSeenTurn || 0), Number(b?.lastSeenTurn || 0));
+    merged.lastWorldActiveTurn = Math.max(Number(a?.lastWorldActiveTurn || 0), Number(b?.lastWorldActiveTurn || 0));
+    merged.createdAt = Math.min(Number(a?.createdAt || Date.now()), Number(b?.createdAt || Date.now()));
+    merged.updatedAt = Math.max(Number(a?.updatedAt || 0), Number(b?.updatedAt || 0), Date.now());
+    merged.manual = Boolean(a?.manual || b?.manual);
+    merged.manualProfileLocksExplicit = Boolean(a?.manualProfileLocksExplicit || b?.manualProfileLocksExplicit);
+    merged.manualProfileFields = [...new Set([...(a?.manualProfileFields || []), ...(b?.manualProfileFields || [])])];
+    merged.retentionProtected = Boolean(a?.retentionProtected || b?.retentionProtected);
+    merged.minor = Boolean(a?.minor && b?.minor);
+    return normalizeNpcRecord(merged);
+}
+
+function consolidateAliasLinkedNpcDuplicates(next, report) {
+    if (!Array.isArray(next?.npcs) || next.npcs.length < 2) return;
+    if (!Array.isArray(report.deduplicated)) report.deduplicated = [];
+    let changed = true;
+    while (changed) {
+        changed = false;
+        outer: for (let i = 0; i < next.npcs.length; i += 1) {
+            for (let j = i + 1; j < next.npcs.length; j += 1) {
+                const a = next.npcs[i]; const b = next.npcs[j];
+                if (!explicitAliasLink(a, b)) continue;
+                const aKind = inferNpcIdentityKind(a.name, a.identityKind);
+                const bKind = inferNpcIdentityKind(b.name, b.identityKind);
+                if (aKind === 'proper_name' && bKind === 'proper_name'
+                    && !((a.aliases || []).some(alias => normalizeName(alias) === normalizeName(b.name))
+                        || (b.aliases || []).some(alias => normalizeName(alias) === normalizeName(a.name)))) continue;
+                const survivor = Number(a?.createdAt || Infinity) <= Number(b?.createdAt || Infinity) ? a : b;
+                const removed = survivor === a ? b : a;
+                const merged = mergeAliasLinkedNpcPair(a, b);
+                merged.id = survivor.id;
+                next.socialGraph = remapSocialGraphNpcId(next.socialGraph, removed.id, survivor.id);
+                next.npcs[i] = merged;
+                next.npcs.splice(j, 1);
+                report.deduplicated.push({ keptId: survivor.id, removedId: removed.id, name: merged.name });
+                if (!report.updated.includes(survivor.id)) report.updated.push(survivor.id);
+                changed = true;
+                break outer;
+            }
+        }
+    }
+}
+
 export function mergeScanResult(state, scanResult, options = {}) {
     const maxNpcs = Math.max(1, Math.min(100, Number(options.maxNpcs) || 40));
     const excludeNames = new Set((options.excludeNames || []).map(normalizeName).filter(Boolean));
@@ -3673,8 +3798,9 @@ export function mergeScanResult(state, scanResult, options = {}) {
             worldActive: preserveWorldActive ? Boolean(n.worldActive) : false,
         })) : [],
         candidates: normalizedCandidates.filter(candidate => turn - Number(candidate.lastSeenTurn || 0) <= NPC_CANDIDATE_TTL_TURNS),
+        socialGraph: state?.socialGraph && typeof state.socialGraph === 'object' ? structuredClone(state.socialGraph) : { version: 1, edges: [], unresolved: [] },
     };
-    const report = { created: [], updated: [], profileUpdated: [], renamed: [], candidates: [], promoted: [], expired: expiredCandidates.map(c => c.name), skipped: [], profileUpdateStats: { provided: 0, applied: 0, evidenceAdded: 0 } };
+    const report = { created: [], updated: [], profileUpdated: [], renamed: [], deduplicated: [], candidates: [], promoted: [], expired: expiredCandidates.map(c => c.name), skipped: [], profileUpdateStats: { provided: 0, applied: 0, evidenceAdded: 0 } };
 
     const createFromIncoming = incoming => {
         if (next.npcs.filter(npc => !npc?.archived).length >= maxNpcs) {
@@ -3771,6 +3897,23 @@ export function mergeScanResult(state, scanResult, options = {}) {
     // reveal update a stored dossier even when the scanner returned no ordinary NPC object.
     applyKeyRelationshipEdges(next, scanResult, excludeNames, report);
 
+    // Canonical identity promotion is global: once an interim label becomes a proper name,
+    // structured references in neighboring dossiers and the hidden social graph must follow
+    // the stable NPC id rather than fossilizing both labels as separate people.
+    consolidateAliasLinkedNpcDuplicates(next, report);
+    for (const id of canonicalizeNpcKeyRelationships(next.npcs)) if (!report.updated.includes(id)) report.updated.push(id);
+    const social = reconcileSocialState(next, {
+        scanResult,
+        transcript: options.developmentContext || '',
+        provenance: 'scanner',
+        confidence: 'explicit',
+        sourceMessageId,
+        turn,
+    });
+    next.socialGraph = social.socialGraph;
+    next.npcs = social.state.npcs;
+    for (const id of social.updatedIds || []) if (!report.updated.includes(id)) report.updated.push(id);
+
     // Final canonicalization is a hard guard against append-only drift from either
     // normal NPC deltas or the independent profile/social channels.
     next.npcs = next.npcs.map(npc => {
@@ -3843,7 +3986,7 @@ export function buildBehaviorGuidance(npc) {
     return [...combinations, ...cues].join('; ');
 }
 
-export function scoreNpcRelevance(npc, text, turn = 0) {
+export function scoreNpcRelevance(npc, text, turn = 0, socialGraph = null, allNpcs = []) {
     const haystack = normalizeName(text);
     let score = 0;
     for (const label of [npc.name, ...(npc.aliases || [])]) {
@@ -3858,6 +4001,10 @@ export function scoreNpcRelevance(npc, text, turn = 0) {
         const subject = keyRelationshipSubject(entry);
         if (subject && countNormalizedPhrase(haystack, subject) > 0) score += 2;
     }
+    for (const label of socialGraphLabelsForNpc(socialGraph, npc.id, allNpcs)) {
+        const subject = normalizeName(label);
+        if (subject && countNormalizedPhrase(haystack, subject) > 0) score += 2;
+    }
     const goalSimilarity = npc.goal ? durableSemanticSimilarity(npc.goal, text) : 0;
     if (goalSimilarity >= 0.35) score += Math.max(1, Math.round(goalSimilarity * 4));
     const memoryMatch = cleanList(npc.memories, IMPORTANT_MEMORY_LIMIT, DURABLE_PROFILE_LIMITS.memory)
@@ -3870,9 +4017,11 @@ export function scoreNpcRelevance(npc, text, turn = 0) {
     return score;
 }
 
-export function selectRelevantNpcs(npcs, text, turn = 0, limit = 3) {
-    return [...(npcs || [])]
-        .map(npc => ({ npc, score: scoreNpcRelevance(npc, text, turn) }))
+export function selectRelevantNpcs(npcs, text, turn = 0, limit = 3, socialGraph = null, graphRegistry = null) {
+    const all = [...(npcs || [])];
+    const registry = Array.isArray(graphRegistry) ? graphRegistry : all;
+    return all
+        .map(npc => ({ npc, score: scoreNpcRelevance(npc, text, turn, socialGraph, registry) }))
         .filter(item => item.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, Math.max(1, limit))
@@ -4011,9 +4160,9 @@ function compactInjectionBehaviorRubric(criteria, maxChars) {
     return truncateInjectionText(raw, maxChars);
 }
 
-export function buildInjection(npcs, text, turn = 0, limit = 3, behaviorCriteria = DEFAULT_BEHAVIOR_CRITERIA, budgetTokens = DEFAULT_INJECTION_BUDGET_TOKENS) {
+export function buildInjection(npcs, text, turn = 0, limit = 3, behaviorCriteria = DEFAULT_BEHAVIOR_CRITERIA, budgetTokens = DEFAULT_INJECTION_BUDGET_TOKENS, socialGraph = null) {
     const present = (npcs || []).filter(npc => Boolean(npc?.present) && !npc?.archived);
-    let relevant = selectRelevantNpcs(present, text, turn, limit);
+    let relevant = selectRelevantNpcs(present, text, turn, limit, socialGraph, npcs || []);
     if (!relevant.length) return '';
 
     const budget = normalizeInjectionBudgetTokens(budgetTokens);

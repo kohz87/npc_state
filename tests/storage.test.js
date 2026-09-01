@@ -139,3 +139,20 @@ test('v0.2.7 sidecar portrait compaction prefers the live NPC portrait over a st
     assert.equal(decoded.state.portraitAssets[npc.id].dataUrl, live);
     assert.equal(decoded.state.portraitAssets[npc.id].updatedAt, 200);
 });
+
+test('v0.2.12 sidecar round-trips social graph edges and unresolved family slots', () => {
+    const brina = createNpcRecord('Brina');
+    const liza = createNpcRecord('Liza', [brina.id]);
+    const state = {
+        npcs: [brina, liza],
+        socialGraph: {
+            version: 1,
+            edges: [{ aId: brina.id, bId: liza.id, aToB: 'daughter', bToA: 'parent', confidence: 'explicit', reason: 'introduced as daughter' }],
+            unresolved: [{ ownerId: brina.id, relation: 'daughter', groupId: 'family_brina', descriptor: 'younger', confidence: 'explicit' }],
+        },
+    };
+    const decoded = decodeStateFilePayload(encodeStateFilePayload('chat:social', state, '0.2.12'));
+    assert.equal(decoded.state.socialGraph.edges.length, 1);
+    assert.equal(decoded.state.socialGraph.unresolved.length, 1);
+    assert.equal(decoded.state.socialGraph.unresolved[0].descriptor, 'younger');
+});

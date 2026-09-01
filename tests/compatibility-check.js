@@ -49,7 +49,7 @@ assert.match(index, /function inlineRosterHtml/, 'present-only roster renderer m
 assert.match(index, /function openNpcViewer/, 'portrait-card dossier viewer missing');
 assert.doesNotMatch(index, /\bnpcBank\b|\blocalProfile\b|from\s+['"][^'"]*Megumin|extension_settings\s*\[[^\]]*Megumin-Suite/i, 'standalone build must not import or access Megumin NPC Bank internals');
 
-for (const file of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'storage.js', 'style.css', 'manifest.json']) {
+for (const file of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js', 'style.css', 'manifest.json']) {
     assert.ok(fs.existsSync(path.join(root, file)), `missing ${file}`);
 }
 

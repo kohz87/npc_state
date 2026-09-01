@@ -3577,3 +3577,18 @@ test('v0.2.10 relationship event history is bounded to six recent evidence event
     assert.match(normalized[0].reason, /event 3$/);
     assert.match(normalized[5].reason, /event 8$/);
 });
+
+test('v0.2.12 hidden social graph affects salience but never leaks graph machinery or unresolved slots into RP injection', async () => {
+    const { normalizeSocialGraph } = await import('../social.js');
+    const brina = createNpcRecord('Brina');
+    const liza = createNpcRecord('Liza', [brina.id]);
+    brina.present = true;
+    liza.present = false;
+    const graph = normalizeSocialGraph({
+        edges: [{ aId: brina.id, bId: liza.id, aToB: 'daughter', bToA: 'parent', confidence: 'explicit' }],
+        unresolved: [{ ownerId: brina.id, relation: 'daughter', descriptor: 'younger', groupId: 'family_brina', confidence: 'explicit' }],
+    });
+    const injection = buildInjection([brina, liza], 'Liza is missing.', 10, 1, DEFAULT_BEHAVIOR_CRITERIA, 900, graph);
+    assert.match(injection, /Brina/);
+    assert.doesNotMatch(injection, /socialGraph|unresolved|groupId|slot_|family_brina/i);
+});

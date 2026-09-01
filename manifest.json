@@ -7,6 +7,6 @@
     "js": "index.js",
     "css": "style.css",
     "author": "Deployment test build",
-    "version": "0.2.11",
+    "version": "0.2.12",
     "minimum_client_version": "1.18.0"
 }

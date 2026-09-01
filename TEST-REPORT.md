@@ -1,4 +1,4 @@
-# NPC State v0.2.11 Test Report
+# NPC State v0.2.12 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
@@ -8,14 +8,27 @@ Target: SillyTavern 1.18.0 extension contract.
 
 The reviewed working tree completed:
 
-- **270/270 Node tests passed**
+- **290/290 Node tests passed**
 - SillyTavern 1.18 compatibility/import/event contract passed
 - Megumin Suite isolation and master-block integration checks passed
 - Mocked browser/runtime smoke passed
-- Schema-v23 settings/sidecar migration smoke passed
+- Schema-v24 settings/sidecar migration smoke passed
 - One-level extension package-layout check passed
 
 The bounded routine scanner fixture measured **7,115 non-story prompt characters**, below the existing 7,200-character ceiling.
+
+
+## v0.2.12 Social Graph / identity-resolution coverage
+
+- `Thunderbird -> Mina` rewrites neighboring structured family references to Mina, retains Thunderbird as an alias, and produces one ID-backed graph edge instead of duplicate relationship fossils.
+- Multi-hop canonical rename (`Thunderbird -> Mina -> Mina Vale`) keeps historical aliases while structured display uses only the newest canonical name and richer relationship wording survives dedupe.
+- Already-split interim/proper dossiers merge only with explicit alias evidence; the older stable id and relationship history survive, and graph endpoints remap. Ambiguous shared aliases remain unresolved.
+- `two daughters`, `a daughter`, `twin daughters`, and explicit parent-of phrasing produce bounded unresolved slots. Partial naming consumes only the proven slot; unrelated proper names do not guess membership.
+- Locally grounded older/younger descriptors guide partial resolution; descriptor words in another sentence cannot contaminate the family group. Twin resolution infers `twin sibling` and never invents birth order.
+- Deceased/archived relatives remain graph-connected and project explicit deceased wording. Hard deletion, OOC removal, stale pruning, and permanent swipe-restored dismissal cannot leave dangling graph ids or stale structured counterpart references.
+- Exact sibling swipes restore Social Graph edges and unresolved slots independently. Sidecars and bundles round-trip graph state; bundle merge remaps imported graph ids onto an existing stable dossier id.
+- Hidden graph counterparts contribute runtime salience even when outside the visible top-five Key Relationships. RP injection never exposes graph ids, unresolved slots, group ids, provenance, or other backend machinery.
+- Large-family inferred sibling expansion is bounded and cannot crowd an explicit social edge out of the graph.
 
 ## v0.2.11 milestone / exact-swipe coverage
 

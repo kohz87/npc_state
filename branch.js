@@ -1,4 +1,5 @@
 import { normalizeName } from './core.js';
+import { normalizeSocialGraph, removeNpcFromSocialGraph, purgeNpcStructuredReferences } from './social.js';
 
 export const BRANCH_HISTORY_LIMIT = 160;
 export const BRANCH_LINEAGE_VERSION = 2;
@@ -91,6 +92,7 @@ export function snapshotBranchState(state = {}) {
         npcs: cloneNarrativeNpcs(state.npcs),
         candidates: Array.isArray(state.candidates) ? structuredClone(state.candidates) : [],
         pendingBackfills: Array.isArray(state.pendingBackfills) ? structuredClone(state.pendingBackfills) : [],
+        socialGraph: normalizeSocialGraph(state.socialGraph),
         dismissed: Array.isArray(state.dismissed) ? [...state.dismissed] : [],
         turn: Number(state.turn || 0),
         assistantSinceScan: Number(state.assistantSinceScan || 0),
@@ -108,6 +110,7 @@ export function restoreSnapshotIntoState(current = {}, snapshot = null) {
         npcs: cloneNpcList(snapshot.npcs),
         candidates: Array.isArray(snapshot.candidates) ? structuredClone(snapshot.candidates) : [],
         pendingBackfills: Array.isArray(snapshot.pendingBackfills) ? structuredClone(snapshot.pendingBackfills) : [],
+        socialGraph: normalizeSocialGraph(snapshot.socialGraph),
         dismissed: Array.isArray(snapshot.dismissed) ? [...snapshot.dismissed] : [],
         turn: Number(snapshot.turn || 0),
         assistantSinceScan: Number(snapshot.assistantSinceScan || 0),
@@ -183,7 +186,13 @@ function enforceUserDismissals(state, groups) {
     const blocked = new Set(normalizedGroups.flatMap(group => group.labels));
     state.userDismissedGroups = normalizedGroups;
     if (!blocked.size) return state;
+    const removedNpcs = (Array.isArray(state.npcs) ? state.npcs : [])
+        .filter(npc => npcLabels(npc).some(label => blocked.has(label)));
     state.npcs = (Array.isArray(state.npcs) ? state.npcs : []).filter(npc => !npcLabels(npc).some(label => blocked.has(label)));
+    for (const removedNpc of removedNpcs) {
+        state.socialGraph = removeNpcFromSocialGraph(state.socialGraph, removedNpc.id);
+        purgeNpcStructuredReferences(state.npcs, removedNpc);
+    }
     state.candidates = (Array.isArray(state.candidates) ? state.candidates : []).filter(candidate => !npcLabels(candidate).some(label => blocked.has(label)));
     state.pendingBackfills = (Array.isArray(state.pendingBackfills) ? state.pendingBackfills : []).filter(item => {
         const label = normalizeName(item?.label);

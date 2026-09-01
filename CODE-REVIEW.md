@@ -1,4 +1,33 @@
-# NPC State v0.2.11 Code Review
+# NPC State v0.2.12 Code Review
+
+
+## v0.2.12 two hard-pass findings
+
+### Hard pass 1 - identity/family resolution
+
+**High: canonical promotion stopped at the promoted dossier.** Neighboring Key Relationships could preserve both an interim label and the later proper name (`Thunderbird — clone sister`, `Mina — clone sister`). Structured references are now alias-aware and canonicalized by stable NPC id; duplicates collapse while historical prose remains untouched.
+
+**High: old saves could already contain split identities.** Explicit alias-linked interim/proper dossiers now merge conservatively. The older stable id and strongest relationship history survive, graph endpoints remap, and ambiguous aliases are deliberately left unresolved.
+
+**Medium: unnamed family facts were not identities.** Count-aware unresolved slots now retain singular/plural/twin family facts, support partial later naming, and resolve only from an established social edge. `a daughter`, `twin daughters`, and explicit parent-of phrasing are covered.
+
+**Medium: descriptor capture could leak from unrelated prose.** Older/younger descriptors are now restricted to the local sentence containing the family fact instead of scanning the full exchange.
+
+### Hard pass 2 - persistence, scale, branch state, and runtime salience
+
+**High: permanent deletion could leave stale social text after old-sibling restoration.** Dismissal overlay now strips graph endpoints and structured references together. OOC/story removal gets the same branch-specific graph cleanup without becoming a global UI deletion.
+
+**High: social salience initially resolved only against the present-NPC subset.** Mentions of an off-screen child could therefore fail to make a present parent relevant. Salience now resolves graph counterpart names against the full registry while injection still filters to confirmed-present NPCs.
+
+**Medium: hard-pruned dossiers could leave dangling graph ids.** Social reconciliation prunes edges/unresolved owners missing from the current registry. Archive/death remains preserved because archived dossiers still exist.
+
+**Medium: inferred sibling expansion could crowd explicit social facts in a large family.** Inferred pair expansion is bounded and is never allowed to evict explicit/manual/strong-context edges at the graph limit.
+
+**Medium: inverse social wording lost useful symmetry.** Best/close friend and rival/cousin wording now remains symmetric; wife/husband/spouse reverses safely to `spouse` rather than guessing gender.
+
+### Compatibility
+
+Settings schema advances to v24. v0.2.11 dossiers construct graph state conservatively from already-resolvable structured relationships and explicit family counts. Existing visible player-relationship scores, fractional evidence, milestones, portraits, aliases, manual locks, custom rubrics, exact sibling snapshots, and historical prose are preserved.
 
 ## v0.2.11 triple deep-pass findings
 

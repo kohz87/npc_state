@@ -19,6 +19,7 @@ import {
     reconcileBranchState,
     snapshotBranchState,
 } from '../branch.js';
+import { normalizeSocialGraph } from '../social.js';
 
 function user(text, name = 'Kazuma') {
     return { is_user: true, is_system: false, name, mes: text };
@@ -448,4 +449,49 @@ test('v0.2.11 permanent UI deletion suppression survives exact sibling restore a
     assert.equal(cleared.groups.length, 0);
     assert.ok(cleared.removedLabels.includes('brina hael'));
     assert.ok(cleared.removedLabels.includes('the innkeeper'));
+});
+
+test('v0.2.12 exact sibling restore includes hidden social graph and unresolved family slots', () => {
+    const swipe0 = [user('Continue.'), assistant('Brina mentions her daughters.', 0)];
+    const state = baseState();
+    const brina = createNpcRecord('Brina');
+    const liza = createNpcRecord('Liza', [brina.id]);
+    state.npcs = [brina, liza];
+    ensureBranchParentAnchor(state, swipe0, 1, 'assistant-parent');
+    state.socialGraph = normalizeSocialGraph({
+        edges: [{ aId: brina.id, bId: liza.id, aToB: 'daughter', bToA: 'parent', confidence: 'explicit' }],
+        unresolved: [{ ownerId: brina.id, relation: 'daughter', groupId: 'family_brina', descriptor: 'younger', confidence: 'explicit' }],
+    });
+    recordBranchCheckpoint(state, swipe0, 1, 'scan');
+
+    const swipe1 = [user('Continue.'), assistant('Brina says she never had children.', 1)];
+    const switched = reconcileBranchState(state, swipe1, { explicitDivergence: 1 });
+    switched.state.socialGraph = normalizeSocialGraph();
+    recordBranchCheckpoint(switched.state, swipe1, 1, 'scan');
+
+    const back = reconcileBranchState(switched.state, swipe0, { explicitDivergence: 1 });
+    assert.equal(back.exactRestored, true);
+    assert.equal(back.state.socialGraph.edges.length, 1);
+    assert.equal(back.state.socialGraph.unresolved.length, 1);
+    assert.equal(back.state.socialGraph.unresolved[0].descriptor, 'younger');
+});
+
+test('v0.2.12 permanent dismissal strips restored graph edges and stale structured family references', () => {
+    const chat = [user('Continue.'), assistant('Brina and Liza speak.', 0)];
+    const state = baseState();
+    const brina = createNpcRecord('Brina');
+    const liza = createNpcRecord('Liza', [brina.id]);
+    brina.keyRelationships = ['Liza — daughter'];
+    state.npcs = [brina, liza];
+    state.socialGraph = normalizeSocialGraph({ edges: [{ aId: brina.id, bId: liza.id, aToB: 'daughter', bToA: 'parent', confidence: 'explicit' }] });
+    ensureBranchParentAnchor(state, chat, 1, 'assistant-parent');
+    recordBranchCheckpoint(state, chat, 1, 'scan');
+    state.userDismissedGroups = addUserDismissedGroup([], liza);
+
+    const changed = [user('Continue.'), assistant('Brina and Liza speak differently.', 1)];
+    const restored = reconcileBranchState(state, changed, { explicitDivergence: 1 });
+    assert.equal(restored.state.npcs.some(npc => npc.id === liza.id), false);
+    assert.equal(restored.state.socialGraph.edges.some(edge => edge.aId === liza.id || edge.bId === liza.id), false);
+    const savedBrina = restored.state.npcs.find(npc => npc.id === brina.id);
+    assert.equal(savedBrina.keyRelationships.some(entry => /Liza/.test(entry)), false);
 });

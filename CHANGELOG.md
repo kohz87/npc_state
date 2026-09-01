@@ -1,6 +1,22 @@
 # NPC State Changelog
 
 
+## v0.2.12
+
+### Social Graph / canonical identity resolution
+
+- Added a hidden, branch-specific ID-backed Social Graph for durable NPC-to-NPC kin, friend, rival, mentor, partner, guardian, and other established social edges. `Key Relationships` remains the compact max-five dossier/runtime projection rather than the database.
+- Identity promotion now cascades through structured references: `Thunderbird -> Mina` preserves `Thunderbird` as an alias while neighboring `Thunderbird — clone sister` entries rewrite to canonical `Mina — clone sister` and duplicate alias/canonical entries collapse to one richer relationship.
+- Added conservative repair for already-split interim/proper dossiers when explicit alias evidence proves they are the same person. The older stable dossier id survives, relationship history is retained, and graph endpoints are remapped. Ambiguous shared aliases never auto-merge.
+- Added unresolved family slots for explicit/countable unnamed relations such as `two daughters`, `a daughter`, `twin daughters`, and `mother of two daughters`. Slots support partial later resolution, descriptors such as older/younger when locally grounded, twin-group metadata, and no guessing from an unrelated proper name.
+- Named family introductions resolve existing slots into stable NPC ids. Shared established parents infer generic sibling edges; twin groups infer `twin sibling` without inventing older/younger birth order or biological/adoptive status.
+- Social edges keep provenance/confidence/source metadata (`manual`, `explicit`, `strong-context`, `migration`, `inferred`). Manual Key Relationship edits update/remove matching graph edges deterministically.
+- Death/archive keeps the social edge and projects an explicit deceased note; hard-pruned/deleted dossiers cannot leave dangling hidden ids. Manual UI deletion and OOC/story removal also purge stale structured references while preserving ordinary historical prose in memories/background.
+- Graph state round-trips through sidecars, binary bundles/import, exact sibling swipe snapshots, branch roots, and legacy migration. Bundle import remaps graph endpoints onto an existing stable dossier id when identities merge.
+- Runtime salience can use hidden graph counterparts even when a bond is outside the visible top-five Key Relationships, while generation still receives only confirmed-present NPC dossiers and never sees unresolved slots, graph ids, provenance, or graph machinery.
+- Large-family inferred sibling expansion is bounded and lower-priority than explicit edges, preventing inferred pairwise links from crowding authoritative social facts.
+- Settings schema advances to v24. Existing v0.2.11 dossiers migrate Social Graph state from resolvable Key Relationships/background family facts without changing visible relationship meters, milestone history, custom tuning, or exact swipe history.
+
 ## v0.2.11
 
 ### Relationship milestones / exact sibling swipes
