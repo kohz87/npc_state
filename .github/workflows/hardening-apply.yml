@@ -21,6 +21,27 @@ jobs:
         run: |
           python3 tools/apply-hardening.py
           python3 tools/apply-remaining-hardening-tests.py
+      - name: Align legacy regression assertions with ID tombstones
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('tests/branch.test.js')
+          s = p.read_text()
+          old = """    assert.ok(restored.state.dismissed.includes('brina hael'));\n\n    const cleared = clearUserDismissedGroupsFor(restored.state.userDismissedGroups, 'Brina');\n    assert.equal(cleared.groups.length, 0);\n    assert.ok(cleared.removedLabels.includes('brina hael'));\n    assert.ok(cleared.removedLabels.includes('the innkeeper'));\n"""
+          new = """    assert.ok(!restored.state.dismissed.includes('brina hael'), 'modern ID tombstones must not globally suppress future homonyms by label');\n\n    const cleared = clearUserDismissedGroupsFor(restored.state.userDismissedGroups, brina, { modernByIdOnly: true });\n    assert.equal(cleared.groups.length, 0);\n    assert.ok(cleared.removedLabels.includes('brina hael'));\n    assert.ok(cleared.removedLabels.includes('the innkeeper'));\n"""
+          if old not in s:
+              raise SystemExit('branch legacy assertion block not found')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('tests/ui-layout.test.js')
+          s = p.read_text()
+          old = "    assert.match(index, /suppresses automatic rediscovery/);\n"
+          new = "    assert.match(index, /future different same-name NPCs remain trackable/);\n"
+          if old not in s:
+              raise SystemExit('ui legacy deletion wording assertion not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
       - name: Syntax check
         run: |
           node --check index.js
