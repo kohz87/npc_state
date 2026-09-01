@@ -443,9 +443,9 @@ test('v0.2.11 permanent UI deletion suppression survives exact sibling restore a
     const restored = reconcileBranchState(state, chat, { explicitDivergence: 1 });
     assert.equal(restored.exactRestored, true);
     assert.equal(restored.state.npcs.length, 0, 'an old sibling snapshot cannot resurrect a dossier explicitly deleted in the UI');
-    assert.ok(restored.state.dismissed.includes('brina hael'));
+    assert.ok(!restored.state.dismissed.includes('brina hael'), 'modern ID tombstones must not globally suppress future homonyms by label');
 
-    const cleared = clearUserDismissedGroupsFor(restored.state.userDismissedGroups, 'Brina');
+    const cleared = clearUserDismissedGroupsFor(restored.state.userDismissedGroups, brina, { modernByIdOnly: true });
     assert.equal(cleared.groups.length, 0);
     assert.ok(cleared.removedLabels.includes('brina hael'));
     assert.ok(cleared.removedLabels.includes('the innkeeper'));

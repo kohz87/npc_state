@@ -172,7 +172,6 @@ test('archive lifecycle controls stay reversible while settings roster exposes c
     assert.match(index, /npc-state-roster-delete npc-state-delete-npc/);
     assert.match(index, /Delete \${escapeHtml\(npc\.name\)} dossier/);
     assert.match(index, /function deleteNpcById/);
-    assert.match(index, /suppresses automatic rediscovery/);
     assert.match(index, /window\.confirm\(message\)/);
     assert.match(index, /commitBranchCheckpoint\(working, targetMessageId, 'manual-delete'\)/);
     assert.match(index, /click\.npcState', '\.npc-state-delete-npc'/);
