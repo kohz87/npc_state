@@ -1,4 +1,4 @@
-# NPC State v0.2.10
+# NPC State v0.2.11
 
 NPC State is a standalone SillyTavern extension that maintains persistent, branch-aware NPC dossiers for roleplay. It tracks identity, durable characterization, live state, player relationships, important memories, portraits, and present-scene visibility without depending on Megumin Suite's NPC Bank.
 
@@ -142,6 +142,16 @@ v0.2.5 makes durable identity authoritative over relationship scores. Personalit
 **Behavioral Profile** is a compact point-form translation of established identity for smaller/non-frontier models. It holds up to six labeled cues such as `Disposition`, `Expressiveness`, `Independence`, `Care`, `Conflict`, or `Cruelty-Social`. It is deliberately bounded and shares the existing injection budget rather than becoming a second prose dossier.
 
 Kindness/empathy are target-general by default. A kind NPC may still use necessary lethal force, refuse the player, prioritize another duty, or dislike a particular person without becoming generically cruel. Relationship-specific behavior is kept relationship-specific instead of being learned back into global Personality/Speech/Mannerisms.
+
+## v0.2.11 relationship milestones and exact swipe branches
+
+v0.2.11 adds story-significance gates at relationship depth `25`, `50`, `75`, and `90` without turning the relationship meter into a story director. Hidden fractional progress still measures sub-integer evidence inside an unlocked band, but outward progress cannot accumulate through a locked checkpoint. Under stock settings, crossing 25 requires meaningful evidence, 50 requires a major event, 75 requires an extreme event, and 90 requires an extreme relationship-defining event with substantial raw evidence. Milestones are directional per axis, so deep trust and deep distrust have separate histories. Movement back toward neutral is never checkpoint-blocked.
+
+Milestone state is hidden from the RP-generation prompt. The extension stores the axis, polarity, threshold, reason, source message, and turn for an unlocked checkpoint so the relationship can be audited and restored exactly after a swipe. Previously crossed checkpoints stay historically unlocked if the score later falls and rebuilds. Manual relationship edits and imported established scores infer already-passed milestones rather than rescaling or trapping existing relationships.
+
+Swipe handling now preserves exact sibling narrative states instead of keeping only one checkpoint per message. Branch identity uses stable content-lineage fingerprints rather than `swipe_id`, so deleting an alternate and renumbering SillyTavern swipe indices does not invalidate surviving snapshots. Revisiting a previously scanned swipe restores its exact dossier state with no LLM rescan; a never-before-seen swipe restores its parent/root state, scans once, then becomes its own sibling snapshot. First-message/greeting swipes use a pre-message root anchor so the previous alternate cannot leak into a new opening swipe.
+
+Inline NPC cards follow the same lineage-specific sibling state. In-flight scans capture branch identity and state revision before generation and are discarded if the user swipes or edits state before the response lands. Branch history remains bounded; old unreachable sibling snapshots may eventually be evicted, in which case revisiting that very old swipe safely falls back to parent/root restoration plus one rescan. Portraits and user-managed dossier metadata are preserved across narrative restoration. Manual UI deletion suppression is kept outside narrative snapshots so revisiting an older sibling cannot resurrect a dossier the user explicitly deleted; an explicit Add/import can lift that suppression.
 
 ## v0.2.10 relationship weighting and evidence accumulation
 
@@ -321,9 +331,13 @@ The sidecar stores dossiers, candidates, portraits, inline snapshots, branch che
 
 Branch behavior:
 
-- swipes, edits, and deletions roll back to the nearest surviving checkpoint
-- stale scans are discarded when the branch changes mid-request
-- portrait assets survive rollback when the same NPC survives
+- each visited swipe lineage can keep an exact sibling snapshot instead of competing for one checkpoint per message ID
+- revisiting a known sibling restores its exact dossier/relationship/memory state without an LLM rescan
+- unseen siblings restore the nearest parent or pre-message root anchor, scan once, then become independently restorable
+- content-lineage identity remains stable when SillyTavern renumbers swipe indices after deleting an alternate
+- stale asynchronous scans are discarded when branch lineage or dossier revision changes mid-request
+- portrait assets and user-managed dossier metadata survive narrative rollback when the same NPC survives
+- branch history is bounded and pruned while protecting the active lineage and recent sibling heads
 - chat deletion waits for in-flight persistence before removing the sidecar
 - chat rename settles and transfers state before refreshing the file payload
 
@@ -369,7 +383,7 @@ Auto-managed durable fields are bounded before storage and receive tighter bound
 
 ## Upgrade notes for v0.2.9
 
-Settings schema is now v22. Existing visible Trust/Affection/Desire/Tension scores are preserved exactly and are never rescaled. Untouched v0.2.8 `4/8/15/25` or v0.2.9 `1/3/8/20` stock caps migrate to v0.2.10 `1/2/5/10`. Customized caps and customized relationship/impact/behavior rubrics remain authoritative. Existing dossiers gain zeroed fractional progress/history only when those hidden fields did not previously exist.
+Settings schema is now v23. Existing visible Trust/Affection/Desire/Tension scores are preserved exactly and are never rescaled. Untouched v0.2.8 `4/8/15/25` or v0.2.9 `1/3/8/20` stock caps still migrate to the current `1/2/5/10` weighting, while customized caps and customized relationship/impact/behavior rubrics remain authoritative. Existing v0.2.10 scores infer directional milestones strictly below their established magnitude (`Trust +63` infers positive 25/50, while 75 remains locked) so upgrades do not retroactively erase earned depth. Legacy v0.2.10 swipe checkpoints are converted only when their entire stored old-fingerprint prefix still matches the loaded chat; stale/edited legacy history is discarded rather than falsely marked exact.
 
 ## Upgrade notes for v0.2.5
 

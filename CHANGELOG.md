@@ -1,6 +1,22 @@
 # NPC State Changelog
 
 
+## v0.2.11
+
+### Relationship milestones / exact sibling swipes
+
+- Added directional relationship milestone gates at `25/50/75/90` for every axis and polarity. Hidden fractional evidence cannot bank outward progress through a locked checkpoint, and movement toward neutral is never gate-blocked.
+- Stock crossing requirements are semantic plus weighted: 25 needs meaningful evidence, 50 major, 75 extreme, and 90 extreme with substantial raw evidence; minimum raw evidence prevents a tiny `+1` mislabeled extreme from unlocking a near-maximum band.
+- Milestone audit entries persist axis, polarity, threshold, reason, source message, turn, and inferred status. Previously crossed milestones remain historically unlocked; manual/imported established scores infer already-passed directional milestones without changing visible relationship numbers.
+- Relationship Summary validation now respects milestone depth, so prose cannot claim deepest/absolute trust, exceptional attachment, or equivalent depth while the corresponding checkpoint remains locked. Checkpoint-blocked evidence may remain in recent dedupe history but no longer overwrites Last Relationship Change when nothing actually changed.
+- Replaced one-checkpoint-per-message swipe persistence with content-lineage sibling snapshots. Revisiting a previously scanned swipe restores its exact NPC state without an LLM rescan; unseen siblings restore a parent/root anchor, scan once, then become independently restorable.
+- Branch identity no longer depends on `swipe_id`, so deleting an alternate and renumbering remaining swipes does not invalidate their narrative state. New lineage keys use a two-lane content fingerprint, and v0.2.10 swipe-index fingerprints migrate only after full-prefix verification against the loaded chat.
+- Added a pre-message root anchor for first/greeting swipes and prevented provisional pre-scan turn checkpoints from masquerading as completed exact sibling states.
+- Made inline NPC cards lineage-specific and added bounded branch pruning that protects the active lineage/recent sibling heads while allowing very old siblings to fall back safely to one rescan after eviction.
+- Added a branch/state revision guard for asynchronous scans and separated permanent manual UI deletion suppression from narrative snapshots so old swipes cannot resurrect explicitly deleted dossiers. Explicit Add/import can intentionally lift that suppression.
+- Preserved portraits and user-managed dossier metadata across narrative restoration; milestone/progress/evidence/root/sibling state now round-trips through sidecars, bundles/imports, and branch rollback.
+- Settings schema advanced to v23. Existing visible relationship scores and custom tuning remain unchanged.
+
 ## v0.2.10
 
 ### Relationship weighting / evidence accumulation
