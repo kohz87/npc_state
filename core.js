@@ -5,7 +5,7 @@ import {
     socialGraphLabelsForNpc,
 } from './social.js';
 
-export const NPC_STATE_VERSION = '0.2.12';
+export const NPC_STATE_VERSION = '0.2.13';
 
 export const NPC_LIFE_STATES = Object.freeze(['unknown', 'alive', 'deceased']);
 export const NPC_ARCHIVE_REASONS = Object.freeze(['', 'manual', 'deceased', 'stale']);
