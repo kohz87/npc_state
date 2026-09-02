@@ -22,13 +22,11 @@ jobs:
       - name: Ten hard review passes
         run: |
           set -uo pipefail
-          : > /tmp/hardening.log
           status=0
           for pass in $(seq 1 10); do
-            echo "===== HARD PASS ${pass}/10 =====" | tee -a /tmp/hardening.log
+            echo "===== HARD PASS ${pass}/10 ====="
             for cmd in "node --check index.js" "node --check core.js" "node --check branch.js" "node --check bundle.js" "node --check social.js" "node --check storage.js" "npm test" "node tests/compatibility-check.js"; do
-              echo "> $cmd" >> /tmp/hardening.log
-              bash -lc "$cmd" >> /tmp/hardening.log 2>&1 || { status=$?; break 2; }
+              bash -lc "$cmd" >/tmp/pass.log 2>&1 || { cat /tmp/pass.log; status=$?; break 2; }
             done
             for invariant in \
               "function persist(key = getChatKey())" \
@@ -36,27 +34,19 @@ jobs:
               "pending.lineageKey !== currentLineageKey" \
               "startup hydration failed; extension remains mounted in read-only recovery mode" \
               "retains the predecessor sidecar as a recovery copy"; do
-              grep -Fq "$invariant" index.js || { echo "MISSING INVARIANT: $invariant" >> /tmp/hardening.log; status=91; break 2; }
+              grep -Fq "$invariant" index.js || { status=91; break 2; }
             done
-            grep -Fq "if (prefixLength < 1) continue" branch.js || { echo "MISSING ANCESTOR GUARD" >> /tmp/hardening.log; status=92; break; }
-            grep -Fq "sharedPrefix.some(message => message?.is_user)" branch.js || { echo "MISSING USER-PREFIX PROVENANCE GUARD" >> /tmp/hardening.log; status=93; break; }
-            echo "PASS ${pass}/10 GREEN" | tee -a /tmp/hardening.log
+            grep -Fq "if (prefixLength < 1) continue" branch.js || { status=92; break; }
+            grep -Fq "sharedPrefix.some(message => message?.is_user)" branch.js || { status=93; break; }
+            echo "PASS ${pass}/10 GREEN"
           done
-          if [ "$status" -ne 0 ]; then
-            cp /tmp/hardening.log .github/HARDENING_FAILURE.txt
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .github/HARDENING_FAILURE.txt
-            git commit -m "diagnostic: capture v0.2.15 hardening failure [skip ci]" || true
-            git push origin HEAD:v0.2.15-deep-hardening-10x || true
-            exit "$status"
-          fi
+          exit "$status"
       - name: Commit verified production files to staging
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.js branch.js tests/v0215-hardening.test.js
+          git add index.js branch.js tests/v0215-hardening.test.js tests/index-hardening.test.js tests/quality.test.js
           if git diff --cached --quiet; then
             echo "No production changes to commit"
           else
