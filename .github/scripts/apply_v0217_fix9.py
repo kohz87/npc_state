@@ -13,16 +13,20 @@ if "const identity = fs.readFileSync(path.join(root, 'identity.js'), 'utf8');" n
         1,
     )
 
-old = """for (const symbol of st118Contract.context) {
-    assert.match(index, new RegExp(`\\b${symbol}\\b`), `missing context contract symbol ${symbol}`);
-}"""
-new = """for (const symbol of st118Contract.context) {
-    assert.match(contextSource, new RegExp(`\\b${symbol}\\b`), `missing context contract symbol ${symbol}`);
-}"""
-if old not in text:
-    raise SystemExit('compatibility context assertion anchor missing')
-text = text.replace(old, new, 1)
-path.write_text(text)
+loop_start = text.find('for (const symbol of st118Contract.context) {')
+if loop_start < 0:
+    raise SystemExit('compatibility context loop missing')
+loop_end = text.find('\n}', loop_start)
+if loop_end < 0:
+    raise SystemExit('compatibility context loop end missing')
+loop_end += 2
+block = text[loop_start:loop_end]
+if 'assert.match(contextSource,' not in block:
+    if 'assert.match(index,' not in block:
+        raise SystemExit('compatibility context assertion source missing')
+    block = block.replace('assert.match(index,', 'assert.match(contextSource,', 1)
+    text = text[:loop_start] + block + text[loop_end:]
 
+path.write_text(text)
 Path(__file__).unlink()
 print('v0.2.17 compatibility contract now checks index + identity runtime sources')
