@@ -76,4 +76,15 @@ t = t.replace(
 )
 p.write_text(t, encoding='utf-8')
 
+# The runtime and migration harnesses must copy every direct dependency of index.js.
+for fixture in ['tests/runtime-smoke.mjs', 'tests/migration-smoke.mjs']:
+    p = Path(fixture)
+    t = p.read_text(encoding='utf-8')
+    t = t.replace(
+        "'social.js', 'storage.js', 'identity.js']",
+        "'social.js', 'storage.js', 'identity.js', 'hardening-core.js']",
+        1,
+    )
+    p.write_text(t, encoding='utf-8')
+
 print('v0.2.21 transform postfix applied')
