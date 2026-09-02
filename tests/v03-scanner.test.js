@@ -122,6 +122,21 @@ test('an unknown model ID cannot retarget a same-name live dossier', () => {
     assert.equal(applied.state.npcs[0].present, true, 'participant resolution can still use the canonical name for presence');
 });
 
+test('fuzzy apparent-age patches cannot replace an existing canonical age', () => {
+    const state = stateWith({ id: 'a', name: 'Astra', apparentAge: '~25' });
+    const fuzzy = applyScanResult(state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{ id: 'a', name: 'Astra', apparentAge: 'late twenties' }], socialEdges: [],
+    }, { sourceMessageId: 12, turn: 3 });
+    assert.equal(fuzzy.state.npcs[0].apparentAge, '~25');
+
+    const numeric = applyScanResult(fuzzy.state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{ id: 'a', name: 'Astra', apparentAge: 'looks about 26' }], socialEdges: [],
+    }, { sourceMessageId: 13, turn: 4 });
+    assert.equal(numeric.state.npcs[0].apparentAge, '~26');
+});
+
 test('scan prompt reserves the current persona for the dedicated player relationship channel', () => {
     const state = stateWith({ id: 'a', name: 'Astra' });
     const chat = [
