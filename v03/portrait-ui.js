@@ -1,6 +1,7 @@
 import {
     PORTRAIT_PROMPT_PLACEHOLDERS,
     buildPortraitPrompt,
+    buildPortraitPrompts,
     normalizePortraitPromptSettings,
 } from './portrait-prompt.js';
 import { findNpcByReference } from './schema.js';
@@ -43,16 +44,29 @@ function sectionHtml() {
     return `<details id="${SECTION_ID}" class="npc-state-v3-portrait-settings">
       <summary><b>Portrait prompt</b></summary>
       <div class="npc-state-v3-portrait-settings-body">
-        <small class="npc-state-muted">Prompt composition only. NPC State does not call an image API, generate images, queue portraits, or regenerate them automatically.</small>
+        <small class="npc-state-muted">Prompt composition only. The portrait preset contains both positive and negative reusable text. NPC State does not call an image API, generate images, queue portraits, or regenerate them automatically.</small>
         <label class="npc-state-v3-portrait-mode"><span><b>Character formatting</b><small>Controls only the auto-built {{character}} placeholder.</small></span><select id="npc_state_v3_portrait_mode" class="text_pole"><option value="natural">Natural</option><option value="tags">Tags</option><option value="hybrid">Hybrid</option></select></label>
-        <label><b>Portrait preset</b><small>Reusable style/composition text. Insert it anywhere with {{portraitPreset}}.</small><textarea id="npc_state_v3_portrait_preset" class="text_pole" rows="5"></textarea></label>
-        <label><b>Generation prompt</b><small>Template copied to your image generator after placeholders are resolved.</small><textarea id="npc_state_v3_portrait_template" class="text_pole" rows="7"></textarea></label>
+        <div class="npc-state-v3-portrait-preset-pair">
+          <label><b>Positive preset</b><small>Reusable positive style, quality, and composition text. Insert with {{positivePreset}}.</small><textarea id="npc_state_v3_portrait_positive_preset" class="text_pole" rows="5"></textarea></label>
+          <label><b>Negative preset</b><small>Reusable exclusions and negative-quality tags. Insert with {{negativePreset}}.</small><textarea id="npc_state_v3_portrait_negative_preset" class="text_pole" rows="5"></textarea></label>
+        </div>
+        <div class="npc-state-v3-portrait-template-pair">
+          <label><b>Positive prompt template</b><small>How the positive side is assembled for the selected NPC.</small><textarea id="npc_state_v3_portrait_positive_template" class="text_pole" rows="7"></textarea></label>
+          <label><b>Negative prompt template</b><small>How the negative side is assembled. It may be only {{negativePreset}} or may use dossier placeholders too.</small><textarea id="npc_state_v3_portrait_negative_template" class="text_pole" rows="7"></textarea></label>
+        </div>
         <div class="npc-state-v3-portrait-placeholders"><b>Placeholders</b><small>${escapeHtml(placeholderText)}</small></div>
         <div class="npc-state-actions"><button id="npc_state_v3_portrait_save" class="menu_button"><i class="fa-solid fa-floppy-disk"></i> Save portrait prompt settings</button><span id="npc_state_v3_portrait_dirty" class="npc-state-muted"></span></div>
         <div class="npc-state-v3-portrait-preview-box">
           <label><b>Preview NPC</b><select id="npc_state_v3_portrait_npc" class="text_pole"></select></label>
-          <label><b>Resolved prompt</b><textarea id="npc_state_v3_portrait_preview" class="text_pole" rows="10" readonly></textarea></label>
-          <div class="npc-state-actions"><button id="npc_state_v3_portrait_copy" class="menu_button"><i class="fa-solid fa-copy"></i> Copy resolved prompt</button></div>
+          <div class="npc-state-v3-portrait-preview-pair">
+            <label><b>Resolved positive</b><textarea id="npc_state_v3_portrait_positive_preview" class="text_pole" rows="10" readonly></textarea></label>
+            <label><b>Resolved negative</b><textarea id="npc_state_v3_portrait_negative_preview" class="text_pole" rows="10" readonly></textarea></label>
+          </div>
+          <div class="npc-state-actions">
+            <button id="npc_state_v3_portrait_copy_positive" class="menu_button"><i class="fa-solid fa-copy"></i> Copy positive</button>
+            <button id="npc_state_v3_portrait_copy_negative" class="menu_button"><i class="fa-solid fa-copy"></i> Copy negative</button>
+            <button id="npc_state_v3_portrait_copy_both" class="menu_button"><i class="fa-solid fa-copy"></i> Copy both</button>
+          </div>
         </div>
       </div>
     </details>`;
@@ -77,8 +91,12 @@ export function createPortraitPromptUi(adapters = {}) {
         if (!root) return normalizePortraitPromptSettings(getSettings());
         return normalizePortraitPromptSettings({
             portraitPromptMode: root.querySelector('#npc_state_v3_portrait_mode')?.value,
-            portraitPreset: root.querySelector('#npc_state_v3_portrait_preset')?.value,
-            portraitGenerationPrompt: root.querySelector('#npc_state_v3_portrait_template')?.value,
+            portraitPreset: {
+                positive: root.querySelector('#npc_state_v3_portrait_positive_preset')?.value,
+                negative: root.querySelector('#npc_state_v3_portrait_negative_preset')?.value,
+            },
+            portraitPositivePrompt: root.querySelector('#npc_state_v3_portrait_positive_template')?.value,
+            portraitNegativePrompt: root.querySelector('#npc_state_v3_portrait_negative_template')?.value,
         });
     }
 
@@ -88,27 +106,37 @@ export function createPortraitPromptUi(adapters = {}) {
     }
 
     function renderPreview(root = panel()) {
-        if (!root) return '';
-        const preview = root.querySelector('#npc_state_v3_portrait_preview');
-        const copyButton = root.querySelector('#npc_state_v3_portrait_copy');
+        if (!root) return { positive: '', negative: '', combined: '' };
+        const positivePreview = root.querySelector('#npc_state_v3_portrait_positive_preview');
+        const negativePreview = root.querySelector('#npc_state_v3_portrait_negative_preview');
+        const positiveButton = root.querySelector('#npc_state_v3_portrait_copy_positive');
+        const negativeButton = root.querySelector('#npc_state_v3_portrait_copy_negative');
+        const bothButton = root.querySelector('#npc_state_v3_portrait_copy_both');
         const npc = chosenNpc(root);
-        const value = npc ? buildPortraitPrompt(npc, draftSettings(root)) : '';
-        if (preview) preview.value = value;
-        if (copyButton) copyButton.disabled = !value;
+        const values = npc ? buildPortraitPrompts(npc, draftSettings(root)) : { positive: '', negative: '', combined: '' };
+        if (positivePreview) positivePreview.value = values.positive;
+        if (negativePreview) negativePreview.value = values.negative;
+        if (positiveButton) positiveButton.disabled = !values.positive;
+        if (negativeButton) negativeButton.disabled = !values.negative;
+        if (bothButton) bothButton.disabled = !values.positive && !values.negative;
         const dirtyLabel = root.querySelector('#npc_state_v3_portrait_dirty');
         if (dirtyLabel) dirtyLabel.textContent = dirty ? 'Unsaved changes' : 'Saved';
-        return value;
+        return values;
     }
 
     function loadSavedFields(root = panel()) {
         if (!root) return false;
         const saved = normalizePortraitPromptSettings(getSettings());
         const mode = root.querySelector('#npc_state_v3_portrait_mode');
-        const preset = root.querySelector('#npc_state_v3_portrait_preset');
-        const template = root.querySelector('#npc_state_v3_portrait_template');
+        const positivePreset = root.querySelector('#npc_state_v3_portrait_positive_preset');
+        const negativePreset = root.querySelector('#npc_state_v3_portrait_negative_preset');
+        const positiveTemplate = root.querySelector('#npc_state_v3_portrait_positive_template');
+        const negativeTemplate = root.querySelector('#npc_state_v3_portrait_negative_template');
         if (mode) mode.value = saved.portraitPromptMode;
-        if (preset) preset.value = saved.portraitPreset;
-        if (template) template.value = saved.portraitGenerationPrompt;
+        if (positivePreset) positivePreset.value = saved.portraitPreset.positive;
+        if (negativePreset) negativePreset.value = saved.portraitPreset.negative;
+        if (positiveTemplate) positiveTemplate.value = saved.portraitPositivePrompt;
+        if (negativeTemplate) negativeTemplate.value = saved.portraitNegativePrompt;
         dirty = false;
         return true;
     }
@@ -131,25 +159,36 @@ export function createPortraitPromptUi(adapters = {}) {
         const next = draftSettings(root);
         const settings = getSettings();
         settings.portraitPromptMode = next.portraitPromptMode;
-        settings.portraitPreset = next.portraitPreset;
-        settings.portraitGenerationPrompt = next.portraitGenerationPrompt;
+        settings.portraitPreset = structuredClone(next.portraitPreset);
+        settings.portraitPositivePrompt = next.portraitPositivePrompt;
+        settings.portraitNegativePrompt = next.portraitNegativePrompt;
+        delete settings.portraitGenerationPrompt;
+        delete settings.portraitPositivePreset;
+        delete settings.portraitNegativePreset;
         persistSettings();
         dirty = false;
         renderPreview(root);
-        notify('success', 'portrait prompt settings saved.');
+        notify('success', 'portrait positive and negative prompt settings saved.');
         return true;
     }
 
-    async function copyCurrent(root = panel()) {
-        const value = renderPreview(root);
+    async function copyChannel(channel, root = panel()) {
+        const values = renderPreview(root);
+        const value = channel === 'negative' ? values.negative : channel === 'both' ? values.combined : values.positive;
         if (!value) return false;
         await copyText(value);
-        notify('success', 'resolved portrait prompt copied.');
+        notify('success', channel === 'both' ? 'positive and negative portrait prompts copied.' : `${channel} portrait prompt copied.`);
         return true;
     }
 
     function bind(root) {
-        for (const selector of ['#npc_state_v3_portrait_mode', '#npc_state_v3_portrait_preset', '#npc_state_v3_portrait_template']) {
+        for (const selector of [
+            '#npc_state_v3_portrait_mode',
+            '#npc_state_v3_portrait_positive_preset',
+            '#npc_state_v3_portrait_negative_preset',
+            '#npc_state_v3_portrait_positive_template',
+            '#npc_state_v3_portrait_negative_template',
+        ]) {
             root.querySelector(selector)?.addEventListener('input', () => {
                 dirty = true;
                 renderPreview(root);
@@ -161,7 +200,9 @@ export function createPortraitPromptUi(adapters = {}) {
         }
         root.querySelector('#npc_state_v3_portrait_npc')?.addEventListener('change', () => renderPreview(root));
         root.querySelector('#npc_state_v3_portrait_save')?.addEventListener('click', () => save(root).catch(error => notify('error', error.message)));
-        root.querySelector('#npc_state_v3_portrait_copy')?.addEventListener('click', () => copyCurrent(root).catch(error => notify('error', error.message)));
+        root.querySelector('#npc_state_v3_portrait_copy_positive')?.addEventListener('click', () => copyChannel('positive', root).catch(error => notify('error', error.message)));
+        root.querySelector('#npc_state_v3_portrait_copy_negative')?.addEventListener('click', () => copyChannel('negative', root).catch(error => notify('error', error.message)));
+        root.querySelector('#npc_state_v3_portrait_copy_both')?.addEventListener('click', () => copyChannel('both', root).catch(error => notify('error', error.message)));
     }
 
     function attach() {
@@ -206,18 +247,54 @@ export function createPortraitPromptUi(adapters = {}) {
         return false;
     }
 
+    function buildPairFor(reference) {
+        const npc = findNpcByReference(state(), reference);
+        return npc ? buildPortraitPrompts(npc, normalizePortraitPromptSettings(getSettings())) : { positive: '', negative: '', combined: '' };
+    }
+
     function buildFor(reference) {
         const npc = findNpcByReference(state(), reference);
         return npc ? buildPortraitPrompt(npc, normalizePortraitPromptSettings(getSettings())) : '';
     }
 
-    async function copyFor(reference) {
-        const value = buildFor(reference);
+    async function copyPositiveFor(reference) {
+        const value = buildPairFor(reference).positive;
         if (!value) return false;
         await copyText(value);
-        notify('success', 'portrait prompt copied.');
+        notify('success', 'positive portrait prompt copied.');
         return true;
     }
 
-    return Object.freeze({ scheduleMount, refresh, buildFor, copyFor, get dirty() { return dirty; } });
+    async function copyNegativeFor(reference) {
+        const value = buildPairFor(reference).negative;
+        if (!value) return false;
+        await copyText(value);
+        notify('success', 'negative portrait prompt copied.');
+        return true;
+    }
+
+    async function copyBothFor(reference) {
+        const value = buildPairFor(reference).combined;
+        if (!value) return false;
+        await copyText(value);
+        notify('success', 'positive and negative portrait prompts copied.');
+        return true;
+    }
+
+    // Backward-compatible original helper copies the positive channel.
+    async function copyFor(reference) {
+        return copyPositiveFor(reference);
+    }
+
+    return Object.freeze({
+        scheduleMount,
+        refresh,
+        buildFor,
+        buildPairFor,
+        copyFor,
+        copyPositiveFor,
+        copyNegativeFor,
+        copyBothFor,
+        get dirty() { return dirty; },
+    });
 }
