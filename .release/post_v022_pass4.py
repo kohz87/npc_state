@@ -69,24 +69,89 @@ replacement = anchor + '''        currentLineage = chatLineage(getContext().chat
         }
 '''
 index = replace_once(index, anchor, replacement, 'post-admission stale guard')
-
-# The pure full-window scrubber no longer needs the old existing-NPC matcher because every row is
-# intentionally scrubbed. Remove dead matching work so the safety rule is explicit rather than
-# looking conditional when it is not.
-index = index.replace('    relationshipAxisEvidenceGrounded,\n', '    relationshipAxisEvidenceGrounded,\n')
 write('index.js', index)
 
+# Every rolling full-window row is now intentionally scrubbed, so remove the obsolete existing-NPC
+# matching work as one exact helper replacement rather than touching generic local variable names.
 core = read('core-v0218.js')
-core = core.replace('''function rawRelationshipPayloadMatchesNpc(raw, npc) {
+old_helper = '''function rawRelationshipPayloadMatchesNpc(raw, npc) {
     if (!raw || !npc) return false;
     if (raw.id && String(raw.id) === String(npc.id)) return true;
     if (raw.name && npcMatchesLabel(npc, raw.name)) return true;
     return Array.isArray(raw.aliases) && raw.aliases.some(alias => npcMatchesLabel(npc, alias));
 }
 
-''', '')
-core = core.replace("    const existing = Array.isArray(existingNpcs) ? existingNpcs : [];\n", '')
-core = core.replace("        const reference = safeRaw || evalRaw;\n        existing.find(npc => rawRelationshipPayloadMatchesNpc(reference, npc));\n", '')
+function stripRollingRelationshipFields(raw, { explicitZero = false } = {}) {
+    if (!raw || typeof raw !== 'object') return raw;
+    delete raw.relationship;
+    delete raw.relationship_delta;
+    delete raw.relationshipDelta;
+    delete raw.relationshipImpact;
+    delete raw.relationship_impact;
+    delete raw.relationshipChangeReason;
+    delete raw.relationship_change_reason;
+    delete raw.relationshipEvidence;
+    delete raw.relationship_evidence;
+    if (explicitZero) {
+        raw.relationshipImpact = 'none';
+        raw.relationshipDelta = { trust: 0, affection: 0, desire: 0, tension: 0 };
+        raw.relationshipEvidence = { trust: '', affection: '', desire: '', tension: '' };
+        raw.relationshipChangeReason = '';
+    }
+    return raw;
+}
+
+export function prepareFullWindowRelationshipPayload(parsed, existingNpcs = []) {
+    const evaluation = structuredClone(parsed || { npcs: [] });
+    const mergeSafe = structuredClone(parsed || { npcs: [] });
+    const existing = Array.isArray(existingNpcs) ? existingNpcs : [];
+    const count = Math.max(evaluation.npcs?.length || 0, mergeSafe.npcs?.length || 0);
+    for (let i = 0; i < count; i += 1) {
+        const evalRaw = evaluation.npcs?.[i];
+        const safeRaw = mergeSafe.npcs?.[i];
+        const reference = safeRaw || evalRaw;
+        existing.find(npc => rawRelationshipPayloadMatchesNpc(reference, npc));
+        if (evalRaw) stripRollingRelationshipFields(evalRaw, { explicitZero: false });
+        if (safeRaw) stripRollingRelationshipFields(safeRaw, { explicitZero: true });
+    }
+    return { evaluation, mergeSafe };
+}
+'''
+new_helper = '''function stripRollingRelationshipFields(raw, { explicitZero = false } = {}) {
+    if (!raw || typeof raw !== 'object') return raw;
+    delete raw.relationship;
+    delete raw.relationship_delta;
+    delete raw.relationshipDelta;
+    delete raw.relationshipImpact;
+    delete raw.relationship_impact;
+    delete raw.relationshipChangeReason;
+    delete raw.relationship_change_reason;
+    delete raw.relationshipEvidence;
+    delete raw.relationship_evidence;
+    if (explicitZero) {
+        raw.relationshipImpact = 'none';
+        raw.relationshipDelta = { trust: 0, affection: 0, desire: 0, tension: 0 };
+        raw.relationshipEvidence = { trust: '', affection: '', desire: '', tension: '' };
+        raw.relationshipChangeReason = '';
+    }
+    return raw;
+}
+
+export function prepareFullWindowRelationshipPayload(parsed, existingNpcs = []) {
+    void existingNpcs; // retained API parameter for compatibility; every rolling row is scrubbed.
+    const evaluation = structuredClone(parsed || { npcs: [] });
+    const mergeSafe = structuredClone(parsed || { npcs: [] });
+    const count = Math.max(evaluation.npcs?.length || 0, mergeSafe.npcs?.length || 0);
+    for (let i = 0; i < count; i += 1) {
+        const evalRaw = evaluation.npcs?.[i];
+        const safeRaw = mergeSafe.npcs?.[i];
+        if (evalRaw) stripRollingRelationshipFields(evalRaw, { explicitZero: false });
+        if (safeRaw) stripRollingRelationshipFields(safeRaw, { explicitZero: true });
+    }
+    return { evaluation, mergeSafe };
+}
+'''
+core = replace_once(core, old_helper, new_helper, 'full-window scrubber cleanup')
 write('core-v0218.js', core)
 
 # Runtime fixture: earlier smoke intentionally installs custom relationship settings. The new
