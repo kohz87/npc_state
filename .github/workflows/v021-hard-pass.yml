@@ -29,6 +29,7 @@ jobs:
             python3 .release/v021_postfix.py
             python3 .release/v021_manualfix.py
             python3 .release/v021_fixturefix.py
+            python3 .release/v021_partialretry.py
           fi
       - name: Ten consecutive hard passes
         run: |
@@ -72,6 +73,7 @@ jobs:
           if (!hardening.includes('HISTORICAL_RENAME_CANDIDATE_LIMIT = 1024')) throw new Error('historical rename batch bound missing');
           if (!storage.includes('continuousRetry = true')) throw new Error('bounded lifecycle write mode missing');
           if (!index.includes('NPC_STATE_OWNER_FLUSH_INCOMPLETE')) throw new Error('owner flush fail-closed guard missing');
+          if (!hardening.includes('NPC_STATE_OWNER_RENAME_PARTIAL') || !hardening.includes('NPC_STATE_OWNER_DELETE_PARTIAL')) throw new Error('partial owner retry guards missing');
           if (!fs.existsSync('tests/hardening-v0221.test.js')) throw new Error('v0.2.21 regressions missing');
           NODE
       - name: Commit verified candidate
