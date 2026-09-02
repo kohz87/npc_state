@@ -1,0 +1,47 @@
+name: v0.2.15 Deep Hardening 10x
+on:
+  workflow_dispatch:
+  push:
+    branches: [v0.2.15-deep-hardening-10x]
+permissions:
+  contents: write
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply audited fixes
+        run: python3 .github/scripts/apply_v0215_hardening.py
+      - name: Ten hard passes
+        run: |
+          set -euo pipefail
+          for pass in $(seq 1 10); do
+            echo "===== HARD PASS ${pass}/10 ====="
+            python3 .github/scripts/apply_v0215_hardening.py
+            node --check index.js
+            node --check core.js
+            node --check branch.js
+            node --check bundle.js
+            node --check social.js
+            node --check storage.js
+            npm test
+            node tests/compatibility-check.js
+            echo "PASS ${pass}/10 GREEN"
+          done
+      - name: Commit verified production files to staging
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.js branch.js tests/v0215-hardening.test.js
+          if git diff --cached --quiet; then
+            echo "No production changes to commit"
+          else
+            git commit -m "Deep harden v0.2.15 branch identity and durability [10x verified]"
+            git push origin HEAD:v0.2.15-deep-hardening-10x
+          fi
