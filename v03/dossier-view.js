@@ -141,6 +141,7 @@ export function dossierHtml(npc) {
           <button class="menu_button npc-state-v3-edit" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-pen"></i><span>Edit</span></button>
           <button class="menu_button npc-state-v3-refresh" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-arrows-rotate"></i><span>Refresh</span></button>
           <details class="npc-state-v3-dossier-more"><summary><i class="fa-solid fa-ellipsis"></i><span>More</span></summary><div>
+            <button class="menu_button npc-state-v3-generate-image-prompt" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-image"></i> Generate image prompt</button>
             <button class="menu_button npc-state-v3-archive" data-npc-id="${escapeHtml(npc.id)}">${npc.archived ? '<i class="fa-solid fa-box-open"></i> Restore' : '<i class="fa-solid fa-box-archive"></i> Archive'}</button>
             <button class="menu_button redWarningBG npc-state-v3-delete" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-trash"></i> Delete</button>
           </div></details>
