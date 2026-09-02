@@ -50,13 +50,14 @@ jobs:
       - name: Ownership adversarial invariants
         if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
         run: |
+          node --test tests/v0215-hardening.test.js
           grep -Fq "function ownershipEpoch" index.js
-          grep -Fq "assertOwnershipEpoch(key, epoch);" index.js
+          grep -Fq "assertOwnershipEpoch" index.js
           grep -Fq "sidecarTombstones" index.js
-          grep -Fq "eventData.groupId" index.js
+          grep -Fq "getChatIdentity" index.js
           grep -Fq "groupChatId" index.js
           grep -Fq "detachBrokenSidecar" index.js
-          grep -Fq "likelyAncestorKeys" index.js
+          grep -Fq "ensureLikelyAncestorStatesLoaded" index.js
           test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.16"
       - name: Release consistency
         run: |
