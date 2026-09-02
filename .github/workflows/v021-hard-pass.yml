@@ -33,6 +33,7 @@ jobs:
           fi
           python3 .release/v021_finalreview.py
           python3 .release/v021_finalreview_post.py
+          python3 .release/v021_hostretry.py
       - name: Ten consecutive hard passes
         run: |
           set -euo pipefail
@@ -70,6 +71,7 @@ jobs:
           if (!core.includes("NPC_STATE_VERSION = '0.2.21'")) throw new Error('core version mismatch');
           if (!index.includes('simple: true')) throw new Error('host deletion probe is not simple');
           if (!index.includes('resolveDeletedLifecycleKeyFromPresence')) throw new Error('owner-safe delete resolver missing');
+          if (!index.includes('NPC_STATE_DELETE_OWNERSHIP_UNAVAILABLE')) throw new Error('transient owner-probe retry guard missing');
           if (!index.includes('runBoundedLifecycleEvent')) throw new Error('bounded engine lifecycle missing');
           if (!index.includes('destinationRepresentations = [destinationState, destinationCache, destinationInline]')) throw new Error('rename destination convergence guard missing');
           if (!hardening.includes('runBoundedHardeningEvent')) throw new Error('bounded hardening lifecycle missing');
@@ -91,5 +93,5 @@ jobs:
           git config user.email '83744063+kohz87@users.noreply.github.com'
           git add CHANGELOG.md CODE-REVIEW.md README.md TEST-REPORT.md bootstrap.js core.js hardening-core.js hardening.js index.js manifest.json storage.js tests/hardening-v0220.test.js tests/hardening-v0221.test.js tests/runtime-smoke.mjs tests/migration-smoke.mjs tests/package.test.js tests/compatibility-check.js tests/v0214-hardening.test.js tests/v0217-hardening.test.js
           git diff --cached --check
-          git commit -m 'release-candidate: v0.2.21 final adversarial hardening'
+          git commit -m 'release-candidate: v0.2.21 ownership liveness hardening'
           git push origin HEAD:fix/v0.2.21-deep-pass
