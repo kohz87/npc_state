@@ -14,6 +14,12 @@
 - Bound editor saves to an exact NPC ID and optimistic dossier version so cross-NPC and stale same-NPC overwrites are rejected.
 - Added a UI-only Megumin master-block adapter that mounts the existing present-NPC roster as an `NPC State` tab when Megumin's tab/panel hosts are present, with standalone inline fallback when they are not.
 - Kept Megumin outside the state architecture: the adapter owns no scanning, persistence, dossier import, or World State parsing.
+- Added narrative-turn stale NPC management with configurable 30-turn archive and 50-turn total-inactivity cleanup defaults. Re-scanning the same assistant message does not advance stale age.
+- Stale retention activity is refreshed by current interaction, final physical presence, explicit off-screen world activity, and canonical-name/alias references in the current exchange.
+- Added automatic restoration for stale-archived NPCs that become narratively active again while leaving manual/deceased archives outside the stale cleanup path.
+- Added hard stale-pruning protection for retention-protected dossiers and manually locked stable profiles.
+- Kept automatic stale cleanup softer than manual Delete: stale cleanup does not create a permanent tombstone, while explicit user deletion still does.
+- Added a manual stale-review surface with Open dossier, Reset activity, Protect, Archive/Restore, and Delete controls.
 - Added focused v0.3 behavioral tests as the supported release gate.
 - Moved the complete v0.2.23 repository snapshot, including its source, tests, reports, changelog, and documentation, under `legacy/v0.2.x/`.
 - Made the repository root and default `main` branch the supported v0.3 install surface for SillyTavern.

@@ -159,6 +159,9 @@ export function normalizeNpc(input = {}, options = {}) {
         firstSeenMessageId: Number.isInteger(input.firstSeenMessageId) ? input.firstSeenMessageId : null,
         lastSeenMessageId: Number.isInteger(input.lastSeenMessageId) ? input.lastSeenMessageId : null,
         lastInteractionMessageId: Number.isInteger(input.lastInteractionMessageId) ? input.lastInteractionMessageId : null,
+        lastActivityTurn: Number.isInteger(input.lastActivityTurn) ? Math.max(0, input.lastActivityTurn) : null,
+        lastActivityMessageId: Number.isInteger(input.lastActivityMessageId) ? input.lastActivityMessageId : null,
+        lastActivityReason: text(input.lastActivityReason, 80),
         seenCount: Math.max(0, Math.round(Number(input.seenCount) || 0)),
         manual: input.manual === true,
     };

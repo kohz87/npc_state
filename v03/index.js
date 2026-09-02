@@ -6,6 +6,7 @@ import { getChatIdentity } from './identity.js';
 import { buildInjection } from './injection.js';
 import { createMeguminBlockIntegration } from './megumin.js';
 import { DEFAULT_RELATIONSHIP_CAPS, NPC_STATE_VERSION } from './schema.js';
+import { createStaleManagementUi } from './stale-ui.js';
 import { createNpcStateUi } from './ui.js';
 
 const EXTENSION_NAME = 'npc_state';
@@ -15,6 +16,7 @@ let initialized = false;
 let eventsRegistered = false;
 let activeChatKey = 'no-chat';
 let ui = null;
+let staleUi = null;
 
 const DEFAULT_RELATIONSHIP_CRITERIA = `Relationship deltas measure only changes caused by the current USER+ASSISTANT exchange.
 Trust: confidence in the player's reliability, honesty, competence, safety, or judgment.
@@ -35,6 +37,9 @@ const V3_DEFAULTS = Object.freeze({
     injectLimit: 6,
     injectBudgetTokens: 1800,
     branchRescan: true,
+    staleManagementEnabled: true,
+    staleArchiveAfter: 30,
+    staleDeleteAfter: 50,
     relationshipCaps: { ...DEFAULT_RELATIONSHIP_CAPS },
     relationshipCriteria: DEFAULT_RELATIONSHIP_CRITERIA,
     memoryCriteria: DEFAULT_MEMORY_CRITERIA,
@@ -62,6 +67,8 @@ function getSettings() {
     settings.injectDepth = Math.max(0, Math.min(20, Math.round(Number(settings.injectDepth) || 1)));
     settings.injectLimit = Math.max(1, Math.min(20, Math.round(Number(settings.injectLimit) || 6)));
     settings.injectBudgetTokens = Math.max(256, Math.min(8000, Math.round(Number(settings.injectBudgetTokens) || 1800)));
+    settings.staleArchiveAfter = Math.max(1, Math.min(10000, Math.round(Number(settings.staleArchiveAfter) || 30)));
+    settings.staleDeleteAfter = Math.max(settings.staleArchiveAfter + 1, Math.min(10000, Math.round(Number(settings.staleDeleteAfter) || 50)));
     settings.relationshipCaps = { ...DEFAULT_RELATIONSHIP_CAPS, ...(settings.relationshipCaps || {}) };
     if (!settings.dataFiles || typeof settings.dataFiles !== 'object' || Array.isArray(settings.dataFiles)) settings.dataFiles = {};
     return settings;
@@ -138,6 +145,7 @@ const engine = createNpcStateEngine({
     onStateChanged: () => {
         updateInjection();
         ui?.refresh();
+        staleUi?.refresh();
     },
 });
 
@@ -148,6 +156,13 @@ ui = createNpcStateUi({
     getSettings,
     persistSettings,
     onSettingsChanged: updateInjection,
+});
+
+staleUi = createStaleManagementUi({
+    engine,
+    ui,
+    getSettings,
+    persistSettings,
 });
 
 const meguminBlockIntegration = createMeguminBlockIntegration({
@@ -161,6 +176,7 @@ async function hydrateActiveChat({ reconcile = true } = {}) {
         activeChatKey = key;
         updateInjection();
         ui.refresh();
+        staleUi.refresh();
         return null;
     }
     activeChatKey = key;
@@ -174,12 +190,14 @@ async function hydrateActiveChat({ reconcile = true } = {}) {
         if (getChatKey() !== key) return null;
         updateInjection();
         ui.refresh();
+        staleUi.refresh();
         return state;
     } catch (error) {
         console.error('[NPC State v0.3] hydration failed safely', error);
         notify('error', `could not load this dossier. Existing sidecar data was not overwritten. ${error?.message || error}`);
         updateInjection();
         ui.refresh();
+        staleUi.refresh();
         return null;
     }
 }
@@ -198,6 +216,7 @@ async function settledBranchReconcile() {
         if (result?.rescan?.discarded) return;
         updateInjection();
         ui.refresh();
+        staleUi.refresh();
     } catch (error) {
         console.error('[NPC State v0.3] branch reconciliation failed safely', error);
         notify('error', `branch reconciliation failed without committing partial state. ${error?.message || error}`);
@@ -223,6 +242,7 @@ function registerEvents() {
             if (result?.ok || result?.discarded) {
                 updateInjection();
                 ui.refresh();
+                staleUi.refresh();
             }
         } catch (error) {
             console.error('[NPC State v0.3] automatic scan failed safely', error);
@@ -249,6 +269,7 @@ function registerEvents() {
 async function init() {
     getSettings();
     ui.scheduleMount();
+    staleUi.scheduleMount();
     meguminBlockIntegration.start();
     registerEvents();
     await hydrateActiveChat({ reconcile: true });
@@ -292,6 +313,9 @@ globalThis.NPCState = Object.freeze({
     updateNpc: (reference, patch) => engine.updateNpc(reference, patch),
     archive: reference => engine.archiveNpc(reference, true),
     restore: reference => engine.archiveNpc(reference, false),
+    resetStaleness: reference => engine.resetNpcStaleness(reference),
+    staleReport: () => engine.getStaleReport(),
+    openStaleReview: () => staleUi.openReview(),
     deleteNpc: reference => engine.deleteNpc(reference),
     reconcile: options => engine.reconcileBranch(options),
     openLibrary: reference => ui.openLibrary(reference),

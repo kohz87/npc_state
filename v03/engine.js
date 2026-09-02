@@ -17,6 +17,12 @@ import {
     currentExchange,
     parseScanJson,
 } from './scanner.js';
+import {
+    applyStaleLifecycle,
+    buildStaleReport,
+    narrativeTurnForMessage,
+    referencedNpcIdsFromExchange,
+} from './stale.js';
 import { readV3PointerHint, readV3Sidecar, writeV3Sidecar } from './storage.js';
 
 const SYSTEM_PROMPT = 'Return only valid JSON for the NPC State v0.3 structured scanner. Obey the supplied schema and evidence rules exactly.';
@@ -27,6 +33,14 @@ function latestAssistantMessageId(chat = []) {
         if (message && !message.is_system && !message.is_user) return i;
     }
     return -1;
+}
+
+function lifecycleNotice(result) {
+    const parts = [];
+    if (result?.archivedIds?.length) parts.push(`archived ${result.archivedIds.length} stale dossier${result.archivedIds.length === 1 ? '' : 's'}`);
+    if (result?.restoredIds?.length) parts.push(`restored ${result.restoredIds.length} narratively active dossier${result.restoredIds.length === 1 ? '' : 's'}`);
+    if (result?.deletedIds?.length) parts.push(`removed ${result.deletedIds.length} stale archive${result.deletedIds.length === 1 ? '' : 's'}`);
+    return parts.join(', ');
 }
 
 export function createNpcStateEngine(adapters = {}) {
@@ -193,16 +207,36 @@ export function createNpcStateEngine(adapters = {}) {
                 turn: working.turn,
                 relationshipCaps: settings.relationshipCaps || DEFAULT_RELATIONSHIP_CAPS,
             });
-            let committed = recordCheckpoint(applied.state, liveChat, messageId, manual ? 'manual-scan' : 'auto-scan');
+            const referencedNpcIds = referencedNpcIdsFromExchange(applied.state, exchange);
+            const stale = applyStaleLifecycle(applied.state, {
+                settings,
+                currentTurn: narrativeTurnForMessage(liveChat, messageId),
+                sourceMessageId: messageId,
+                exchangeActiveNpcIds: applied.exchangeActiveNpcIds,
+                finalPresentNpcIds: applied.finalPresentNpcIds,
+                worldActiveNpcIds: applied.worldActiveNpcIds,
+                referencedNpcIds,
+            });
+            let committed = recordCheckpoint(stale.state, liveChat, messageId, manual ? 'manual-scan' : 'auto-scan');
             committed.lastScannedMessageId = messageId;
             committed.updatedAt = Date.now();
             const persisted = await persist(chatKey, committed);
+            const notice = lifecycleNotice(stale);
+            if (notice) notify('info', `Stale management ${notice}.`);
             return {
                 ok: true,
                 messageId,
                 exchangeActiveNpcIds: applied.exchangeActiveNpcIds,
                 finalPresentNpcIds: applied.finalPresentNpcIds,
+                worldActiveNpcIds: applied.worldActiveNpcIds,
+                referencedNpcIds,
                 targetNpcIds: applied.targetNpcIds,
+                stale: {
+                    archivedIds: stale.archivedIds,
+                    restoredIds: stale.restoredIds,
+                    deletedIds: stale.deletedIds,
+                    currentTurn: stale.currentTurn,
+                },
                 state: structuredClone(persisted),
             };
         });
@@ -277,7 +311,17 @@ export function createNpcStateEngine(adapters = {}) {
             if ((state.suppressedNames || []).some(value => normalizeName(value) === normalizeName(clean))) {
                 state.suppressedNames = state.suppressedNames.filter(value => normalizeName(value) !== normalizeName(clean));
             }
-            const npc = normalizeNpc({ id: makeNpcId(clean), name: clean, manual: true, createdAt: Date.now() });
+            const chat = getContext().chat || [];
+            const messageId = latestAssistantMessageId(chat);
+            const npc = normalizeNpc({
+                id: makeNpcId(clean),
+                name: clean,
+                manual: true,
+                createdAt: Date.now(),
+                lastActivityTurn: narrativeTurnForMessage(chat, messageId),
+                lastActivityMessageId: messageId >= 0 ? messageId : null,
+                lastActivityReason: 'manual-add',
+            });
             state.npcs.push(npc);
             return { npcId: npc.id, existing: false };
         }, { checkpointReason: 'manual-add' });
@@ -323,10 +367,41 @@ export function createNpcStateEngine(adapters = {}) {
             next.archived = Boolean(archived);
             next.archiveReason = archived ? String(reason || 'manual') : '';
             next.archivedAt = archived ? Date.now() : null;
-            if (archived) { next.present = false; next.worldActive = false; }
+            if (archived) {
+                next.present = false;
+                next.worldActive = false;
+            } else {
+                const chat = getContext().chat || [];
+                const messageId = latestAssistantMessageId(chat);
+                next.lastActivityTurn = narrativeTurnForMessage(chat, messageId);
+                next.lastActivityMessageId = messageId >= 0 ? messageId : null;
+                next.lastActivityReason = 'manual-restore';
+            }
             state.npcs[index] = normalizeNpc(next);
             return { npcId: npc.id };
         }, { checkpointReason: archived ? 'manual-archive' : 'manual-restore' });
+    }
+
+    async function resetNpcStaleness(reference) {
+        return mutate('reset-staleness', state => {
+            const npc = findNpcByReference(state, reference);
+            if (!npc) return false;
+            const index = state.npcs.findIndex(item => item.id === npc.id);
+            const chat = getContext().chat || [];
+            const messageId = latestAssistantMessageId(chat);
+            const next = structuredClone(npc);
+            next.lastActivityTurn = narrativeTurnForMessage(chat, messageId);
+            next.lastActivityMessageId = messageId >= 0 ? messageId : null;
+            next.lastActivityReason = 'manual-review';
+            if (next.archived && next.archiveReason === 'stale') {
+                next.archived = false;
+                next.archiveReason = '';
+                next.archivedAt = null;
+            }
+            next.updatedAt = Math.max(Date.now(), Number(next.updatedAt || 0) + 1);
+            state.npcs[index] = normalizeNpc(next);
+            return { npcId: npc.id };
+        }, { checkpointReason: 'stale-reset' });
     }
 
     async function deleteNpc(reference) {
@@ -338,6 +413,15 @@ export function createNpcStateEngine(adapters = {}) {
             state.socialGraph = (state.socialGraph || []).filter(edge => edge.fromId !== npc.id && edge.toId !== npc.id);
             return { npcId: npc.id, name: npc.name };
         }, { checkpointReason: 'manual-delete' });
+    }
+
+    function getStaleReport() {
+        const chatKey = getChatKey();
+        const state = cache.get(chatKey);
+        if (!state) return [];
+        const chat = getContext().chat || [];
+        const messageId = latestAssistantMessageId(chat);
+        return buildStaleReport(state, getSettings(), narrativeTurnForMessage(chat, messageId));
     }
 
     async function reconcileBranch({ rescan = false } = {}) {
@@ -370,7 +454,9 @@ export function createNpcStateEngine(adapters = {}) {
         addNpc,
         updateNpc,
         archiveNpc,
+        resetNpcStaleness,
         deleteNpc,
+        getStaleReport,
         reconcileBranch,
         invalidate,
         getState: chatKey => cache.has(chatKey || getChatKey()) ? structuredClone(cache.get(chatKey || getChatKey())) : null,
