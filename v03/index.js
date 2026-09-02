@@ -7,7 +7,8 @@ import { getChatIdentity } from './identity.js';
 import { buildInjection } from './injection.js';
 import { createMeguminBlockIntegration } from './megumin.js';
 import {
-    DEFAULT_PORTRAIT_GENERATION_PROMPT,
+    DEFAULT_PORTRAIT_NEGATIVE_PROMPT,
+    DEFAULT_PORTRAIT_POSITIVE_PROMPT,
     DEFAULT_PORTRAIT_PRESET,
     normalizePortraitPromptSettings,
 } from './portrait-prompt.js';
@@ -51,7 +52,8 @@ const V3_DEFAULTS = Object.freeze({
     staleDeleteAfter: 50,
     portraitPromptMode: 'hybrid',
     portraitPreset: DEFAULT_PORTRAIT_PRESET,
-    portraitGenerationPrompt: DEFAULT_PORTRAIT_GENERATION_PROMPT,
+    portraitPositivePrompt: DEFAULT_PORTRAIT_POSITIVE_PROMPT,
+    portraitNegativePrompt: DEFAULT_PORTRAIT_NEGATIVE_PROMPT,
     relationshipCaps: { ...DEFAULT_RELATIONSHIP_CAPS },
     relationshipCriteria: DEFAULT_RELATIONSHIP_CRITERIA,
     memoryCriteria: DEFAULT_MEMORY_CRITERIA,
@@ -71,9 +73,11 @@ function getSettings() {
     const root = rootSettings();
     if (!root.v3 || typeof root.v3 !== 'object' || Array.isArray(root.v3)) root.v3 = {};
     const settings = root.v3;
+    const legacyPositivePrompt = settings.portraitPositivePrompt === undefined ? settings.portraitGenerationPrompt : undefined;
     for (const [key, value] of Object.entries(V3_DEFAULTS)) {
         if (settings[key] === undefined) settings[key] = structuredClone(value);
     }
+    if (legacyPositivePrompt !== undefined) settings.portraitPositivePrompt = legacyPositivePrompt;
     settings.schemaVersion = SETTINGS_SCHEMA;
     settings.scanDepth = Math.max(2, Math.min(30, Math.round(Number(settings.scanDepth) || 8)));
     settings.injectDepth = Math.max(0, Math.min(20, Math.round(Number(settings.injectDepth) || 1)));
@@ -83,8 +87,12 @@ function getSettings() {
     settings.staleDeleteAfter = Math.max(settings.staleArchiveAfter + 1, Math.min(10000, Math.round(Number(settings.staleDeleteAfter) || 50)));
     const portrait = normalizePortraitPromptSettings(settings);
     settings.portraitPromptMode = portrait.portraitPromptMode;
-    settings.portraitPreset = portrait.portraitPreset;
-    settings.portraitGenerationPrompt = portrait.portraitGenerationPrompt;
+    settings.portraitPreset = structuredClone(portrait.portraitPreset);
+    settings.portraitPositivePrompt = portrait.portraitPositivePrompt;
+    settings.portraitNegativePrompt = portrait.portraitNegativePrompt;
+    delete settings.portraitGenerationPrompt;
+    delete settings.portraitPositivePreset;
+    delete settings.portraitNegativePreset;
     settings.relationshipCaps = { ...DEFAULT_RELATIONSHIP_CAPS, ...(settings.relationshipCaps || {}) };
     if (!settings.dataFiles || typeof settings.dataFiles !== 'object' || Array.isArray(settings.dataFiles)) settings.dataFiles = {};
     return settings;
@@ -346,7 +354,11 @@ globalThis.NPCState = Object.freeze({
     exportBundle: reference => engine.exportBundle(reference),
     previewBundleImport: (bundle, options) => engine.previewBundleImport(bundle, options),
     importBundle: (bundle, options) => engine.importBundle(bundle, options),
+    portraitPrompts: reference => portraitUi.buildPairFor(reference),
     portraitPrompt: reference => portraitUi.buildFor(reference),
+    copyPortraitPositivePrompt: reference => portraitUi.copyPositiveFor(reference),
+    copyPortraitNegativePrompt: reference => portraitUi.copyNegativeFor(reference),
+    copyPortraitPrompts: reference => portraitUi.copyBothFor(reference),
     copyPortraitPrompt: reference => portraitUi.copyFor(reference),
     deleteNpc: reference => engine.deleteNpc(reference),
     reconcile: options => engine.reconcileBranch(options),
