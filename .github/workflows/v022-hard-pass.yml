@@ -50,17 +50,12 @@ jobs:
         with:
           name: v022-candidate-${{ github.run_id }}
           path: |
-            index.js
-            core.js
-            core-v0218.js
-            manifest.json
-            CHANGELOG.md
-            tests/runtime-smoke.mjs
-            tests/migration-smoke.mjs
-            tests/hardening-v0222.test.js
-            tests/package.test.js
-            tests/v0214-hardening.test.js
-            .release/*.py
+            *.js
+            *.json
+            *.md
+            style.css
+            tests/**
+            .release/**
           retention-days: 2
 
       - name: Syntax and diff check
@@ -96,11 +91,13 @@ jobs:
           if (!index.includes('for (let offset = 0; offset < newTargets.length; offset += 4)')) throw new Error('new NPC relationship batching missing');
           if (!index.includes('discarded stale dossier scan after new-NPC relationship evaluation')) throw new Error('post-admission stale guard missing');
           if (!index.includes('memoryInputLimit: IMPORTANT_MEMORY_LIMIT')) throw new Error('targeted memory intake missing');
+          if (!index.includes('allowTargetedDurableSeed: true')) throw new Error('targeted durable seed wiring missing');
           if (!index.includes('finalNpc.seenCount = Number(liveBeforeBackfill.seenCount || 0)')) throw new Error('backfill observation restoration missing');
           if (!index.includes("const reasonPresent = Boolean(String(normalized.relationshipChangeReason || '').trim())")) throw new Error('focused relationship reason policy missing');
           if (!retained.includes('LOW-BAND FAMILIARITY')) throw new Error('low-band relationship policy missing');
           if (!retained.includes('kisses|kissed|kissing')) throw new Error('Desire inflection coverage missing');
           if (!retained.includes('mergeImportantMemories(oldList, newList, retentionList = [], incomingLimit = 3)')) throw new Error('memory merge split missing');
+          if (!retained.includes('targetedDurableSeedAllowed')) throw new Error('same-id targeted durable seed guard missing');
           NODE
 
       - name: Commit verified candidate
