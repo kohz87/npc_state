@@ -63,8 +63,9 @@ test('chat cache has bounded eviction and refuses to evict active work', () => {
 });
 
 test('lifecycle lookup prefers known owner state and fails closed on ambiguous suffixes', () => {
-    assert.match(index, /if \(direct && keys\.has\(direct\)\) return direct/);
-    assert.match(index, /if \(matches\.length > 1\)/);
+    assert.match(index, /resolveOwnedLifecycleKey\(candidates, kind, id, resolvedOwner, ownerWasProvided\)/);
+    const ownershipCore = fs.readFileSync(new URL('../hardening-core.js', import.meta.url), 'utf8');
+    assert.match(ownershipCore, /if \(ownerWasProvided\) return direct && unique\.includes\(direct\) \? direct : ''/);
     assert.match(index, /refused ambiguous/);
 });
 

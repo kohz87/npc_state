@@ -1,4 +1,4 @@
-/* NPC State v0.2.20 - standalone SillyTavern extension */
+/* NPC State v0.2.21 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders, saveSettings as saveHostSettings } from '../../../../script.js';
 import {
@@ -116,6 +116,12 @@ import {
     parseQualifiedChatKey,
     sameChatOwnerScope,
 } from './identity.js';
+import {
+    lifecycleRenameStateIsEmpty,
+    liveLifecycleCandidateKeys,
+    resolveDeletedLifecycleKeyFromPresence,
+    resolveOwnedLifecycleKey,
+} from './hardening-core.js';
 
 const EXTENSION_NAME = 'npc_state';
 const PROMPT_KEY = 'npc_state_live_dossier';
@@ -167,6 +173,11 @@ const BRANCH_INDEX_PREFIX_LIMIT = 12;
 const BRANCH_INDEX_MAX_CANDIDATES = 16;
 const LEGACY_BRANCH_DISCOVERY_LIMIT = 8;
 const SCAN_OPERATION_TIMEOUT_MS = 5 * 60 * 1000;
+const LIFECYCLE_EVENT_WAIT_MS = 12_000;
+const LIFECYCLE_RETRY_DELAY_MS = 30_000;
+const lifecycleEventOperations = new Map();
+const lifecycleRetryTimers = new Map();
+let lifecycleEventSequence = 0;
 const scanOperations = createScanOperationRegistry({
     timeoutMs: SCAN_OPERATION_TIMEOUT_MS,
     onExpire: operation => {
@@ -225,7 +236,7 @@ const PORTRAIT_THEME_PRESETS = Object.freeze({
 const DURABLE_COMPACTION_VERSION = 1;
 
 const DEFAULTS = Object.freeze({
-    schemaVersion: 26,
+    schemaVersion: 27,
     enabled: true,
     autoScan: true,
     fullScanEveryTurn: false,
@@ -263,6 +274,8 @@ const DEFAULTS = Object.freeze({
     recoveryFiles: {},
     branchIndex: {},
     legacyOwnershipClaims: {},
+    recoveryHistory: {},
+    recoveryGarbage: {},
 });
 
 function escapeHtml(value) {
@@ -307,6 +320,8 @@ function getSettings() {
     if (!settings.recoveryFiles || typeof settings.recoveryFiles !== 'object') assign('recoveryFiles', {});
     if (!settings.branchIndex || typeof settings.branchIndex !== 'object') assign('branchIndex', {});
     if (!settings.legacyOwnershipClaims || typeof settings.legacyOwnershipClaims !== 'object') assign('legacyOwnershipClaims', {});
+    if (!settings.recoveryHistory || typeof settings.recoveryHistory !== 'object') assign('recoveryHistory', {});
+    if (!settings.recoveryGarbage || typeof settings.recoveryGarbage !== 'object') assign('recoveryGarbage', {});
 
     // One-shot migrations. All changes are saved once at the end rather than once
     // per historical schema step, which matters on older installations.
@@ -402,40 +417,18 @@ function resolveOwnedChatKey(rawId, kind = 'chat', ownerId = undefined) {
     if (!id) return '';
     const ownerWasProvided = ownerId !== undefined;
     const resolvedOwner = String(ownerWasProvided ? (ownerId || '') : (kind === 'group' ? getContext().groupId || '' : getCharacterOwnerId(getContext()))).trim();
-    const direct = buildQualifiedChatKey(kind, resolvedOwner, id);
-    const suffix = `:${encodeChatKeyPart(id)}`;
-    const prefix = `${kind}:`;
     const settings = getSettings();
-    const keys = new Set([
-        ...Object.keys(settings.dataFiles || {}),
-        ...Object.keys(settings.branchIndex || {}),
-        ...Object.keys(settings.sidecarTombstones || {}),
-        ...Object.keys(settings.recoveryFiles || {}),
-        ...chatStateCache.keys(),
-    ]);
-    if (direct && keys.has(direct)) return direct;
-    const matches = [...keys].filter(key => isCanonicalChatKey(key) && key.startsWith(prefix) && key.endsWith(suffix));
-    if (matches.length === 1) return matches[0];
-    if (matches.length > 1) {
-        console.warn(`[NPC State] refused ambiguous ${kind} lifecycle lookup for ${id}; ${matches.length} owner-qualified states share that chat id.`);
-        return '';
+    const candidates = liveLifecycleCandidateKeys(settings, chatStateCache.keys(), kind, id);
+    const resolved = resolveOwnedLifecycleKey(candidates, kind, id, resolvedOwner, ownerWasProvided);
+    if (!resolved && candidates.length > 1) {
+        console.warn(`[NPC State] refused ambiguous ${kind} lifecycle lookup for ${id}; ${candidates.length} live owner-qualified states share that chat id.`);
     }
-    return direct;
+    return resolved;
 }
 
 function lifecycleCandidateKeys(rawId, kind = 'chat') {
     const id = String(rawId ?? '').replace(/\.jsonl$/i, '').trim();
-    if (!id) return [];
-    const suffix = `:${encodeChatKeyPart(id)}`;
-    const prefix = `${kind}:`;
-    const settings = getSettings();
-    const keys = new Set([
-        ...Object.keys(settings.dataFiles || {}),
-        ...Object.keys(settings.branchIndex || {}),
-        ...Object.keys(settings.chats || {}),
-        ...chatStateCache.keys(),
-    ]);
-    return [...keys].filter(key => isCanonicalChatKey(key) && key.startsWith(prefix) && key.endsWith(suffix));
+    return liveLifecycleCandidateKeys(getSettings(), chatStateCache.keys(), kind, id);
 }
 
 async function hostCharacterChatPresence(ownerId, rawId) {
@@ -446,7 +439,7 @@ async function hostCharacterChatPresence(ownerId, rawId) {
         const response = await globalThis.fetch?.('/api/characters/chats', {
             method: 'POST',
             headers: requestHeaders(),
-            body: JSON.stringify({ avatar_url: owner }),
+            body: JSON.stringify({ avatar_url: owner, simple: true }),
         });
         if (!response?.ok) return null;
         const data = typeof response.json === 'function' ? await response.json() : null;
@@ -479,7 +472,7 @@ async function resolveDeletedChatKey(rawId, kind = 'chat', ownerId = '') {
     const hint = String(ownerId || '').trim();
     if (hint) return resolveOwnedChatKey(id, kind, hint);
     const candidates = lifecycleCandidateKeys(id, kind);
-    if (candidates.length <= 1) return candidates[0] || '';
+    if (!candidates.length) return '';
 
     const presence = [];
     for (const key of candidates) {
@@ -490,13 +483,17 @@ async function resolveDeletedChatKey(rawId, kind = 'chat', ownerId = '') {
             : await hostCharacterChatPresence(parsed.ownerId, id);
         presence.push({ key, value });
     }
-    const absent = presence.filter(item => item.value === false);
-    const present = presence.filter(item => item.value === true);
-    if (absent.length === 1 && present.length === candidates.length - 1) {
-        console.info(`[NPC State] resolved ambiguous deleted ${kind} ${id} from authoritative host ownership: ${absent[0].key}.`);
-        return absent[0].key;
+    if (presence.some(item => item.value === null)) {
+        const error = new Error(`NPC State could not prove deleted ${kind} ${id} ownership because the SillyTavern ownership probe was unavailable.`);
+        error.code = 'NPC_STATE_DELETE_OWNERSHIP_UNAVAILABLE';
+        throw error;
     }
-    console.warn(`[NPC State] preserved ambiguous deleted ${kind} ${id}; host ownership did not prove one unique removed owner.`);
+    const resolved = resolveDeletedLifecycleKeyFromPresence(candidates, presence);
+    if (resolved) {
+        console.info(`[NPC State] resolved deleted ${kind} ${id} from authoritative host ownership: ${resolved}.`);
+        return resolved;
+    }
+    console.warn(`[NPC State] preserved deleted ${kind} ${id}; host ownership did not prove one unique removed owner.`);
     return '';
 }
 
@@ -1272,14 +1269,17 @@ function queueBranchReconcile(options = {}, delay = 90) {
     }, delay);
 }
 
+function queueRecoveryGarbagePointer(pointer, reason = 'temporary-recovery-cleanup') {
+    if (!pointer?.path) return false;
+    const settings = getSettings();
+    const key = `${String(reason || 'recovery')}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    settings.recoveryGarbage[key] = { ...structuredClone(pointer), queuedAt: Date.now(), reason: String(reason || 'recovery') };
+    persistSettings();
+    return true;
+}
+
 function stateLooksEmptyForLifecycleRename(state) {
-    if (!state || typeof state !== 'object') return true;
-    return !(state.npcs?.length
-        || state.candidates?.length
-        || state.dismissed?.length
-        || state.checkpoints?.length
-        || state.userDismissedGroups?.length
-        || state.pendingBackfills?.length);
+    return lifecycleRenameStateIsEmpty(state);
 }
 
 function clearLifecycleCacheKey(key, reason = 'external-lifecycle') {
@@ -1302,11 +1302,16 @@ function clearLifecycleCacheKey(key, reason = 'external-lifecycle') {
     return true;
 }
 
-async function loadLatestLifecycleState(key, pointer = null, inlineState = null) {
+async function loadLatestLifecycleState(key, pointer = null, inlineState = null, { fallbackOnMissing = false } = {}) {
     if (pointer?.path) {
-        const payload = await readNpcStateDataFile(pointer, { expectedChatKey: key });
-        if (!payload || payload.retired || !payload.state) return null;
-        return structuredClone(payload.state);
+        try {
+            const payload = await readNpcStateDataFile(pointer, { expectedChatKey: key });
+            if (payload && !payload.retired && payload.state) return structuredClone(payload.state);
+            if (!fallbackOnMissing) return null;
+        } catch (error) {
+            if (!fallbackOnMissing) throw error;
+            console.warn(`[NPC State] lifecycle recovery could not read ${pointer.path}; falling back to the settled cache/inline state.`, error);
+        }
     }
     if (loadedChatKeys.has(key) && chatStateCache.has(key)) return structuredClone(getChatState(key));
     return inlineState && typeof inlineState === 'object' ? structuredClone(inlineState) : null;
@@ -1330,9 +1335,9 @@ async function removeDeletedChatState(rawId, kind = 'chat', ownerId = '') {
         pointer = settings.dataFiles?.[key] || pointer;
 
         for (let attempt = 0; attempt < 4; attempt += 1) {
-            const state = await loadLatestLifecycleState(key, pointer, settings.chats?.[key] || null);
+            const state = await loadLatestLifecycleState(key, pointer, settings.chats?.[key] || null, { fallbackOnMissing: true });
             if (recoveryPointer?.path) {
-                try { await deleteNpcStateDataFile(recoveryPointer, { headers: requestHeaders() }); } catch { /* best effort */ }
+                try { await deleteNpcStateDataFile(recoveryPointer, { headers: requestHeaders() }); } catch { queueRecoveryGarbagePointer(recoveryPointer, 'chat-lifecycle-temp'); }
                 recoveryPointer = null;
             }
             if (state) {
@@ -1342,6 +1347,7 @@ async function removeDeletedChatState(rawId, kind = 'chat', ownerId = '') {
                     appVersion: NPC_STATE_VERSION,
                     pointer: { name: makeNpcStateRecoveryFileName(key) },
                     operationKey: `delete-recovery:${key}:${Date.now()}:${attempt}`,
+                    continuousRetry: false,
                     headers: requestHeaders(),
                 });
             }
@@ -1358,10 +1364,10 @@ async function removeDeletedChatState(rawId, kind = 'chat', ownerId = '') {
         if (!retired) return false;
     } catch (error) {
         if (recoveryPointer?.path) {
-            try { await deleteNpcStateDataFile(recoveryPointer, { headers: requestHeaders() }); } catch { /* best effort */ }
+            try { await deleteNpcStateDataFile(recoveryPointer, { headers: requestHeaders() }); } catch { queueRecoveryGarbagePointer(recoveryPointer, 'chat-lifecycle-temp'); }
         }
         console.warn(`[NPC State] refused destructive retirement for ${key}; live ownership remains intact.`, error);
-        return false;
+        throw error;
     }
 
     clearLifecycleCacheKey(key, 'chat-deleted');
@@ -1409,7 +1415,9 @@ async function moveRenamedChatState(eventData = {}) {
         catch (error) { console.warn(`[NPC State] rename could not verify destination ${newKey}.`, error); return false; }
     }
     const destinationCache = chatStateCache.get(newKey) || null;
-    const destinationEphemeral = stateLooksEmptyForLifecycleRename(destinationState || destinationCache);
+    const destinationInline = settings.chats?.[newKey] || null;
+    const destinationRepresentations = [destinationState, destinationCache, destinationInline].filter(value => value && typeof value === 'object');
+    const destinationEphemeral = destinationRepresentations.every(stateLooksEmptyForLifecycleRename);
     if ((destinationPointer?.path || settings.chats?.[newKey] || chatStateCache.has(newKey)) && !destinationEphemeral) {
         console.warn(`[NPC State] refused to rename ${oldKey} onto existing non-empty state ${newKey}.`);
         return false;
@@ -1436,13 +1444,14 @@ async function moveRenamedChatState(eventData = {}) {
                 state,
                 appVersion: NPC_STATE_VERSION,
                 pointer: newPointer?.path ? newPointer : { name: makeNpcStateDataFileName(newKey) },
+                continuousRetry: false,
                 headers: requestHeaders(),
             });
             const verified = await readNpcStateDataFile(newPointer, { expectedChatKey: newKey });
             if (!verified?.state || verified.retired) throw new Error('NPC State renamed sidecar verification failed.');
 
             if (recoveryPointer?.path) {
-                try { await deleteNpcStateDataFile(recoveryPointer, { headers: requestHeaders() }); } catch { /* best effort */ }
+                try { await deleteNpcStateDataFile(recoveryPointer, { headers: requestHeaders() }); } catch { queueRecoveryGarbagePointer(recoveryPointer, 'chat-lifecycle-temp'); }
             }
             recoveryPointer = await writeNpcStateDataFile({
                 chatKey: oldKey,
@@ -1450,6 +1459,7 @@ async function moveRenamedChatState(eventData = {}) {
                 appVersion: NPC_STATE_VERSION,
                 pointer: { name: makeNpcStateRecoveryFileName(oldKey) },
                 operationKey: `rename-recovery:${oldKey}:${Date.now()}:${attempt}`,
+                continuousRetry: false,
                 headers: requestHeaders(),
             });
 
@@ -1501,7 +1511,7 @@ async function moveRenamedChatState(eventData = {}) {
         return true;
     } catch (error) {
         console.warn(`[NPC State] transactional rename failed for ${oldKey}; original durable ownership remains recoverable and no tombstone was published.`, error);
-        return false;
+        throw error;
     }
 }
 
@@ -1555,13 +1565,13 @@ async function migrateActiveLegacyNamespace() {
         // migrate old swipe-index/checkpoint state against the active conversation, ensuring the
         // newly qualified sidecar is canonical branch-lineage v2 from its first durable write.
         seedBranchTracking(state);
-        const newPointer = await writeNpcStateDataFile({ chatKey: newKey, state, appVersion: NPC_STATE_VERSION, pointer: { name: makeNpcStateDataFileName(newKey) }, headers: requestHeaders() });
+        const newPointer = await writeNpcStateDataFile({ chatKey: newKey, state, appVersion: NPC_STATE_VERSION, pointer: { name: makeNpcStateDataFileName(newKey) }, continuousRetry: false, headers: requestHeaders() });
         assertOwnershipEpoch(newKey, newEpoch);
         const verified = await readNpcStateDataFile(newPointer, { expectedChatKey: newKey });
         assertOwnershipEpoch(newKey, newEpoch);
         if (!verified?.state || verified.retired) throw new Error('NPC State qualified namespace migration verification failed.');
 
-        const recoveryPointer = await writeNpcStateDataFile({ chatKey: oldKey, state, appVersion: NPC_STATE_VERSION, pointer: { name: makeNpcStateRecoveryFileName(oldKey) }, headers: requestHeaders() });
+        const recoveryPointer = await writeNpcStateDataFile({ chatKey: oldKey, state, appVersion: NPC_STATE_VERSION, pointer: { name: makeNpcStateRecoveryFileName(oldKey) }, continuousRetry: false, headers: requestHeaders() });
         assertOwnershipEpoch(oldKey, oldEpoch);
         if (oldPointer?.path) await retireNpcStateDataFile({ chatKey: oldKey, pointer: oldPointer, reason: `qualified-namespace-migrated:${newKey}`, appVersion: NPC_STATE_VERSION, headers: requestHeaders() });
 
@@ -1602,9 +1612,19 @@ async function flushLifecycleOwner(kind = 'chat', ownerId = '') {
         const parsed = parseQualifiedChatKey(key);
         return parsed?.kind === kind && parsed.ownerId === owner;
     });
+    const failures = [];
     for (const key of keys) {
         try { await settleStateFileWrite(key, { flush: true }); }
-        catch (error) { console.warn(`[NPC State] lifecycle flush could not settle ${key}; durable conflict handling will decide ownership.`, error); }
+        catch (error) {
+            failures.push({ key, error });
+            console.warn(`[NPC State] lifecycle flush could not settle ${key}; owner lifecycle will fail closed and retry later.`, error);
+        }
+    }
+    if (failures.length) {
+        const error = new AggregateError(failures.map(item => item.error), `NPC State could not settle ${failures.length} owner chat(s) before lifecycle mutation.`);
+        error.code = 'NPC_STATE_OWNER_FLUSH_INCOMPLETE';
+        error.failures = failures.map(item => item.key);
+        throw error;
     }
     return keys;
 }
@@ -5027,6 +5047,52 @@ async function handleAssistantMessageReceived(messageId, { bypassSwipeGuard = fa
     await processPendingBackfills(messageId);
 }
 
+function scheduleLifecycleRetry(operationKey, label, task) {
+    if (lifecycleRetryTimers.has(operationKey)) return;
+    const timer = setTimeout(() => {
+        lifecycleRetryTimers.delete(operationKey);
+        void runBoundedLifecycleEvent(operationKey, label, task);
+    }, LIFECYCLE_RETRY_DELAY_MS);
+    lifecycleRetryTimers.set(operationKey, timer);
+}
+
+async function runBoundedLifecycleEvent(operationKey, label, task) {
+    const key = String(operationKey || label || 'lifecycle');
+    let operation = lifecycleEventOperations.get(key);
+    if (!operation) {
+        operation = Promise.resolve().then(task);
+        lifecycleEventOperations.set(key, operation);
+        void operation.catch(error => {
+            console.warn(`[NPC State] ${label} background transaction failed; scheduling retry.`, error);
+            scheduleLifecycleRetry(key, label, task);
+        });
+        operation.then(
+            () => lifecycleEventOperations.get(key) === operation && lifecycleEventOperations.delete(key),
+            () => lifecycleEventOperations.get(key) === operation && lifecycleEventOperations.delete(key),
+        );
+    }
+    let timer = null;
+    const timeout = new Promise(resolve => {
+        timer = setTimeout(() => resolve({ timedOut: true }), LIFECYCLE_EVENT_WAIT_MS);
+    });
+    const observed = operation.then(
+        value => ({ timedOut: false, value }),
+        error => ({ timedOut: false, error }),
+    );
+    const outcome = await Promise.race([observed, timeout]);
+    if (timer) clearTimeout(timer);
+    if (outcome.timedOut) {
+        console.warn(`[NPC State] ${label} exceeded ${LIFECYCLE_EVENT_WAIT_MS / 1000}s; SillyTavern may continue while the fail-closed transaction retries in the background.`);
+        return false;
+    }
+    if (outcome.error) {
+        console.error(`[NPC State] ${label} failed safely; scheduling a background retry.`, outcome.error);
+        scheduleLifecycleRetry(key, label, task);
+        return false;
+    }
+    return true;
+}
+
 function registerEvents() {
     if (eventsRegistered) return;
     const ctx = getContext();
@@ -5147,9 +5213,32 @@ function registerEvents() {
     // CHAT_DELETED carries only a filename in SillyTavern. Never borrow the currently active
     // owner as proof: bulk deletion can target a different character. Ambiguous equal filenames
     // fail closed and CHARACTER_DELETED later retires the exact owner-qualified states.
-    if (events.CHAT_DELETED) source.on(events.CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId, 'chat', ''); });
-    if (events.GROUP_CHAT_DELETED) source.on(events.GROUP_CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId, 'group', ''); });
-    if (events.CHAT_RENAMED) source.on(events.CHAT_RENAMED, async (eventData) => { await moveRenamedChatState(eventData || {}); });
+    if (events.CHAT_DELETED) source.on(events.CHAT_DELETED, (chatId) => {
+        const eventId = ++lifecycleEventSequence;
+        return runBoundedLifecycleEvent(
+            `delete:chat:${String(chatId || '')}:${eventId}`,
+            'chat deletion retirement',
+            () => removeDeletedChatState(chatId, 'chat', ''),
+        );
+    });
+    if (events.GROUP_CHAT_DELETED) source.on(events.GROUP_CHAT_DELETED, (chatId) => {
+        const eventId = ++lifecycleEventSequence;
+        return runBoundedLifecycleEvent(
+            `delete:group:${String(chatId || '')}:${eventId}`,
+            'group chat deletion retirement',
+            () => removeDeletedChatState(chatId, 'group', ''),
+        );
+    });
+    if (events.CHAT_RENAMED) source.on(events.CHAT_RENAMED, (eventData) => {
+        const data = eventData || {};
+        const owner = String(data.groupId || data.avatarId || '');
+        const eventId = ++lifecycleEventSequence;
+        return runBoundedLifecycleEvent(
+            `rename:${owner}:${String(data.oldFileName || '')}->${String(data.newFileName || '')}:${eventId}`,
+            'chat rename migration',
+            () => moveRenamedChatState(data),
+        );
+    });
 }
 
 async function init() {

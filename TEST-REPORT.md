@@ -1,10 +1,10 @@
-# NPC State v0.2.20 Test Report
+# NPC State v0.2.21 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
-## Result
+## v0.2.21 release gate
 
-**PASS - 10/10 exact-candidate hard passes required before main promotion**
+Release requires ten consecutive full verification passes on the exact candidate before source commit/promotion. New executable tests cover explicit-owner collision refusal, one-candidate host deletion proof, stale branch-index exclusion, meaningful rename destinations, cross-tab recovery filename uniqueness, bounded lifecycle writes, and numeric hydration timestamps.
 
 ## v0.2.20 release-gate coverage
 
