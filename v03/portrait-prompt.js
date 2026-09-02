@@ -23,22 +23,26 @@ function listText(value, maxItems = 12, itemMax = 500) {
 }
 
 function normalizePreset(input = {}) {
-    const legacyPreset = typeof input.portraitPreset === 'string' ? input.portraitPreset : '';
+    const hasLegacyPreset = typeof input.portraitPreset === 'string';
+    const legacyPreset = hasLegacyPreset ? input.portraitPreset : '';
     const objectPreset = input.portraitPreset && typeof input.portraitPreset === 'object' && !Array.isArray(input.portraitPreset)
         ? input.portraitPreset
         : {};
+    const positiveSource = Object.hasOwn(objectPreset, 'positive')
+        ? objectPreset.positive
+        : input.portraitPositivePreset !== undefined
+            ? input.portraitPositivePreset
+            : hasLegacyPreset
+                ? legacyPreset
+                : DEFAULT_PORTRAIT_PRESET.positive;
+    const negativeSource = Object.hasOwn(objectPreset, 'negative')
+        ? objectPreset.negative
+        : input.portraitNegativePreset !== undefined
+            ? input.portraitNegativePreset
+            : DEFAULT_PORTRAIT_PRESET.negative;
     return {
-        positive: cleanText(
-            objectPreset.positive
-            ?? input.portraitPositivePreset
-            ?? legacyPreset
-            ?? DEFAULT_PORTRAIT_PRESET.positive,
-        ),
-        negative: cleanText(
-            objectPreset.negative
-            ?? input.portraitNegativePreset
-            ?? DEFAULT_PORTRAIT_PRESET.negative,
-        ),
+        positive: cleanText(positiveSource),
+        negative: cleanText(negativeSource),
     };
 }
 
