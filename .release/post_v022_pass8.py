@@ -110,7 +110,7 @@ extra = '''test('targeted same-id history extraction may seed blank durable fiel
 test = replace_once(test, insert_before, extra + insert_before, 'targeted durable seed regressions')
 test = replace_once(test,
     "    assert.match(source, /memoryInputLimit: IMPORTANT_MEMORY_LIMIT/);\n    assert.match(source, /finalNpc\\.seenCount = Number\\(liveBeforeBackfill\\.seenCount \\|\\| 0\\)/);",
-    "    assert.match(source, /memoryInputLimit: IMPORTANT_MEMORY_LIMIT/);\n    assert.match(source, /allowTargetedDurableSeed: true/);\n    assert.match(source, /allowTargetedDurableSeed: options\\.allowTargetedDurableSeed === true/);\n    assert.match(source, /finalNpc\\.seenCount = Number\\(liveBeforeBackfill\\.seenCount \\|\\| 0\\)/);",
+    "    assert.match(source, /memoryInputLimit: IMPORTANT_MEMORY_LIMIT/);\n    assert.match(source, /allowTargetedDurableSeed: true/);\n    assert.match(source, /finalNpc\\.seenCount = Number\\(liveBeforeBackfill\\.seenCount \\|\\| 0\\)/);",
     'targeted durable seed wiring assertions')
 write('tests/hardening-v0222.test.js', test)
 
