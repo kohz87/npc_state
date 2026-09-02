@@ -12,6 +12,7 @@ on:
       - .release/post_v022_pass5.py
       - .release/post_v022_pass6.py
       - .release/post_v022_pass7.py
+      - .release/post_v022_pass8.py
       - .github/workflows/v022-hard-pass.yml
   workflow_dispatch:
 
@@ -42,6 +43,25 @@ jobs:
           python3 .release/post_v022_pass5.py
           python3 .release/post_v022_pass6.py
           python3 .release/post_v022_pass7.py
+          if [ -f .release/post_v022_pass8.py ]; then python3 .release/post_v022_pass8.py; fi
+
+      - name: Upload candidate snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: v022-candidate-${{ github.run_id }}
+          path: |
+            index.js
+            core.js
+            core-v0218.js
+            manifest.json
+            CHANGELOG.md
+            tests/runtime-smoke.mjs
+            tests/migration-smoke.mjs
+            tests/hardening-v0222.test.js
+            tests/package.test.js
+            tests/v0214-hardening.test.js
+            .release/*.py
+          retention-days: 2
 
       - name: Syntax and diff check
         run: |
