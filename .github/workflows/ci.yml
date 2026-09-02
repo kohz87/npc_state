@@ -26,7 +26,7 @@ jobs:
           git diff --check
       - name: v0.3 behavioral verification
         run: npm test
-      - name: Release consistency
+      - name: Release and layout consistency
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -35,17 +35,30 @@ jobs:
           const readme = fs.readFileSync('README.md', 'utf8');
           const bootstrap = fs.readFileSync('bootstrap.js', 'utf8');
           const escaped = String(manifest.version).replaceAll('.', '\\.');
+          if (!String(manifest.version).startsWith('0.3.')) throw new Error('root manifest must be v0.3.x');
           if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(schema)) throw new Error('v03 schema version does not match manifest');
           if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
           if (manifest.js !== 'bootstrap.js') throw new Error('manifest must load bootstrap.js');
           if (manifest.css !== 'v03/style.css') throw new Error('manifest must load v0.3 stylesheet');
           if (!bootstrap.includes("await import('./v03/index.js')")) throw new Error('bootstrap must load only the v0.3 runtime');
-          for (const forbidden of ['./index.js', './hardening.js', './enhancements.js']) {
-            if (bootstrap.includes(forbidden)) throw new Error(`bootstrap still loads legacy runtime: ${forbidden}`);
-          }
+          const forbiddenRoot = [
+            'index.js','core.js','core-v0218.js','branch.js','branch-v0218.js','bundle.js',
+            'hardening.js','hardening-core.js','enhancements.js','identity.js','social.js','storage.js',
+            'style.css','CODE-REVIEW.md','TEST-REPORT.md'
+          ];
+          for (const path of forbiddenRoot) if (fs.existsSync(path)) throw new Error(`legacy file leaked into repository root: ${path}`);
+          if (!fs.existsSync('legacy/v0.2.x/manifest.json')) throw new Error('frozen v0.2 snapshot is missing');
+          const legacyManifest = JSON.parse(fs.readFileSync('legacy/v0.2.x/manifest.json', 'utf8'));
+          if (!String(legacyManifest.version).startsWith('0.2.')) throw new Error('legacy snapshot is not v0.2.x');
           const v3Files = fs.readdirSync('v03').filter(name => name.endsWith('.js'));
           for (const name of v3Files) {
             const text = fs.readFileSync(`v03/${name}`, 'utf8');
             if (/pendingBackfills|fullCastScanEveryTurn/.test(text)) throw new Error(`legacy runtime concept leaked into v03/${name}`);
+            if (/legacy\/v0\.2\.x/.test(text) && name !== 'migrate-v02.js') throw new Error(`supported runtime imports legacy source from v03/${name}`);
+          }
+          const rootJs = ['bootstrap.js', ...v3Files.map(name => `v03/${name}`)];
+          for (const path of rootJs) {
+            const text = fs.readFileSync(path, 'utf8');
+            if (/from\s+['\"]\.\.\/legacy|import\s*\(\s*['\"][^'\"]*legacy\//.test(text)) throw new Error(`runtime imports legacy tree: ${path}`);
           }
           NODE

@@ -1,10 +1,20 @@
 # NPC State v0.3.0
 
-NPC State v0.3 is a clean runtime rewrite of the SillyTavern narrated-NPC dossier tracker. The v0.2 source remains in the repository for recovery and reference, but the extension bootstrap no longer loads the v0.2 engine, hardening wrapper, or enhancement layer.
+NPC State v0.3 is the current SillyTavern narrated-NPC dossier tracker. The repository root is now v0.3-only. The complete v0.2.x line is frozen under [`legacy/v0.2.x/`](legacy/v0.2.x/) for reference and recovery, and no legacy runtime file is loaded by the root extension manifest or bootstrap.
+
+## Install / update in SillyTavern
+
+Use the repository URL in SillyTavern's **Extensions -> Install Extension** flow:
+
+```text
+https://github.com/kohz87/npc_state
+```
+
+SillyTavern installs the repository's default branch. `main` is the supported v0.3 line, so a normal install or Extension Manager update uses the root `manifest.json` (`0.3.0`) and `bootstrap.js`, which load only `v03/index.js` and `v03/style.css`.
 
 ## What changed
 
-v0.3 replaces the layered scan/backfill system with one explicit current-cast transaction. The scanner now keeps three concepts separate:
+v0.3 replaces the layered scan/backfill system with one explicit current-cast transaction. The scanner keeps three concepts separate:
 
 - **Exchange active**: the NPC spoke, acted, was directly acted upon, or directly perceived/received a relevant event in the current user + assistant exchange.
 - **Present**: the NPC is physically present at the end of the latest assistant scene.
@@ -52,36 +62,44 @@ The first v0.3 load establishes a v0.3 branch baseline. Branch edits after that 
 
 If a chat is changed to a branch that diverges **before** that first v0.3 baseline, v0.3 cannot truthfully reconstruct the missing v0.2 branch history because those old checkpoints are intentionally not imported. It therefore fails closed: strict live presence is cleared and model scanning/injection are paused instead of trusting potentially stale timeline data. Returning to the original baseline branch restores normal v0.3 tracking.
 
+## Repository layout
+
+```text
+manifest.json        supported extension manifest (v0.3.x)
+bootstrap.js         loads only the v0.3 runtime
+v03/                 supported runtime
+  index.js
+  engine.js
+  scanner.js
+  schema.js
+  branches.js
+  storage.js
+  migrate-v02.js
+  injection.js
+  ui.js
+  identity.js
+  style.css
+tests/               v0.3 behavioral release gate
+docs/                v0.3 architecture documentation
+legacy/
+  README.md
+  v0.2.x/            exact frozen v0.2.23 repository snapshot
+```
+
+Nothing under `legacy/` is imported by the supported extension runtime.
+
 ## Current rewrite scope
 
-The v0.3.0 rewrite candidate focuses on the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, and inline present cards.
+The v0.3.0 rewrite focuses on the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, and inline present cards.
 
-The old v0.2 files remain in the repository but are runtime-dead. Feature areas that are intentionally staged for later v0.3 work rather than copied wholesale include the legacy portrait-generation workflow, bundle import/export UI, stale auto-prune workflow, OOC command layer, and the older Megumin-specific tab integration. This avoids rebuilding the same architectural knot under a new version number.
+Feature areas intentionally staged for later v0.3 work rather than copied wholesale include the legacy portrait-generation workflow, bundle import/export UI, stale auto-prune workflow, OOC command layer, and the older Megumin-specific tab integration. Existing portrait data still migrates and displays.
 
 ## Development
 
-Run the v0.3 behavioral suite:
+Run the supported behavioral suite:
 
 ```bash
 npm test
 ```
 
-The release gate runs only `tests/v03-*.test.js`. Historical v0.2 tests remain useful as reference material but do not define the v0.3 architecture.
-
-## Runtime files
-
-```text
-bootstrap.js
-v03/
-  index.js          SillyTavern lifecycle adapter
-  engine.js         serialized operations + atomic commits
-  scanner.js        scanner contract + result application
-  schema.js         v0.3 whitelist state schema
-  branches.js       v0.3 branch baseline/checkpoints
-  storage.js        independent revisioned sidecar
-  migrate-v02.js    one-way v0.2 reader/importer
-  injection.js      strict-present generation injection
-  ui.js             settings, library, canonical dossier/editor
-  identity.js       owner-qualified chat identity
-  style.css         v0.3 UI styles
-```
+The release gate runs only `tests/v03-*.test.js`. Historical v0.2 source, tests, reports, and documentation live only under `legacy/v0.2.x/` and do not define the v0.3 architecture.
