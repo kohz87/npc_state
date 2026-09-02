@@ -5,7 +5,7 @@ on:
     branches:
       - fix/v0.2.22-dossier-relationship
     paths:
-      - .release/patch_v022_fixed.py
+      - .release/run_v022_patch.py
       - .github/workflows/v022-hard-pass.yml
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ jobs:
           node-version: 22
 
       - name: Apply candidate patch
-        run: python3 .release/patch_v022_fixed.py
+        run: python3 .release/run_v022_patch.py
 
       - name: Syntax and diff check
         run: |
