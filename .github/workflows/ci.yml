@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 .github/scripts/apply_v0217_hardening.py
           python3 .github/scripts/apply_v0217_fix1.py
+          python3 .github/scripts/apply_v0217_fix2.py
       - name: Preflight syntax and diff
         run: |
           node --check index.js
@@ -83,6 +84,7 @@ jobs:
           test ! -e .github/scripts/apply_v0215_release.py
           test ! -e .github/scripts/apply_v0217_hardening.py
           test ! -e .github/scripts/apply_v0217_fix1.py
+          test ! -e .github/scripts/apply_v0217_fix2.py
           git diff --check
       - name: Commit only after all ten passes succeed
         run: |
