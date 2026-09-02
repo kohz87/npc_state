@@ -1,4 +1,4 @@
-import { normalizeNpc, normalizeState } from './schema.js';
+import { normalizeName, normalizeNpc, normalizeState } from './schema.js';
 
 export const DEFAULT_STALE_ARCHIVE_AFTER = 30;
 export const DEFAULT_STALE_DELETE_AFTER = 50;
@@ -27,6 +27,20 @@ export function narrativeTurnForMessage(chat = [], messageId = null) {
         if (message && !message.is_system && !message.is_user) turn += 1;
     }
     return turn;
+}
+
+export function referencedNpcIdsFromExchange(state = {}, exchange = null) {
+    const source = `${String(exchange?.user?.mes || '')}\n${String(exchange?.assistant?.mes || '')}`;
+    const haystack = ` ${normalizeName(source)} `;
+    if (!haystack.trim()) return [];
+    const ids = [];
+    for (const npc of state?.npcs || []) {
+        const labels = [npc.name, ...(npc.aliases || [])]
+            .map(value => normalizeName(value))
+            .filter(value => value.length >= 2);
+        if (labels.some(label => haystack.includes(` ${label} `))) ids.push(npc.id);
+    }
+    return [...new Set(ids)];
 }
 
 export function retentionProtectionReasons(npc = {}) {
@@ -72,6 +86,7 @@ export function buildStaleReport(stateInput = {}, settingsInput = {}, currentTur
             archiveReason: npc.archiveReason,
             lastActivityTurn: Number.isInteger(npc.lastActivityTurn) ? npc.lastActivityTurn : null,
             lastActivityMessageId: Number.isInteger(npc.lastActivityMessageId) ? npc.lastActivityMessageId : null,
+            lastActivityReason: npc.lastActivityReason || '',
             inactiveTurns: age,
             protectionReasons,
             status: reportStatus(npc, age, protectionReasons, settings),
@@ -116,7 +131,7 @@ export function applyStaleLifecycle(stateInput = {}, options = {}) {
             npc.lastActivityTurn = currentTurn;
             npc.lastActivityMessageId = sourceMessageId;
             npc.lastActivityReason = reason;
-            if (npc.archived && npc.archiveReason === 'stale') {
+            if (settings.enabled && npc.archived && npc.archiveReason === 'stale') {
                 npc.archived = false;
                 npc.archiveReason = '';
                 npc.archivedAt = null;
