@@ -57,20 +57,15 @@ path.write_text(text)
 path = Path('tests/compatibility-check.js')
 text = path.read_text()
 text = text.replace("context: ['chat', 'chatId', 'getCurrentChatId'", "context: ['chat', 'chatId', 'getCurrentChatId', 'characterId', 'characters', 'groupId'", 1)
-old = """for (const symbol of [...st118Contract.extensionsModule, ...st118Contract.scriptModule]) {
-    assert.match(index, new RegExp(`\\b${symbol}\\b`), `missing API symbol ${symbol}`);
+event_loop = 'for (const event of st118Contract.events) {'
+if event_loop not in text:
+    raise SystemExit('compatibility event-loop anchor missing')
+context_loop = """for (const symbol of st118Contract.context) {
+    assert.match(index, new RegExp(`\\\\b${symbol}\\\\b`), `missing context contract symbol ${symbol}`);
 }
-for (const event of st118Contract.events) {"""
-new = """for (const symbol of [...st118Contract.extensionsModule, ...st118Contract.scriptModule]) {
-    assert.match(index, new RegExp(`\\b${symbol}\\b`), `missing API symbol ${symbol}`);
-}
-for (const symbol of st118Contract.context) {
-    assert.match(index, new RegExp(`\\b${symbol}\\b`), `missing context contract symbol ${symbol}`);
-}
-for (const event of st118Contract.events) {"""
-if old not in text:
-    raise SystemExit('compatibility context loop anchor missing')
-text = text.replace(old, new, 1)
+"""
+if 'for (const symbol of st118Contract.context)' not in text:
+    text = text.replace(event_loop, context_loop + event_loop, 1)
 text = text.replace("'social.js', 'storage.js', 'style.css'", "'social.js', 'storage.js', 'identity.js', 'style.css'", 1)
 path.write_text(text)
 
