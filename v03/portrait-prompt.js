@@ -1,7 +1,13 @@
 export const PORTRAIT_PROMPT_MODES = Object.freeze(['natural', 'tags', 'hybrid']);
 
-export const DEFAULT_PORTRAIT_PRESET = 'solo character portrait, upper body, centered composition, face clearly visible';
-export const DEFAULT_PORTRAIT_GENERATION_PROMPT = '{{portraitPreset}}\n{{character}}';
+export const DEFAULT_PORTRAIT_PRESET = Object.freeze({
+    positive: 'solo character portrait, upper body, centered composition, face clearly visible',
+    negative: 'low quality, blurry, low resolution, bad anatomy, malformed hands, extra fingers, missing fingers, extra limbs, duplicate body parts, distorted face, text, watermark',
+});
+export const DEFAULT_PORTRAIT_POSITIVE_PROMPT = '{{positivePreset}}\n{{character}}';
+export const DEFAULT_PORTRAIT_NEGATIVE_PROMPT = '{{negativePreset}}';
+// Backward-compatible alias for callers from the first lightweight portrait-prompt pass.
+export const DEFAULT_PORTRAIT_GENERATION_PROMPT = DEFAULT_PORTRAIT_POSITIVE_PROMPT;
 
 function cleanText(value, max = 12000) {
     return String(value ?? '').replace(/\r\n?/g, '\n').trim().slice(0, max);
@@ -16,12 +22,38 @@ function listText(value, maxItems = 12, itemMax = 500) {
     return input.map(item => inlineText(item, itemMax)).filter(Boolean).slice(0, maxItems);
 }
 
+function normalizePreset(input = {}) {
+    const legacyPreset = typeof input.portraitPreset === 'string' ? input.portraitPreset : '';
+    const objectPreset = input.portraitPreset && typeof input.portraitPreset === 'object' && !Array.isArray(input.portraitPreset)
+        ? input.portraitPreset
+        : {};
+    return {
+        positive: cleanText(
+            objectPreset.positive
+            ?? input.portraitPositivePreset
+            ?? legacyPreset
+            ?? DEFAULT_PORTRAIT_PRESET.positive,
+        ),
+        negative: cleanText(
+            objectPreset.negative
+            ?? input.portraitNegativePreset
+            ?? DEFAULT_PORTRAIT_PRESET.negative,
+        ),
+    };
+}
+
 export function normalizePortraitPromptSettings(input = {}) {
     const mode = PORTRAIT_PROMPT_MODES.includes(String(input.portraitPromptMode)) ? String(input.portraitPromptMode) : 'hybrid';
+    const positivePrompt = cleanText(
+        input.portraitPositivePrompt
+        ?? input.portraitGenerationPrompt
+        ?? DEFAULT_PORTRAIT_POSITIVE_PROMPT,
+    ).replace(/\{\{\s*portraitPreset\s*\}\}/g, '{{positivePreset}}');
     return {
         portraitPromptMode: mode,
-        portraitPreset: cleanText(input.portraitPreset ?? DEFAULT_PORTRAIT_PRESET),
-        portraitGenerationPrompt: cleanText(input.portraitGenerationPrompt ?? DEFAULT_PORTRAIT_GENERATION_PROMPT),
+        portraitPreset: normalizePreset(input),
+        portraitPositivePrompt: positivePrompt,
+        portraitNegativePrompt: cleanText(input.portraitNegativePrompt ?? DEFAULT_PORTRAIT_NEGATIVE_PROMPT),
     };
 }
 
@@ -94,7 +126,7 @@ export function buildPortraitCharacterBlock(npc = {}, mode = 'hybrid') {
 }
 
 export const PORTRAIT_PROMPT_PLACEHOLDERS = Object.freeze([
-    'portraitPreset', 'character', 'name', 'aliases', 'role', 'species', 'age', 'apparentAge',
+    'positivePreset', 'negativePreset', 'character', 'name', 'aliases', 'role', 'species', 'age', 'apparentAge',
     'appearance', 'personality', 'behaviorProfile', 'speech', 'mannerisms', 'background',
     'mood', 'location', 'goal', 'status',
 ]);
@@ -102,7 +134,10 @@ export const PORTRAIT_PROMPT_PLACEHOLDERS = Object.freeze([
 function placeholderValues(npc = {}, settings = {}) {
     const normalized = normalizePortraitPromptSettings(settings);
     return {
-        portraitPreset: normalized.portraitPreset,
+        positivePreset: normalized.portraitPreset.positive,
+        negativePreset: normalized.portraitPreset.negative,
+        // Legacy alias remains accepted so hand-written templates from the first pass still resolve safely.
+        portraitPreset: normalized.portraitPreset.positive,
         character: buildPortraitCharacterBlock(npc, normalized.portraitPromptMode),
         name: inlineText(npc.name, 120),
         aliases: listText(npc.aliases, 10, 120).join(', '),
@@ -123,11 +158,8 @@ function placeholderValues(npc = {}, settings = {}) {
     };
 }
 
-export function buildPortraitPrompt(npc = {}, settings = {}) {
-    const normalized = normalizePortraitPromptSettings(settings);
-    const values = placeholderValues(npc, normalized);
-    const template = normalized.portraitGenerationPrompt || DEFAULT_PORTRAIT_GENERATION_PROMPT;
-    const rendered = template.replace(/\{\{\s*([A-Za-z][A-Za-z0-9]*)\s*\}\}/g, (match, key) => (
+function renderTemplate(template, values) {
+    const rendered = String(template || '').replace(/\{\{\s*([A-Za-z][A-Za-z0-9]*)\s*\}\}/g, (match, key) => (
         Object.hasOwn(values, key) ? values[key] : match
     ));
     return rendered
@@ -137,4 +169,21 @@ export function buildPortraitPrompt(npc = {}, settings = {}) {
         .join('\n')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+}
+
+export function buildPortraitPrompts(npc = {}, settings = {}) {
+    const normalized = normalizePortraitPromptSettings(settings);
+    const values = placeholderValues(npc, normalized);
+    const positive = renderTemplate(normalized.portraitPositivePrompt || DEFAULT_PORTRAIT_POSITIVE_PROMPT, values);
+    const negative = renderTemplate(normalized.portraitNegativePrompt || DEFAULT_PORTRAIT_NEGATIVE_PROMPT, values);
+    const combined = [
+        `POSITIVE\n${positive}`,
+        `NEGATIVE\n${negative}`,
+    ].join('\n\n').trim();
+    return { positive, negative, combined };
+}
+
+// Backward-compatible helper: the original lightweight API represented only the positive channel.
+export function buildPortraitPrompt(npc = {}, settings = {}) {
+    return buildPortraitPrompts(npc, settings).positive;
 }
