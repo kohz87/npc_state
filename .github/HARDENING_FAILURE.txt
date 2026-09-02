@@ -14,1509 +14,1489 @@ TAP version 13
 # Subtest: modern permanent deletion tombstone is id-based and does not erase a different homonym
 ok 1 - modern permanent deletion tombstone is id-based and does not erase a different homonym
   ---
-  duration_ms: 7.101606
+  duration_ms: 9.327191
   type: 'test'
   ...
 # Subtest: historical ids can be attached to one deletion tombstone for old branch snapshots
 ok 2 - historical ids can be attached to one deletion tombstone for old branch snapshots
   ---
-  duration_ms: 0.430069
+  duration_ms: 0.453755
   type: 'test'
   ...
 # Subtest: legacy label-only deletion groups retain legacy suppression behavior
 ok 3 - legacy label-only deletion groups retain legacy suppression behavior
   ---
-  duration_ms: 0.923072
+  duration_ms: 0.985846
   type: 'test'
   ...
 # Subtest: new branch can inherit a verified message-zero checkpoint from a one-message common prefix
-not ok 4 - new branch can inherit a verified message-zero checkpoint from a one-message common prefix
+ok 4 - new branch can inherit a verified message-zero checkpoint from a one-message common prefix
   ---
-  duration_ms: 10.609133
+  duration_ms: 1.464198
   type: 'test'
-  location: '/home/runner/work/npc_state/npc_state/tests/branch-safety.test.js:43:1'
-  failureType: 'testCodeFailure'
-  error: |-
-    The expression evaluated to a falsy value:
-    
-      assert.ok(inherited)
-    
-  code: 'ERR_ASSERTION'
-  name: 'AssertionError'
-  expected: true
-  actual: ~
-  operator: '=='
-  stack: |-
-    TestContext.<anonymous> (file:///home/runner/work/npc_state/npc_state/tests/branch-safety.test.js:51:10)
-    Test.runInAsyncScope (node:async_hooks:214:14)
-    Test.run (node:internal/test_runner/test:1047:25)
-    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
-    Test.postRun (node:internal/test_runner/test:1173:19)
-    Test.run (node:internal/test_runner/test:1101:12)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: branch metadata restore prefers exact id and refuses ambiguous homonym label fallback
 ok 5 - branch metadata restore prefers exact id and refuses ambiguous homonym label fallback
   ---
-  duration_ms: 1.305178
+  duration_ms: 2.332429
   type: 'test'
   ...
 # Subtest: same-name different-id explicit add/import does not clear a modern deletion tombstone
 ok 6 - same-name different-id explicit add/import does not clear a modern deletion tombstone
   ---
-  duration_ms: 0.704702
+  duration_ms: 0.69925
   type: 'test'
   ...
 # Subtest: metadata restore still supports a unique label fallback when an id legitimately changed
 ok 7 - metadata restore still supports a unique label fallback when an id legitimately changed
   ---
-  duration_ms: 0.400874
+  duration_ms: 0.511811
   type: 'test'
   ...
 # Subtest: legacy label tombstone upgrades to an id only when branch history proves one identity
 ok 8 - legacy label tombstone upgrades to an id only when branch history proves one identity
   ---
-  duration_ms: 0.476228
+  duration_ms: 0.510248
   type: 'test'
   ...
 # Subtest: public name-based tombstone clearing remains backward compatible for explicit legacy/manual callers
 ok 9 - public name-based tombstone clearing remains backward compatible for explicit legacy/manual callers
   ---
-  duration_ms: 0.534065
+  duration_ms: 0.594194
   type: 'test'
   ...
 # Subtest: message fingerprint follows narrative content and ignores unstable swipe index numbering
 ok 10 - message fingerprint follows narrative content and ignores unstable swipe index numbering
   ---
-  duration_ms: 1.367531
+  duration_ms: 1.742061
   type: 'test'
   ...
 # Subtest: tail deletion restores the latest surviving checkpoint and removes downstream inline state
 ok 11 - tail deletion restores the latest surviving checkpoint and removes downstream inline state
   ---
-  duration_ms: 6.390974
+  duration_ms: 7.330141
   type: 'test'
   ...
 # Subtest: swiping an assistant message rolls back to the checkpoint before that message
 ok 12 - swiping an assistant message rolls back to the checkpoint before that message
   ---
-  duration_ms: 1.503647
+  duration_ms: 3.988351
   type: 'test'
   ...
 # Subtest: v0.2.11 revisiting a previously scanned sibling swipe restores its exact snapshot without reconstruction
 ok 13 - v0.2.11 revisiting a previously scanned sibling swipe restores its exact snapshot without reconstruction
   ---
-  duration_ms: 1.578941
+  duration_ms: 1.49974
   type: 'test'
   ...
 # Subtest: v0.2.11 sibling identity survives swipe-index renumbering after an alternate is deleted
 ok 14 - v0.2.11 sibling identity survives swipe-index renumbering after an alternate is deleted
   ---
-  duration_ms: 0.743751
+  duration_ms: 0.743245
   type: 'test'
   ...
 # Subtest: v0.2.11 branch restore overlays user-owned portrait/profile metadata without contaminating narrative relationship state
 ok 15 - v0.2.11 branch restore overlays user-owned portrait/profile metadata without contaminating narrative relationship state
   ---
-  duration_ms: 0.533925
+  duration_ms: 0.758739
   type: 'test'
   ...
 # Subtest: branch checkpoints do not duplicate portrait binary data
 ok 16 - branch checkpoints do not duplicate portrait binary data
   ---
-  duration_ms: 0.233903
+  duration_ms: 0.339185
   type: 'test'
   ...
 # Subtest: portrait attachment survives branch rollback when the NPC still exists
 ok 17 - portrait attachment survives branch rollback when the NPC still exists
   ---
-  duration_ms: 0.422327
+  duration_ms: 0.655024
   type: 'test'
   ...
 # Subtest: legacy state without checkpoints is not destructively erased on first reconciliation
 ok 18 - legacy state without checkpoints is not destructively erased on first reconciliation
   ---
-  duration_ms: 0.592293
+  duration_ms: 0.832087
   type: 'test'
   ...
 # Subtest: new chat branch can inherit the nearest checkpoint from a known common prefix
 ok 19 - new chat branch can inherit the nearest checkpoint from a known common prefix
   ---
-  duration_ms: 0.92203
+  duration_ms: 1.29119
   type: 'test'
   ...
 # Subtest: branch rollback restores active state when a later death archive is reverted
 ok 20 - branch rollback restores active state when a later death archive is reverted
   ---
-  duration_ms: 0.461125
+  duration_ms: 0.650016
   type: 'test'
   ...
 # Subtest: branch checkpoints preserve and roll back lightweight NPC candidates
 ok 21 - branch checkpoints preserve and roll back lightweight NPC candidates
   ---
-  duration_ms: 0.401175
+  duration_ms: 0.461787
   type: 'test'
   ...
 # Subtest: v0.2.10 branch rollback restores fractional relationship progress and recent evidence history
 ok 22 - v0.2.10 branch rollback restores fractional relationship progress and recent evidence history
   ---
-  duration_ms: 0.582268
+  duration_ms: 0.7395
   type: 'test'
   ...
 # Subtest: v0.2.11 first-message sibling swipes restore from a clean root anchor and later revisit exact state
 ok 23 - v0.2.11 first-message sibling swipes restore from a clean root anchor and later revisit exact state
   ---
-  duration_ms: 0.499042
+  duration_ms: 0.79975
   type: 'test'
   ...
 # Subtest: v0.2.11 v0.2.10 swipe-index checkpoints migrate only when their legacy narrative prefix still matches
 ok 24 - v0.2.11 v0.2.10 swipe-index checkpoints migrate only when their legacy narrative prefix still matches
   ---
-  duration_ms: 0.805354
+  duration_ms: 1.219744
   type: 'test'
   ...
 # Subtest: v0.2.11 checkpoint pruning keeps a safe active anchor, recent active state, and recent sibling heads
 ok 25 - v0.2.11 checkpoint pruning keeps a safe active anchor, recent active state, and recent sibling heads
   ---
-  duration_ms: 3.034564
+  duration_ms: 5.278941
   type: 'test'
   ...
 # Subtest: v0.2.11 permanent UI deletion suppression survives exact sibling restore and explicit re-add can lift the whole alias group
 ok 26 - v0.2.11 permanent UI deletion suppression survives exact sibling restore and explicit re-add can lift the whole alias group
   ---
-  duration_ms: 2.111743
+  duration_ms: 2.49494
   type: 'test'
   ...
 # Subtest: v0.2.12 exact sibling restore includes hidden social graph and unresolved family slots
 ok 27 - v0.2.12 exact sibling restore includes hidden social graph and unresolved family slots
   ---
-  duration_ms: 1.647845
+  duration_ms: 2.980513
   type: 'test'
   ...
 # Subtest: v0.2.12 permanent dismissal strips restored graph edges and stale structured family references
 ok 28 - v0.2.12 permanent dismissal strips restored graph edges and stale structured family references
   ---
-  duration_ms: 0.906496
+  duration_ms: 1.107047
   type: 'test'
   ...
 # Subtest: capacity policy preserves every existing active dossier and skips only new active imports
 ok 29 - capacity policy preserves every existing active dossier and skips only new active imports
   ---
-  duration_ms: 8.672785
+  duration_ms: 6.230186
   type: 'test'
   ...
 # Subtest: matching existing dossier updates in place even when active roster is full
 ok 30 - matching existing dossier updates in place even when active roster is full
   ---
-  duration_ms: 1.587453
+  duration_ms: 1.187957
   type: 'test'
   ...
 # Subtest: unrelated imported stable-id collision is reminted and social graph follows the remap
 ok 31 - unrelated imported stable-id collision is reminted and social graph follows the remap
   ---
-  duration_ms: 6.101218
+  duration_ms: 4.67304
   type: 'test'
   ...
 # Subtest: ambiguous shared alias cannot merge an imported identity into an arbitrary existing dossier
 ok 32 - ambiguous shared alias cannot merge an imported identity into an arbitrary existing dossier
   ---
-  duration_ms: 1.027189
+  duration_ms: 0.675344
   type: 'test'
   ...
 # Subtest: a unique alias remains eligible for conservative import matching
 ok 33 - a unique alias remains eligible for conservative import matching
   ---
-  duration_ms: 0.900497
+  duration_ms: 0.644399
   type: 'test'
   ...
 # Subtest: capacity-rejected import cannot leak graph edges onto an existing id collision
 ok 34 - capacity-rejected import cannot leak graph edges onto an existing id collision
   ---
-  duration_ms: 0.932286
+  duration_ms: 0.611609
   type: 'test'
   ...
 # Subtest: decoder rejects duplicate ids inside one bundle
 ok 35 - decoder rejects duplicate ids inside one bundle
   ---
-  duration_ms: 1.807685
+  duration_ms: 1.305982
   type: 'test'
   ...
 # Subtest: second imported copy of the same identity is skipped instead of creating a duplicate dossier
 ok 36 - second imported copy of the same identity is skipped instead of creating a duplicate dossier
   ---
-  duration_ms: 0.883521
+  duration_ms: 0.630998
   type: 'test'
   ...
 # Subtest: decoder rejects overlapping portrait binary ranges
 ok 37 - decoder rejects overlapping portrait binary ranges
   ---
-  duration_ms: 2.097943
+  duration_ms: 2.4211
   type: 'test'
   ...
 # Subtest: imported tombstoned stable id is not collapsed into a different current homonym
 ok 38 - imported tombstoned stable id is not collapsed into a different current homonym
   ---
-  duration_ms: 1.019157
+  duration_ms: 1.006337
   type: 'test'
   ...
 # Subtest: binary bundle round-trips dossiers and raw portrait bytes
 ok 39 - binary bundle round-trips dossiers and raw portrait bytes
   ---
-  duration_ms: 6.105754
+  duration_ms: 6.168263
   type: 'test'
   ...
 # Subtest: bundle decoder rejects corrupt signature and truncated portraits
 ok 40 - bundle decoder rejects corrupt signature and truncated portraits
   ---
-  duration_ms: 1.322083
+  duration_ms: 1.311711
   type: 'test'
   ...
 # Subtest: import merge prioritizes imported dossiers, restores portraits, and lifts suppression
 ok 41 - import merge prioritizes imported dossiers, restores portraits, and lifts suppression
   ---
-  duration_ms: 4.871864
+  duration_ms: 4.669574
   type: 'test'
   ...
 # Subtest: import merge can exclude the current player or main card
 ok 42 - import merge can exclude the current player or main card
   ---
-  duration_ms: 2.801173
+  duration_ms: 2.791892
   type: 'test'
   ...
 # Subtest: v0.2.7 import roster cap counts only active dossiers and preserves archives
 ok 43 - v0.2.7 import roster cap counts only active dossiers and preserves archives
   ---
-  duration_ms: 1.73161
+  duration_ms: 1.178613
   type: 'test'
   ...
 # Subtest: v0.2.11 bundle/import preserves hidden relationship weight progress, milestone audit, and dedupe history
 ok 44 - v0.2.11 bundle/import preserves hidden relationship weight progress, milestone audit, and dedupe history
   ---
-  duration_ms: 1.32024
+  duration_ms: 1.034679
   type: 'test'
   ...
 # Subtest: v0.2.12 bundle round-trips social graph and remaps imported graph ids onto an existing stable dossier id
 ok 45 - v0.2.12 bundle round-trips social graph and remaps imported graph ids onto an existing stable dossier id
   ---
-  duration_ms: 3.659597
+  duration_ms: 3.326948
   type: 'test'
   ...
 # Subtest: normalizes names across punctuation and casing
 ok 46 - normalizes names across punctuation and casing
   ---
-  duration_ms: 3.303049
+  duration_ms: 3.257475
   type: 'test'
   ...
 # Subtest: archive reason contract includes automatic stale archives
 ok 47 - archive reason contract includes automatic stale archives
   ---
-  duration_ms: 0.722219
+  duration_ms: 0.754582
   type: 'test'
   ...
 # Subtest: stale NPC cleanup frees roster data without suppressing rediscovery
 ok 48 - stale NPC cleanup frees roster data without suppressing rediscovery
   ---
-  duration_ms: 3.785987
+  duration_ms: 4.697936
   type: 'test'
   ...
 # Subtest: stale cleanup protectedIds conservatively preserves a currently referenced old NPC
 ok 49 - stale cleanup protectedIds conservatively preserves a currently referenced old NPC
   ---
-  duration_ms: 0.357139
+  duration_ms: 0.485882
   type: 'test'
   ...
 # Subtest: stale lifecycle auto-archives at 30 and deletes only stale auto-archives at 50
 ok 50 - stale lifecycle auto-archives at 30 and deletes only stale auto-archives at 50
   ---
-  duration_ms: 1.715757
+  duration_ms: 2.529462
   type: 'test'
   ...
 # Subtest: stale auto-archive is reversible and archived dossiers do not consume the active roster cap
 ok 51 - stale auto-archive is reversible and archived dossiers do not consume the active roster cap
   ---
-  duration_ms: 14.86587
+  duration_ms: 19.936509
   type: 'test'
   ...
 # Subtest: minor NPC flag survives normalization and does not disable present-state generation injection
 ok 52 - minor NPC flag survives normalization and does not disable present-state generation injection
   ---
-  duration_ms: 1.902858
+  duration_ms: 1.389276
   type: 'test'
   ...
 # Subtest: parses fenced scanner JSON
 ok 53 - parses fenced scanner JSON
   ---
-  duration_ms: 0.374915
+  duration_ms: 0.26248
   type: 'test'
   ...
 # Subtest: repairs common model JSON defects from raw scanner output
 ok 54 - repairs common model JSON defects from raw scanner output
   ---
-  duration_ms: 1.021079
+  duration_ms: 0.79322
   type: 'test'
   ...
 # Subtest: repairs parser-position missing commas between array elements and object properties
 ok 55 - repairs parser-position missing commas between array elements and object properties
   ---
-  duration_ms: 1.268121
+  duration_ms: 1.301225
   type: 'test'
   ...
 # Subtest: does not silently accept truncated scanner JSON
 ok 56 - does not silently accept truncated scanner JSON
   ---
-  duration_ms: 0.668447
+  duration_ms: 0.737907
   type: 'test'
   ...
 # Subtest: strips unrelated UI blocks but preserves Megumin World State and NPC Inner Chatter evidence
 ok 57 - strips unrelated UI blocks but preserves Megumin World State and NPC Inner Chatter evidence
   ---
-  duration_ms: 4.778463
+  duration_ms: 5.459909
   type: 'test'
   ...
 # Subtest: strips the August 18 Megumin master Blocks envelope down to intentional evidence only
 ok 58 - strips the August 18 Megumin master Blocks envelope down to intentional evidence only
   ---
-  duration_ms: 2.187958
+  duration_ms: 2.290877
   type: 'test'
   ...
 # Subtest: recognizes compact Megumin World State without confusing a full state refresh
 ok 59 - recognizes compact Megumin World State without confusing a full state refresh
   ---
-  duration_ms: 0.524722
+  duration_ms: 0.432383
   type: 'test'
   ...
 # Subtest: creates new NPC from baseline, applies deltas, and preserves portrait through scanner updates
 ok 60 - creates new NPC from baseline, applies deltas, and preserves portrait through scanner updates
   ---
-  duration_ms: 6.962065
+  duration_ms: 8.030523
   type: 'test'
   ...
 # Subtest: zero relationship decisions preserve the last actual relationship change audit
 ok 61 - zero relationship decisions preserve the last actual relationship change audit
   ---
-  duration_ms: 3.009296
+  duration_ms: 3.214811
   type: 'test'
   ...
 # Subtest: non-zero relationship deltas survive contradictory none impact as ordinary changes
 ok 62 - non-zero relationship deltas survive contradictory none impact as ordinary changes
   ---
-  duration_ms: 2.141448
+  duration_ms: 2.247081
   type: 'test'
   ...
 # Subtest: recovers absolute relationship output when compact scanner omits relationshipDelta
 ok 63 - recovers absolute relationship output when compact scanner omits relationshipDelta
   ---
-  duration_ms: 1.820174
+  duration_ms: 2.122887
   type: 'test'
   ...
 # Subtest: matches alias to existing NPC instead of duplicating
 ok 64 - matches alias to existing NPC instead of duplicating
   ---
-  duration_ms: 5.457457
+  duration_ms: 7.804226
   type: 'test'
   ...
 # Subtest: promotes an interim job-title dossier to a grounded proper name in place
 ok 65 - promotes an interim job-title dossier to a grounded proper name in place
   ---
-  duration_ms: 2.312206
+  duration_ms: 3.81276
   type: 'test'
   ...
 # Subtest: uniquely matched role continuity can promote a dossier even when the model omits its id and old alias
 ok 66 - uniquely matched role continuity can promote a dossier even when the model omits its id and old alias
   ---
-  duration_ms: 0.574326
+  duration_ms: 0.83409
   type: 'test'
   ...
 # Subtest: pre-merge identity resolver attaches the old dossier id to a uniquely matched proper-name reveal
 ok 67 - pre-merge identity resolver attaches the old dossier id to a uniquely matched proper-name reveal
   ---
-  duration_ms: 0.625943
+  duration_ms: 0.915021
   type: 'test'
   ...
 # Subtest: unique role continuity promotes an interim dossier when the model omits sameIndividual entirely
 ok 68 - unique role continuity promotes an interim dossier when the model omits sameIndividual entirely
   ---
-  duration_ms: 0.551121
+  duration_ms: 0.818828
   type: 'test'
   ...
 # Subtest: explicit sameIndividual false prevents role-based identity fusion
 ok 69 - explicit sameIndividual false prevents role-based identity fusion
   ---
-  duration_ms: 0.703491
+  duration_ms: 1.117281
   type: 'test'
   ...
 # Subtest: proper-name reveal can replace a manually locked interim profile name without losing the dossier id
 ok 70 - proper-name reveal can replace a manually locked interim profile name without losing the dossier id
   ---
-  duration_ms: 3.579766
+  duration_ms: 5.391708
   type: 'test'
   ...
 # Subtest: scanner cannot downgrade a known proper name back to a job title
 ok 71 - scanner cannot downgrade a known proper name back to a job title
   ---
-  duration_ms: 0.438511
+  duration_ms: 0.639311
   type: 'test'
   ...
 # Subtest: role candidate promoted by a newly learned proper name carries the old label into aliases
 ok 72 - role candidate promoted by a newly learned proper name carries the old label into aliases
   ---
-  duration_ms: 0.969241
+  duration_ms: 1.423937
   type: 'test'
   ...
 # Subtest: honors exclusions and roster cap
 ok 73 - honors exclusions and roster cap
   ---
-  duration_ms: 0.547745
+  duration_ms: 0.808833
   type: 'test'
   ...
 # Subtest: classifies obvious role labels separately from proper names
 ok 74 - classifies obvious role labels separately from proper names
   ---
-  duration_ms: 0.106621
+  duration_ms: 0.16121
   type: 'test'
   ...
 # Subtest: holds a first-time incidental role-only NPC as a lightweight candidate
 ok 75 - holds a first-time incidental role-only NPC as a lightweight candidate
   ---
-  duration_ms: 3.537442
+  duration_ms: 5.284539
   type: 'test'
   ...
 # Subtest: promotes an incidental role candidate only when the story clearly identifies the same individual again
 ok 76 - promotes an incidental role candidate only when the story clearly identifies the same individual again
   ---
-  duration_ms: 2.219246
+  duration_ms: 3.408689
   type: 'test'
   ...
 # Subtest: does not promote repeated generic role labels without same-individual evidence
 ok 77 - does not promote repeated generic role labels without same-individual evidence
   ---
-  duration_ms: 0.324008
+  duration_ms: 0.442058
   type: 'test'
   ...
 # Subtest: obvious personal names override a mistaken role_label classification in Conservative mode
 ok 78 - obvious personal names override a mistaken role_label classification in Conservative mode
   ---
-  duration_ms: 1.998342
+  duration_ms: 2.748969
   type: 'test'
   ...
 # Subtest: conservative admission keeps routine direct transactions as candidates
 ok 79 - conservative admission keeps routine direct transactions as candidates
   ---
-  duration_ms: 0.315176
+  duration_ms: 0.339555
   type: 'test'
   ...
 # Subtest: conservative never lets model relevance alone promote first-seen local service roles
 ok 80 - conservative never lets model relevance alone promote first-seen local service roles
   ---
-  duration_ms: 1.343856
+  duration_ms: 1.790493
   type: 'test'
   ...
 # Subtest: balanced admission can create a routine directly interactive role-label NPC immediately
 ok 81 - balanced admission can create a routine directly interactive role-label NPC immediately
   ---
-  duration_ms: 2.032203
+  duration_ms: 2.150008
   type: 'test'
   ...
 # Subtest: manual-only admission never auto-promotes even a proper name
 ok 82 - manual-only admission never auto-promotes even a proper name
   ---
-  duration_ms: 0.255405
+  duration_ms: 0.316741
   type: 'test'
   ...
 # Subtest: conservative keeps first-seen meaningful role labels as candidates while proper names still admit immediately
 ok 83 - conservative keeps first-seen meaningful role labels as candidates while proper names still admit immediately
   ---
-  duration_ms: 1.416926
+  duration_ms: 1.395576
   type: 'test'
   ...
 # Subtest: balanced still admits meaningful role-label NPCs immediately
 ok 84 - balanced still admits meaningful role-label NPCs immediately
   ---
-  duration_ms: 1.939564
+  duration_ms: 2.589531
   type: 'test'
   ...
 # Subtest: stale incidental candidates expire after the candidate TTL
 ok 85 - stale incidental candidates expire after the candidate TTL
   ---
-  duration_ms: 0.33172
+  duration_ms: 0.414256
   type: 'test'
   ...
 # Subtest: explicit OOC add promotes a held candidate immediately and preserves lightweight identity hints
 ok 86 - explicit OOC add promotes a held candidate immediately and preserves lightweight identity hints
   ---
-  duration_ms: 0.823741
+  duration_ms: 0.930734
   type: 'test'
   ...
 # Subtest: selects recently relevant NPCs but injection is strictly presence-gated
 ok 87 - selects recently relevant NPCs but injection is strictly presence-gated
   ---
-  duration_ms: 1.610388
+  duration_ms: 1.757464
   type: 'test'
   ...
 # Subtest: behavior guidance interprets combinations rather than raw numbers alone
 ok 88 - behavior guidance interprets combinations rather than raw numbers alone
   ---
-  duration_ms: 0.219331
+  duration_ms: 0.253297
   type: 'test'
   ...
 # Subtest: qualitative visual age evidence resolves to stable apparent age without inventing chronology
 ok 89 - qualitative visual age evidence resolves to stable apparent age without inventing chronology
   ---
-  duration_ms: 5.14827
+  duration_ms: 6.640966
   type: 'test'
   ...
 # Subtest: legacy/scanner qualitative age is routed into apparentAge while chronological age stays unknown
 ok 90 - legacy/scanner qualitative age is routed into apparentAge while chronological age stays unknown
   ---
-  duration_ms: 2.379687
+  duration_ms: 2.416664
   type: 'test'
   ...
 # Subtest: fantasy species can have separate chronological and apparent age
 ok 91 - fantasy species can have separate chronological and apparent age
   ---
-  duration_ms: 4.494195
+  duration_ms: 4.474214
   type: 'test'
   ...
 # Subtest: existing personality is keep-by-default even if the scanner casually rephrases it
 ok 92 - existing personality is keep-by-default even if the scanner casually rephrases it
   ---
-  duration_ms: 1.0745
+  duration_ms: 1.134557
   type: 'test'
   ...
 # Subtest: explicit grounded personality evolution replaces the durable profile over time
 ok 93 - explicit grounded personality evolution replaces the durable profile over time
   ---
-  duration_ms: 0.870623
+  duration_ms: 1.046106
   type: 'test'
   ...
 # Subtest: personality evolution requires a reason and still respects manual profile locks
 ok 94 - personality evolution requires a reason and still respects manual profile locks
   ---
-  duration_ms: 0.952566
+  duration_ms: 0.921941
   type: 'test'
   ...
 # Subtest: manual but unlocked personality can organically refine from newly grounded traits
 ok 95 - manual but unlocked personality can organically refine from newly grounded traits
   ---
-  duration_ms: 1.11468
+  duration_ms: 1.451929
   type: 'test'
   ...
 # Subtest: clearly additive unmarked personality refinement is recovered without allowing casual paraphrase drift
 ok 96 - clearly additive unmarked personality refinement is recovered without allowing casual paraphrase drift
   ---
-  duration_ms: 0.712945
+  duration_ms: 0.859007
   type: 'test'
   ...
 # Subtest: existing appearance is keep-by-default even if the scanner casually rephrases it
 ok 97 - existing appearance is keep-by-default even if the scanner casually rephrases it
   ---
-  duration_ms: 3.931246
+  duration_ms: 5.891817
   type: 'test'
   ...
 # Subtest: explicit appearance refinement replaces the visual profile with more image-ready detail
 ok 98 - explicit appearance refinement replaces the visual profile with more image-ready detail
   ---
-  duration_ms: 1.795968
+  duration_ms: 2.567348
   type: 'test'
   ...
 # Subtest: appearance changes require a reason and still respect manual profile locks
 ok 99 - appearance changes require a reason and still respect manual profile locks
   ---
-  duration_ms: 3.155237
+  duration_ms: 2.468451
   type: 'test'
   ...
 # Subtest: existing speech is keep-by-default and only grounded durable evolution replaces it
 ok 100 - existing speech is keep-by-default and only grounded durable evolution replaces it
   ---
-  duration_ms: 1.222563
+  duration_ms: 1.494733
   type: 'test'
   ...
 # Subtest: speech evolution requires a reason and respects manual profile locks
 ok 101 - speech evolution requires a reason and respects manual profile locks
   ---
-  duration_ms: 0.798114
+  duration_ms: 1.05603
   type: 'test'
   ...
 # Subtest: manual but unlocked speech can refine as recurring speech habits become established
 ok 102 - manual but unlocked speech can refine as recurring speech habits become established
   ---
-  duration_ms: 0.993878
+  duration_ms: 1.073446
   type: 'test'
   ...
 # Subtest: mannerisms are keep-by-default and grounded evolution replaces the current set instead of appending history
 ok 103 - mannerisms are keep-by-default and grounded evolution replaces the current set instead of appending history
   ---
-  duration_ms: 2.417183
+  duration_ms: 2.256345
   type: 'test'
   ...
 # Subtest: unlocked mannerisms can refine with newly established habits without replacing the current set
 ok 104 - unlocked mannerisms can refine with newly established habits without replacing the current set
   ---
-  duration_ms: 1.470116
+  duration_ms: 1.330428
   type: 'test'
   ...
 # Subtest: mannerism evolution requires grounded evidence and respects manual profile locks
 ok 105 - mannerism evolution requires grounded evidence and respects manual profile locks
   ---
-  duration_ms: 2.130722
+  duration_ms: 1.757403
   type: 'test'
   ...
 # Subtest: key relationships are durable social continuity and evolution never erases unrelated bonds by omission
 ok 106 - key relationships are durable social continuity and evolution never erases unrelated bonds by omission
   ---
-  duration_ms: 3.833219
+  duration_ms: 4.014991
   type: 'test'
   ...
 # Subtest: key relationships update merges newly established ties without erasing existing people
 ok 107 - key relationships update merges newly established ties without erasing existing people
   ---
-  duration_ms: 0.664382
+  duration_ms: 0.897504
   type: 'test'
   ...
 # Subtest: key relationships update refines the same counterpart in place without requiring social evolution
 ok 108 - key relationships update refines the same counterpart in place without requiring social evolution
   ---
-  duration_ms: 0.549899
+  duration_ms: 0.84073
   type: 'test'
   ...
 # Subtest: unmarked scanner extraction can recover only a newly established counterpart
 ok 109 - unmarked scanner extraction can recover only a newly established counterpart
   ---
-  duration_ms: 0.685363
+  duration_ms: 1.063461
   type: 'test'
   ...
 # Subtest: key relationships evolution still requires a reason while explicit discovery update does not
 ok 110 - key relationships evolution still requires a reason while explicit discovery update does not
   ---
-  duration_ms: 4.508596
+  duration_ms: 1.923421
   type: 'test'
   ...
 # Subtest: top-level social edges update tracked dossiers even when no NPC delta object is returned
 ok 111 - top-level social edges update tracked dossiers even when no NPC delta object is returned
   ---
-  duration_ms: 5.706672
+  duration_ms: 6.444023
   type: 'test'
   ...
 # Subtest: explicit possessive relationship statements have a local fallback independent of scanner JSON
 ok 112 - explicit possessive relationship statements have a local fallback independent of scanner JSON
   ---
-  duration_ms: 52.084094
+  duration_ms: 42.760076
   type: 'test'
   ...
 # Subtest: top-level social edges respect manual Key Relationships locks
 ok 113 - top-level social edges respect manual Key Relationships locks
   ---
-  duration_ms: 0.708448
+  duration_ms: 0.535616
   type: 'test'
   ...
 # Subtest: scanner prompt exposes durable Key Relationships and stable profile context
 ok 114 - scanner prompt exposes durable Key Relationships and stable profile context
   ---
-  duration_ms: 2.436984
+  duration_ms: 1.639217
   type: 'test'
   ...
 # Subtest: top-level profileUpdates refine manual unlocked durable fields even when npcs is empty
 ok 115 - top-level profileUpdates refine manual unlocked durable fields even when npcs is empty
   ---
-  duration_ms: 3.176588
+  duration_ms: 2.775658
   type: 'test'
   ...
 # Subtest: durable profile evidence accumulates across turns without requiring an immediate rewrite
 ok 116 - durable profile evidence accumulates across turns without requiring an immediate rewrite
   ---
-  duration_ms: 0.923162
+  duration_ms: 0.896003
   type: 'test'
   ...
 # Subtest: legacy durable summaries semantically compact duplicate concepts during normalization
 ok 117 - legacy durable summaries semantically compact duplicate concepts during normalization
   ---
-  duration_ms: 0.607906
+  duration_ms: 0.593132
   type: 'test'
   ...
 # Subtest: mannerism normalization collapses paraphrases of the same habit without deleting distinct habits involving the same person
 ok 118 - mannerism normalization collapses paraphrases of the same habit without deleting distinct habits involving the same person
   ---
-  duration_ms: 0.693896
+  duration_ms: 0.529548
   type: 'test'
   ...
 # Subtest: repeated full-summary profile refinements reconcile instead of growing every scan
 ok 119 - repeated full-summary profile refinements reconcile instead of growing every scan
   ---
-  duration_ms: 5.279448
+  duration_ms: 5.048207
   type: 'test'
   ...
 # Subtest: profile evidence and memories semantically dedupe paraphrased observations
 ok 120 - profile evidence and memories semantically dedupe paraphrased observations
   ---
-  duration_ms: 0.621247
+  duration_ms: 0.474946
   type: 'test'
   ...
 # Subtest: Key Relationships keep one compact entry per counterpart
 ok 121 - Key Relationships keep one compact entry per counterpart
   ---
-  duration_ms: 0.615578
+  duration_ms: 0.443069
   type: 'test'
   ...
 # Subtest: legacy auto-locks migrate to organic baselines while explicit v0.1.57 locks remain authoritative
 ok 122 - legacy auto-locks migrate to organic baselines while explicit v0.1.57 locks remain authoritative
   ---
-  duration_ms: 0.522667
+  duration_ms: 0.419063
   type: 'test'
   ...
 # Subtest: pronoun-only current exchange still supplies one recent stable profile for durable evaluation
 ok 123 - pronoun-only current exchange still supplies one recent stable profile for durable evaluation
   ---
-  duration_ms: 0.450399
+  duration_ms: 0.314377
   type: 'test'
   ...
 # Subtest: explicit dossier import maps Megumin Inner Circle without manufacturing player relationship scores
 ok 124 - explicit dossier import maps Megumin Inner Circle without manufacturing player relationship scores
   ---
-  duration_ms: 0.566103
+  duration_ms: 0.429359
   type: 'test'
   ...
 # Subtest: scanner prompt defines appearance as durable image-ready detail with refine/change lifecycle
 ok 125 - scanner prompt defines appearance as durable image-ready detail with refine/change lifecycle
   ---
-  duration_ms: 0.660175
+  duration_ms: 0.494065
   type: 'test'
   ...
 # Subtest: scanner prompt defines speech and mannerisms as evolving durable identity rather than append-only observations
 ok 126 - scanner prompt defines speech and mannerisms as evolving durable identity rather than append-only observations
   ---
-  duration_ms: 0.753406
+  duration_ms: 0.5443
   type: 'test'
   ...
 # Subtest: scanner prompt defines personality as gradual durable development rather than transient emotion
 ok 127 - scanner prompt defines personality as gradual durable development rather than transient emotion
   ---
-  duration_ms: 0.500845
+  duration_ms: 0.344743
   type: 'test'
   ...
 # Subtest: chronological age is keep-by-default and grounded advancement updates it automatically
 ok 128 - chronological age is keep-by-default and grounded advancement updates it automatically
   ---
-  duration_ms: 1.233189
+  duration_ms: 0.936192
   type: 'test'
   ...
 # Subtest: chronological age correction requires evidence and manual age locks remain authoritative
 ok 129 - chronological age correction requires evidence and manual age locks remain authoritative
   ---
-  duration_ms: 1.185037
+  duration_ms: 0.863284
   type: 'test'
   ...
 # Subtest: apparent age is keep-by-default and evolves only from grounded visual aging evidence
 ok 130 - apparent age is keep-by-default and evolves only from grounded visual aging evidence
   ---
-  duration_ms: 1.170475
+  duration_ms: 0.824316
   type: 'test'
   ...
 # Subtest: scanner exposes age for every relevant NPC and defines automatic age/apparent-age evolution contract
 ok 131 - scanner exposes age for every relevant NPC and defines automatic age/apparent-age evolution contract
   ---
-  duration_ms: 1.020338
+  duration_ms: 0.727803
   type: 'test'
   ...
 # Subtest: unknown age placeholders never erase established chronological or apparent age
 ok 132 - unknown age placeholders never erase established chronological or apparent age
   ---
-  duration_ms: 0.592163
+  duration_ms: 0.495917
   type: 'test'
   ...
 # Subtest: exact chronological age is not replaced by later qualitative visual age evidence
 ok 133 - exact chronological age is not replaced by later qualitative visual age evidence
   ---
-  duration_ms: 0.538812
+  duration_ms: 0.418181
   type: 'test'
   ...
 # Subtest: scanner prompt separates chronological/apparent age and requests grounded prompt-ready appearance
 ok 134 - scanner prompt separates chronological/apparent age and requests grounded prompt-ready appearance
   ---
-  duration_ms: 0.632013
+  duration_ms: 0.498141
   type: 'test'
   ...
 # Subtest: scanner prompt uses compact identity index, changed-only output, delta relationships, and player tuning
 ok 135 - scanner prompt uses compact identity index, changed-only output, delta relationships, and player tuning
   ---
-  duration_ms: 0.922881
+  duration_ms: 0.653111
   type: 'test'
   ...
 # Subtest: new dossier-worthy NPCs receive full grounded first-pass enrichment without player interaction
 ok 136 - new dossier-worthy NPCs receive full grounded first-pass enrichment without player interaction
   ---
-  duration_ms: 0.6565
+  duration_ms: 0.43039
   type: 'test'
   ...
 # Subtest: non-interacting proper-name NPC creation preserves every supplied grounded dossier field
 ok 137 - non-interacting proper-name NPC creation preserves every supplied grounded dossier field
   ---
-  duration_ms: 3.864756
+  duration_ms: 2.819534
   type: 'test'
   ...
 # Subtest: important memory criteria are explicit, configurable, and existing memories are supplied for dedupe
 ok 138 - important memory criteria are explicit, configurable, and existing memories are supplied for dedupe
   ---
-  duration_ms: 1.087789
+  duration_ms: 0.797917
   type: 'test'
   ...
 # Subtest: important memories cap at five and semantic retention can keep older defining events
 ok 139 - important memories cap at five and semantic retention can keep older defining events
   ---
-  duration_ms: 7.467827
+  duration_ms: 5.138913
   type: 'test'
   ...
 # Subtest: full important-memory lists admit new memories even if the scanner omits retention
 ok 140 - full important-memory lists admit new memories even if the scanner omits retention
   ---
-  duration_ms: 2.03658
+  duration_ms: 3.53027
   type: 'test'
   ...
 # Subtest: legacy stored memory overflow normalizes to the most recent five
 ok 141 - legacy stored memory overflow normalizes to the most recent five
   ---
-  duration_ms: 0.533795
+  duration_ms: 0.35646
   type: 'test'
   ...
 # Subtest: generation injection includes the retained Important Memories as high-priority continuity
 ok 142 - generation injection includes the retained Important Memories as high-priority continuity
   ---
-  duration_ms: 0.579734
+  duration_ms: 0.399665
   type: 'test'
   ...
 # Subtest: focused relationship pass requires one full four-axis decision per target
 ok 143 - focused relationship pass requires one full four-axis decision per target
   ---
-  duration_ms: 4.2057
+  duration_ms: 0.824536
   type: 'test'
   ...
 # Subtest: scanner relationship contract requires independent multi-axis deltas
 ok 144 - scanner relationship contract requires independent multi-axis deltas
   ---
-  duration_ms: 2.036259
+  duration_ms: 1.341665
   type: 'test'
   ...
 # Subtest: scanner prompt exposes admission modes while manual backfill uses a dedicated targeted extractor
 ok 145 - scanner prompt exposes admission modes while manual backfill uses a dedicated targeted extractor
   ---
-  duration_ms: 1.683939
+  duration_ms: 1.058535
   type: 'test'
   ...
 # Subtest: scanner context includes mentioned/recent NPC details but not the whole roster payload
 ok 146 - scanner context includes mentioned/recent NPC details but not the whole roster payload
   ---
-  duration_ms: 1.705471
+  duration_ms: 1.018074
   type: 'test'
   ...
 # Subtest: existing scanner deltas may use dossier id without repeating name or unchanged profile fields
 ok 147 - existing scanner deltas may use dossier id without repeating name or unchanged profile fields
   ---
-  duration_ms: 2.007986
+  duration_ms: 1.301265
   type: 'test'
   ...
 # Subtest: goal lifecycle preserves unchanged goals, replaces new objectives, and explicitly clears completed goals
 ok 148 - goal lifecycle preserves unchanged goals, replaces new objectives, and explicitly clears completed goals
   ---
-  duration_ms: 1.323004
+  duration_ms: 0.876393
   type: 'test'
   ...
 # Subtest: status lifecycle preserves active status, replaces changed condition, and explicitly clears resolved status
 ok 149 - status lifecycle preserves active status, replaces changed condition, and explicitly clears resolved status
   ---
-  duration_ms: 1.172157
+  duration_ms: 0.770807
   type: 'test'
   ...
 # Subtest: mood and location are live fields that replace or explicitly clear when story state changes
 ok 150 - mood and location are live fields that replace or explicitly clear when story state changes
   ---
-  duration_ms: 1.141701
+  duration_ms: 0.86797
   type: 'test'
   ...
 # Subtest: scanner treats status mood goal and location as actively reassessed live state and exposes stored values beyond profile tier
 ok 151 - scanner treats status mood goal and location as actively reassessed live state and exposes stored values beyond profile tier
   ---
-  duration_ms: 3.411073
+  duration_ms: 4.010044
   type: 'test'
   ...
 # Subtest: full-window scanner reconciles history while isolating live state and relationship deltas to current exchange
 ok 152 - full-window scanner reconciles history while isolating live state and relationship deltas to current exchange
   ---
-  duration_ms: 0.461005
+  duration_ms: 0.525351
   type: 'test'
   ...
 # Subtest: scanner exposes stored status for every relevant NPC and provides an explicit status clear contract
 ok 153 - scanner exposes stored status for every relevant NPC and provides an explicit status clear contract
   ---
-  duration_ms: 1.613783
+  duration_ms: 2.480809
   type: 'test'
   ...
 # Subtest: scanner prompt explicitly evaluates existing goal lifecycle and exposes current goals in live context
 ok 154 - scanner prompt explicitly evaluates existing goal lifecycle and exposes current goals in live context
   ---
-  duration_ms: 0.510169
+  duration_ms: 0.527504
   type: 'test'
   ...
 # Subtest: routine scanner prompt has bounded overhead and delta/profile tiers
 ok 155 - routine scanner prompt has bounded overhead and delta/profile tiers
   ---
-  duration_ms: 7.41624
+  duration_ms: 4.319503
   type: 'test'
   ...
 # Subtest: scanner identity index includes lightweight candidates without full dossier payload
 ok 156 - scanner identity index includes lightweight candidates without full dossier payload
   ---
-  duration_ms: 0.435046
+  duration_ms: 0.499392
   type: 'test'
   ...
 # Subtest: parses explicit NPC State OOC add/remove commands only
 ok 157 - parses explicit NPC State OOC add/remove commands only
   ---
-  duration_ms: 4.818244
+  duration_ms: 1.719758
   type: 'test'
   ...
 # Subtest: strips NPC State OOC controls from scanner story text
 ok 158 - strips NPC State OOC controls from scanner story text
   ---
-  duration_ms: 0.515367
+  duration_ms: 0.615199
   type: 'test'
   ...
 # Subtest: ID-targeted remove deletes the exact dossier when duplicate labels exist
 ok 159 - ID-targeted remove deletes the exact dossier when duplicate labels exist
   ---
-  duration_ms: 0.564891
+  duration_ms: 0.580573
   type: 'test'
   ...
 # Subtest: OOC remove suppresses rediscovery and later add restores the dossier
 ok 160 - OOC remove suppresses rediscovery and later add restores the dossier
   ---
-  duration_ms: 0.591832
+  duration_ms: 0.569407
   type: 'test'
   ...
 # Subtest: relationship schema is trust affection desire tension and legacy respect is not reinterpreted as desire
 ok 161 - relationship schema is trust affection desire tension and legacy respect is not reinterpreted as desire
   ---
-  duration_ms: 0.386643
+  duration_ms: 0.38328
   type: 'test'
   ...
 # Subtest: relationship delta engine enforces tier caps, score bounds, and normalized cap ordering
 ok 162 - relationship delta engine enforces tier caps, score bounds, and normalized cap ordering
   ---
-  duration_ms: 1.785101
+  duration_ms: 0.466834
   type: 'test'
   ...
 # Subtest: new NPC relationship baseline is neutral zero and legacy audit entries never produce NaN deltas
 ok 163 - new NPC relationship baseline is neutral zero and legacy audit entries never produce NaN deltas
   ---
-  duration_ms: 0.413744
+  duration_ms: 0.596897
   type: 'test'
   ...
 # Subtest: negative relationship values produce opposite behavioral meaning instead of low-positive semantics
 ok 164 - negative relationship values produce opposite behavioral meaning instead of low-positive semantics
   ---
-  duration_ms: 0.244558
+  duration_ms: 0.338153
   type: 'test'
   ...
 # Subtest: custom relationship baseline is used only when a new NPC record is created
 ok 165 - custom relationship baseline is used only when a new NPC record is created
   ---
-  duration_ms: 0.72987
+  duration_ms: 0.652891
   type: 'test'
   ...
 # Subtest: presence is reset for off-screen NPCs on each scan while persistent dossier remains
 ok 166 - presence is reset for off-screen NPCs on each scan while persistent dossier remains
   ---
-  duration_ms: 3.353806
+  duration_ms: 3.195963
   type: 'test'
   ...
 # Subtest: manual stable profile fields are protected while dynamic state and relationship deltas still evolve
 ok 167 - manual stable profile fields are protected while dynamic state and relationship deltas still evolve
   ---
-  duration_ms: 0.734256
+  duration_ms: 0.642586
   type: 'test'
   ...
 # Subtest: manual archive preserves dossier, blocks injection, and auto-reactivates on genuine physical return
 ok 168 - manual archive preserves dossier, blocks injection, and auto-reactivates on genuine physical return
   ---
-  duration_ms: 1.302473
+  duration_ms: 0.908321
   type: 'test'
   ...
 # Subtest: confirmed death archives instead of deleting and requires explicit living return to reactivate
 ok 169 - confirmed death archives instead of deleting and requires explicit living return to reactivate
   ---
-  duration_ms: 1.309044
+  duration_ms: 0.857114
   type: 'test'
   ...
 # Subtest: ambiguous or inferred death never triggers automatic archive
 ok 170 - ambiguous or inferred death never triggers automatic archive
   ---
-  duration_ms: 2.772961
+  duration_ms: 1.973474
   type: 'test'
   ...
 # Subtest: OOC add restores an archived dossier instead of creating a duplicate
 ok 171 - OOC add restores an archived dossier instead of creating a duplicate
   ---
-  duration_ms: 0.373483
+  duration_ms: 0.247648
   type: 'test'
   ...
 # Subtest: World State off-screen activity reactivates a manually archived NPC without making them present or injectable
 ok 172 - World State off-screen activity reactivates a manually archived NPC without making them present or injectable
   ---
-  duration_ms: 0.649589
+  duration_ms: 0.612731
   type: 'test'
   ...
 # Subtest: death archive ignores off-screen activity until an explicit living return is established
 ok 173 - death archive ignores off-screen activity until an explicit living return is established
   ---
-  duration_ms: 6.811738
+  duration_ms: 4.054619
   type: 'test'
   ...
 # Subtest: each scanner merge clears stale present and World State activity flags when an NPC is not observed
 ok 174 - each scanner merge clears stale present and World State activity flags when an NPC is not observed
   ---
-  duration_ms: 1.660033
+  duration_ms: 1.179865
   type: 'test'
   ...
 # Subtest: compact World State merges may preserve omitted off-screen activity without preserving stale physical presence
 ok 175 - compact World State merges may preserve omitted off-screen activity without preserving stale physical presence
   ---
-  duration_ms: 0.31892
+  duration_ms: 0.33581
   type: 'test'
   ...
 # Subtest: scanner prompt distinguishes scene presence, World State, and NPC Inner Chatter
 ok 176 - scanner prompt distinguishes scene presence, World State, and NPC Inner Chatter
   ---
-  duration_ms: 0.501916
+  duration_ms: 0.508726
   type: 'test'
   ...
 # Subtest: species/race is a first-class stable field and legacy thoughts are discarded
 ok 177 - species/race is a first-class stable field and legacy thoughts are discarded
   ---
-  duration_ms: 2.523154
+  duration_ms: 2.747576
   type: 'test'
   ...
 # Subtest: scanner keeps species/race separate from appearance and does not persist Inner Chatter thoughts
 ok 178 - scanner keeps species/race separate from appearance and does not persist Inner Chatter thoughts
   ---
-  duration_ms: 0.339943
+  duration_ms: 0.435597
   type: 'test'
   ...
 # Subtest: generation injection obeys approximate token budget and keeps identity/current state ahead of secondary relationship context
 ok 179 - generation injection obeys approximate token budget and keeps identity/current state ahead of secondary relationship context
   ---
-  duration_ms: 5.607693
+  duration_ms: 7.021933
   type: 'test'
   ...
 # Subtest: very small injection budget drops lower-ranked present NPCs before corrupting top NPC essentials
 ok 180 - very small injection budget drops lower-ranked present NPCs before corrupting top NPC essentials
   ---
-  duration_ms: 0.329817
+  duration_ms: 0.37687
   type: 'test'
   ...
 # Subtest: legacy v0.1.16 tilde age migrates to apparentAge but new split records stay stable on reload
 ok 181 - legacy v0.1.16 tilde age migrates to apparentAge but new split records stay stable on reload
   ---
-  duration_ms: 1.148372
+  duration_ms: 1.354454
   type: 'test'
   ...
 # Subtest: targeted Refresh from Chat prompt reconciles one dossier without replaying relationship stats or presence
 ok 182 - targeted Refresh from Chat prompt reconciles one dossier without replaying relationship stats or presence
   ---
-  duration_ms: 1.233229
+  duration_ms: 0.892247
   type: 'test'
   ...
 # Subtest: portrait prompt builder uses visual dossier fields and excludes nonvisual profile prose
 ok 183 - portrait prompt builder uses visual dossier fields and excludes nonvisual profile prose
   ---
-  duration_ms: 0.415726
+  duration_ms: 1.433862
   type: 'test'
   ...
 # Subtest: portrait prompt builder supports optional location, per-NPC overrides, and replacement mode
 ok 184 - portrait prompt builder supports optional location, per-NPC overrides, and replacement mode
   ---
-  duration_ms: 0.18594
+  duration_ms: 0.23532
   type: 'test'
   ...
 # Subtest: portrait prompt format normalization is conservative
 ok 185 - portrait prompt format normalization is conservative
   ---
-  duration_ms: 0.07267
+  duration_ms: 0.100669
   type: 'test'
   ...
 # Subtest: v0.2.5 behavior profile stays compact, labeled, and category-stable
 ok 186 - v0.2.5 behavior profile stays compact, labeled, and category-stable
   ---
-  duration_ms: 4.167342
+  duration_ms: 6.198618
   type: 'test'
   ...
 # Subtest: v0.2.5 injection keeps identity ahead of high relationship scores and preserves target-general kindness
 ok 187 - v0.2.5 injection keeps identity ahead of high relationship scores and preserves target-general kindness
   ---
-  duration_ms: 1.798271
+  duration_ms: 2.765733
   type: 'test'
   ...
 # Subtest: v0.2.5 gradual identity evolution requires evidence carried across scans
 ok 188 - v0.2.5 gradual identity evolution requires evidence carried across scans
   ---
-  duration_ms: 4.581206
+  duration_ms: 6.469586
   type: 'test'
   ...
 # Subtest: v0.2.5 time passage alone cannot batch-rewrite identity but summarized development can
 ok 189 - v0.2.5 time passage alone cannot batch-rewrite identity but summarized development can
   ---
-  duration_ms: 1.890851
+  duration_ms: 2.603772
   type: 'test'
   ...
 # Subtest: v0.2.5 scanner and targeted refresh enforce identity firewall and developmental time-skip semantics
 ok 190 - v0.2.5 scanner and targeted refresh enforce identity firewall and developmental time-skip semantics
   ---
-  duration_ms: 0.747417
+  duration_ms: 1.266303
   type: 'test'
   ...
 # Subtest: v0.2.5 ordinary NPC delta path cannot bypass gradual identity evidence gate
 ok 191 - v0.2.5 ordinary NPC delta path cannot bypass gradual identity evidence gate
   ---
-  duration_ms: 1.976048
+  duration_ms: 2.729389
   type: 'test'
   ...
 # Subtest: v0.2.5 recognizes only the untouched v0.2.4 stock behavior rubric for migration
 ok 192 - v0.2.5 recognizes only the untouched v0.2.4 stock behavior rubric for migration
   ---
-  duration_ms: 0.130807
+  duration_ms: 0.215251
   type: 'test'
   ...
 # Subtest: v0.2.6 minimum injection budget preserves every established identity channel plus agency
 ok 193 - v0.2.6 minimum injection budget preserves every established identity channel plus agency
   ---
-  duration_ms: 0.614927
+  duration_ms: 0.859568
   type: 'test'
   ...
 # Subtest: v0.2.6 minimum injection compacts verbose behavior rules without starving cruelty and agency categories
 ok 194 - v0.2.6 minimum injection compacts verbose behavior rules without starving cruelty and agency categories
   ---
-  duration_ms: 0.609059
+  duration_ms: 0.836974
   type: 'test'
   ...
 # Subtest: v0.2.6 omitted developmentScale defaults to gradual and cannot bypass durable evolution
 ok 195 - v0.2.6 omitted developmentScale defaults to gradual and cannot bypass durable evolution
   ---
-  duration_ms: 1.158907
+  duration_ms: 1.800898
   type: 'test'
   ...
 # Subtest: v0.2.6 unrelated old evidence cannot unlock a different gradual personality change
 ok 196 - v0.2.6 unrelated old evidence cannot unlock a different gradual personality change
   ---
-  duration_ms: 0.603911
+  duration_ms: 0.850174
   type: 'test'
   ...
 # Subtest: v0.2.6 refine cannot smuggle cruelty into an established kind disposition
 ok 197 - v0.2.6 refine cannot smuggle cruelty into an established kind disposition
   ---
-  duration_ms: 0.777762
+  duration_ms: 1.041018
   type: 'test'
   ...
 # Subtest: v0.2.6 one-scene gestures do not become mannerisms but explicitly recurring habits may refine
 ok 198 - v0.2.6 one-scene gestures do not become mannerisms but explicitly recurring habits may refine
   ---
-  duration_ms: 1.18068
+  duration_ms: 1.482104
   type: 'test'
   ...
 # Subtest: v0.2.6 batch development must be grounded in the actual narrated time-skip context
 ok 199 - v0.2.6 batch development must be grounded in the actual narrated time-skip context
   ---
-  duration_ms: 2.404745
+  duration_ms: 2.420169
   type: 'test'
   ...
 # Subtest: v0.2.6 explicit evolution requires an actual lasting-change or correction cue in source narration
 ok 200 - v0.2.6 explicit evolution requires an actual lasting-change or correction cue in source narration
   ---
-  duration_ms: 1.799343
+  duration_ms: 1.741981
   type: 'test'
   ...
 # Subtest: v0.2.6 batch evolution cannot borrow unrelated present-day evidence from elsewhere in transcript
 ok 201 - v0.2.6 batch evolution cannot borrow unrelated present-day evidence from elsewhere in transcript
   ---
-  duration_ms: 0.656981
+  duration_ms: 1.047298
   type: 'test'
   ...
 # Subtest: v0.2.6 focused relationship evaluator receives identity, current goals, and non-player bonds
 ok 202 - v0.2.6 focused relationship evaluator receives identity, current goals, and non-player bonds
   ---
-  duration_ms: 0.487885
+  duration_ms: 0.63159
   type: 'test'
   ...
 # Subtest: v0.2.6 scanner cannot invent habitual frequency from a one-off mannerism when source context is available
 ok 203 - v0.2.6 scanner cannot invent habitual frequency from a one-off mannerism when source context is available
   ---
-  duration_ms: 0.469268
+  duration_ms: 0.728233
   type: 'test'
   ...
 # Subtest: v0.2.6 transition language cannot disguise personality or speech evolution as refinement
 ok 204 - v0.2.6 transition language cannot disguise personality or speech evolution as refinement
   ---
-  duration_ms: 0.59721
+  duration_ms: 0.80686
   type: 'test'
   ...
 # Subtest: v0.2.6 first-pass behavior profile cannot contradict an established kind personality with generic cruelty
 ok 205 - v0.2.6 first-pass behavior profile cannot contradict an established kind personality with generic cruelty
   ---
-  duration_ms: 2.17558
+  duration_ms: 2.355523
   type: 'test'
   ...
 # Subtest: v0.2.7 scanner boolean coercion treats string false as false instead of JavaScript truthy
 ok 206 - v0.2.7 scanner boolean coercion treats string false as false instead of JavaScript truthy
   ---
-  duration_ms: 5.311897
+  duration_ms: 5.813035
   type: 'test'
   ...
 # Subtest: v0.2.7 negated cruelty wording does not neutralize established kind-personality protection
 ok 207 - v0.2.7 negated cruelty wording does not neutralize established kind-personality protection
   ---
-  duration_ms: 1.826684
+  duration_ms: 2.003524
   type: 'test'
   ...
 # Subtest: v0.2.7 short NPC names require whole normalized phrase matches for relevance
 ok 208 - v0.2.7 short NPC names require whole normalized phrase matches for relevance
   ---
-  duration_ms: 0.201724
+  duration_ms: 0.157053
   type: 'test'
   ...
 # Subtest: v0.2.7 key-relationship evolution updates named counterparts without deleting omitted bonds
 ok 209 - v0.2.7 key-relationship evolution updates named counterparts without deleting omitted bonds
   ---
-  duration_ms: 1.083083
+  duration_ms: 1.031955
   type: 'test'
   ...
 # Subtest: v0.2.7 quoted false legacy scanner flags do not clear or evolve state
 ok 210 - v0.2.7 quoted false legacy scanner flags do not clear or evolve state
   ---
-  duration_ms: 0.273663
+  duration_ms: 0.215221
   type: 'test'
   ...
 # Subtest: v0.2.7 malformed relationship scores and caps fall back safely instead of becoming negative extremes
 ok 211 - v0.2.7 malformed relationship scores and caps fall back safely instead of becoming negative extremes
   ---
-  duration_ms: 0.792384
+  duration_ms: 0.674013
   type: 'test'
   ...
 # Subtest: v0.2.7 blank durable identity fields require grounded source narration before first seed
 ok 212 - v0.2.7 blank durable identity fields require grounded source narration before first seed
   ---
-  duration_ms: 4.510189
+  duration_ms: 3.292376
   type: 'test'
   ...
 # Subtest: v0.2.7 a first one-off gesture cannot seed mannerisms but explicit recurrence can
 ok 213 - v0.2.7 a first one-off gesture cannot seed mannerisms but explicit recurrence can
   ---
-  duration_ms: 4.451851
+  duration_ms: 3.532643
   type: 'test'
   ...
 # Subtest: v0.2.7 repeated evidence can seed an empty trait only when it supports the proposed trait
 ok 214 - v0.2.7 repeated evidence can seed an empty trait only when it supports the proposed trait
   ---
-  duration_ms: 6.077011
+  duration_ms: 4.764065
   type: 'test'
   ...
 # Subtest: v0.2.8 apparent-age canon normalizes word numbers and decade prose to stable ~N
 ok 215 - v0.2.8 apparent-age canon normalizes word numbers and decade prose to stable ~N
   ---
-  duration_ms: 0.847578
+  duration_ms: 0.671669
   type: 'test'
   ...
 # Subtest: v0.2.8 Appearance removes redundant explicit age while Apparent Age stays authoritative
 ok 216 - v0.2.8 Appearance removes redundant explicit age while Apparent Age stays authoritative
   ---
-  duration_ms: 0.448225
+  duration_ms: 0.411062
   type: 'test'
   ...
 # Subtest: v0.2.8 Noctis-style relationship summary is calibrated and unexplained audit deltas are discarded
 ok 217 - v0.2.8 Noctis-style relationship summary is calibrated and unexplained audit deltas are discarded
   ---
-  duration_ms: 0.509628
+  duration_ms: 0.38992
   type: 'test'
   ...
 # Subtest: v0.2.8 scanner relationship deltas require a reason grounded in the scanned story when context is available
 ok 218 - v0.2.8 scanner relationship deltas require a reason grounded in the scanned story when context is available
   ---
-  duration_ms: 4.805945
+  duration_ms: 4.033799
   type: 'test'
   ...
 # Subtest: v0.2.8 player-specific or intimacy-specific incidents cannot become global Behavioral Profile canon
 ok 219 - v0.2.8 player-specific or intimacy-specific incidents cannot become global Behavioral Profile canon
   ---
-  duration_ms: 0.487154
+  duration_ms: 0.56542
   type: 'test'
   ...
 # Subtest: v0.2.8 Behavioral Profile compacts overlapping conflict rules into one reusable pattern
 ok 220 - v0.2.8 Behavioral Profile compacts overlapping conflict rules into one reusable pattern
   ---
-  duration_ms: 0.794197
+  duration_ms: 0.761994
   type: 'test'
   ...
 # Subtest: v0.2.8 Noctis-style paperwork gestures compact into one mannerism pattern
 ok 221 - v0.2.8 Noctis-style paperwork gestures compact into one mannerism pattern
   ---
-  duration_ms: 0.292621
+  duration_ms: 0.335439
   type: 'test'
   ...
 # Subtest: v0.2.8 ambiguous deceased Key Relationship wording is rewritten with an explicit subject
 ok 222 - v0.2.8 ambiguous deceased Key Relationship wording is rewritten with an explicit subject
   ---
-  duration_ms: 0.501326
+  duration_ms: 0.551921
   type: 'test'
   ...
 # Subtest: v0.2.8 scanner cannot rewrite manual Importance and new scanned dossiers keep neutral default importance
 ok 223 - v0.2.8 scanner cannot rewrite manual Importance and new scanned dossiers keep neutral default importance
   ---
-  duration_ms: 3.192283
+  duration_ms: 3.326687
   type: 'test'
   ...
 # Subtest: v0.2.8 runtime salience favors current story relevance instead of manual Importance
 ok 224 - v0.2.8 runtime salience favors current story relevance instead of manual Importance
   ---
-  duration_ms: 0.242486
+  duration_ms: 0.306336
   type: 'test'
   ...
 # Subtest: v0.2.8 manual relationship audit remains valid even without a generated evidence reason
 ok 225 - v0.2.8 manual relationship audit remains valid even without a generated evidence reason
   ---
-  duration_ms: 0.309306
+  duration_ms: 0.391502
   type: 'test'
   ...
 # Subtest: v0.2.10 stock relationship progression uses 1/2/5/10 raw weights and axis limits
 ok 226 - v0.2.10 stock relationship progression uses 1/2/5/10 raw weights and axis limits
   ---
-  duration_ms: 0.29198
+  duration_ms: 0.32933
   type: 'test'
   ...
 # Subtest: v0.2.10 relationship weight accumulates fractionally and makes extremes progressively harder
 ok 227 - v0.2.10 relationship weight accumulates fractionally and makes extremes progressively harder
   ---
-  duration_ms: 0.538642
+  duration_ms: 0.639972
   type: 'test'
   ...
 # Subtest: v0.2.11 directional relationship milestones gate deeper bands instead of allowing repetition to grind through
 ok 228 - v0.2.11 directional relationship milestones gate deeper bands instead of allowing repetition to grind through
   ---
-  duration_ms: 1.011385
+  duration_ms: 1.182659
   type: 'test'
   ...
 # Subtest: v0.2.11 milestone history is directional and legacy depth infers only thresholds already passed
 ok 229 - v0.2.11 milestone history is directional and legacy depth infers only thresholds already passed
   ---
-  duration_ms: 0.367013
+  duration_ms: 0.428197
   type: 'test'
   ...
 # Subtest: v0.2.11 movement toward neutral is never milestone-blocked and opposing evidence cancels hidden progress first
 ok 230 - v0.2.11 movement toward neutral is never milestone-blocked and opposing evidence cancels hidden progress first
   ---
-  duration_ms: 0.191038
+  duration_ms: 0.254369
   type: 'test'
   ...
 # Subtest: v0.2.11 checkpoint-blocked evidence is retained for dedupe without replacing the last actual relationship change
 ok 231 - v0.2.11 checkpoint-blocked evidence is retained for dedupe without replacing the last actual relationship change
   ---
-  duration_ms: 0.930913
+  duration_ms: 1.222488
   type: 'test'
   ...
 # Subtest: v0.2.10 recent relationship event history rejects duplicate awards beyond only the last event
 ok 232 - v0.2.10 recent relationship event history rejects duplicate awards beyond only the last event
   ---
-  duration_ms: 1.060058
+  duration_ms: 1.301796
   type: 'test'
   ...
 # Subtest: v0.2.9 runtime injection makes identity and live state dominant over high relationship scores
 ok 233 - v0.2.9 runtime injection makes identity and live state dominant over high relationship scores
   ---
-  duration_ms: 0.636419
+  duration_ms: 0.963884
   type: 'test'
   ...
 # Subtest: v0.2.9 low relationship values do not occupy runtime space with four neutral axis explanations
 ok 234 - v0.2.9 low relationship values do not occupy runtime space with four neutral axis explanations
   ---
-  duration_ms: 0.250308
+  duration_ms: 0.385864
   type: 'test'
   ...
 # Subtest: v0.2.9 relevance recognizes a grounded first-name reference without restoring relationship-score salience
 ok 235 - v0.2.9 relevance recognizes a grounded first-name reference without restoring relationship-score salience
   ---
-  duration_ms: 0.178559
+  duration_ms: 0.197614
   type: 'test'
   ...
 # Subtest: v0.2.10 Desire requires attraction evidence in both axis explanation and narration
 ok 236 - v0.2.10 Desire requires attraction evidence in both axis explanation and narration
   ---
-  duration_ms: 0.15238
+  duration_ms: 0.23592
   type: 'test'
   ...
 # Subtest: v0.2.10 event history catches A-B-A replay instead of remembering only the last award
 ok 237 - v0.2.10 event history catches A-B-A replay instead of remembering only the last award
   ---
-  duration_ms: 0.145359
+  duration_ms: 0.223532
   type: 'test'
   ...
 # Subtest: v0.2.10 a rejected duplicate relationship event cannot rewrite durable relationship prose
 ok 238 - v0.2.10 a rejected duplicate relationship event cannot rewrite durable relationship prose
   ---
-  duration_ms: 0.595708
+  duration_ms: 0.914099
   type: 'test'
   ...
 # Subtest: v0.2.10 relationship summaries reject unsupported romance and possessive archetype claims
 ok 239 - v0.2.10 relationship summaries reject unsupported romance and possessive archetype claims
   ---
-  duration_ms: 0.260743
+  duration_ms: 0.391993
   type: 'test'
   ...
 # Subtest: v0.2.10 RP injection exposes one qualitative relationship lens and no raw meter numbers
 ok 240 - v0.2.10 RP injection exposes one qualitative relationship lens and no raw meter numbers
   ---
-  duration_ms: 0.346101
+  duration_ms: 0.505933
   type: 'test'
   ...
 # Subtest: v0.2.10 the 95+ band needs ten ordinary evidence beats for one visible point
 ok 241 - v0.2.10 the 95+ band needs ten ordinary evidence beats for one visible point
   ---
-  duration_ms: 1.011635
+  duration_ms: 0.521065
   type: 'test'
   ...
 # Subtest: v0.2.10 ambiguous equal multi-axis overflow is rejected instead of favoring Trust and Affection
 ok 242 - v0.2.10 ambiguous equal multi-axis overflow is rejected instead of favoring Trust and Affection
   ---
-  duration_ms: 0.145289
+  duration_ms: 0.204334
   type: 'test'
   ...
 # Subtest: v0.2.10 relationship event history is bounded to six recent evidence events
 ok 243 - v0.2.10 relationship event history is bounded to six recent evidence events
   ---
-  duration_ms: 0.396187
+  duration_ms: 1.803863
   type: 'test'
   ...
 # Subtest: v0.2.12 hidden social graph affects salience but never leaks graph machinery or unresolved slots into RP injection
 ok 244 - v0.2.12 hidden social graph affects salience but never leaks graph machinery or unresolved slots into RP injection
   ---
-  duration_ms: 0.787598
+  duration_ms: 1.182629
   type: 'test'
   ...
 # Subtest: runtime integration uses per-chat scan operations and no legacy global scanBusy flag
 ok 245 - runtime integration uses per-chat scan operations and no legacy global scanBusy flag
   ---
-  duration_ms: 1.430927
+  duration_ms: 1.368365
   type: 'test'
   ...
 # Subtest: chat deletion handlers preserve chat/group namespace isolation
 ok 246 - chat deletion handlers preserve chat/group namespace isolation
   ---
-  duration_ms: 0.45066
+  duration_ms: 0.46396
   type: 'test'
   ...
 # Subtest: bundle import reports skipped capacity and only clears deletion state for accepted imports
 ok 247 - bundle import reports skipped capacity and only clears deletion state for accepted imports
   ---
-  duration_ms: 0.488125
+  duration_ms: 0.419344
   type: 'test'
   ...
 # Subtest: manual trash removes narrative name suppression and branch inheritance accepts message zero
 not ok 248 - manual trash removes narrative name suppression and branch inheritance accepts message zero
   ---
-  duration_ms: 4.732464
+  duration_ms: 6.46876
   type: 'test'
   location: '/home/runner/work/npc_state/npc_state/tests/index-hardening.test.js:26:1'
   failureType: 'testCodeFailure'
@@ -6482,37 +6462,37 @@ not ok 248 - manual trash removes narrative name suppression and branch inherita
 # Subtest: deep hardening gates rendering and injection on hydration readiness
 ok 249 - deep hardening gates rendering and injection on hydration readiness
   ---
-  duration_ms: 0.27884
+  duration_ms: 0.282981
   type: 'test'
   ...
 # Subtest: busy automatic scans coalesce instead of being silently dropped
 ok 250 - busy automatic scans coalesce instead of being silently dropped
   ---
-  duration_ms: 3.457312
+  duration_ms: 0.438302
   type: 'test'
   ...
 # Subtest: chat change hydration is chat-affine and stale async completion is rejected
 ok 251 - chat change hydration is chat-affine and stale async completion is rejected
   ---
-  duration_ms: 0.453684
+  duration_ms: 0.506052
   type: 'test'
   ...
 # Subtest: install folder has SillyTavern-discoverable one-level layout
 ok 252 - install folder has SillyTavern-discoverable one-level layout
   ---
-  duration_ms: 1.499901
+  duration_ms: 1.476045
   type: 'test'
   ...
 # Subtest: settings migration batches historical changes into one save
 ok 253 - settings migration batches historical changes into one save
   ---
-  duration_ms: 1.192388
+  duration_ms: 0.930604
   type: 'test'
   ...
 # Subtest: sidecar persistence writes immutable snapshots until the latest version is durable
 not ok 254 - sidecar persistence writes immutable snapshots until the latest version is durable
   ---
-  duration_ms: 1.00151
+  duration_ms: 0.801582
   type: 'test'
   location: '/home/runner/work/npc_state/npc_state/tests/quality.test.js:28:1'
   failureType: 'testCodeFailure'
@@ -6537,495 +6517,495 @@ not ok 254 - sidecar persistence writes immutable snapshots until the latest ver
 # Subtest: recent transcript collection stops after the requested meaningful tail
 ok 255 - recent transcript collection stops after the requested meaningful tail
   ---
-  duration_ms: 0.289787
+  duration_ms: 0.223643
   type: 'test'
   ...
 # Subtest: Megumin dossier import searches newest-first and stops at the latest base
 ok 256 - Megumin dossier import searches newest-first and stops at the latest base
   ---
-  duration_ms: 0.324579
+  duration_ms: 0.217573
   type: 'test'
   ...
 # Subtest: inline watchdog queries are scoped to the chat root
 ok 257 - inline watchdog queries are scoped to the chat root
   ---
-  duration_ms: 0.346883
+  duration_ms: 0.252926
   type: 'test'
   ...
 # Subtest: retired helper and legacy dossier CSS are absent
 ok 258 - retired helper and legacy dossier CSS are absent
   ---
-  duration_ms: 0.616008
+  duration_ms: 0.519372
   type: 'test'
   ...
 # Subtest: settings-only UI changes do not rewrite the per-chat sidecar
 ok 259 - settings-only UI changes do not rewrite the per-chat sidecar
   ---
-  duration_ms: 0.452142
+  duration_ms: 0.357372
   type: 'test'
   ...
 # Subtest: scan locks are isolated by chat key
 ok 260 - scan locks are isolated by chat key
   ---
-  duration_ms: 1.192158
+  duration_ms: 1.72819
   type: 'test'
   ...
 # Subtest: expired scan releases only its own chat and stale operation token is no longer current
 ok 261 - expired scan releases only its own chat and stale operation token is no longer current
   ---
-  duration_ms: 0.885345
+  duration_ms: 1.262407
   type: 'test'
   ...
 # Subtest: old operation finally cannot clear a newer operation
 ok 262 - old operation finally cannot clear a newer operation
   ---
-  duration_ms: 0.234273
+  duration_ms: 0.313066
   type: 'test'
   ...
 # Subtest: deleted chat storage key is strictly namespaced
 ok 263 - deleted chat storage key is strictly namespaced
   ---
-  duration_ms: 0.227473
+  duration_ms: 0.346164
   type: 'test'
   ...
 # Subtest: dossier scanner uses raw isolated generation instead of chat-context quiet generation
 ok 264 - dossier scanner uses raw isolated generation instead of chat-context quiet generation
   ---
-  duration_ms: 2.216541
+  duration_ms: 1.663994
   type: 'test'
   ...
 # Subtest: v0.2.12 interim identity promotion rewrites neighboring family references to canonical name without duplicate fossil
 ok 265 - v0.2.12 interim identity promotion rewrites neighboring family references to canonical name without duplicate fossil
   ---
-  duration_ms: 20.551391
+  duration_ms: 28.721592
   type: 'test'
   ...
 # Subtest: v0.2.12 multi-hop canonical rename keeps old labels as aliases while structured relationships show only newest name
 ok 266 - v0.2.12 multi-hop canonical rename keeps old labels as aliases while structured relationships show only newest name
   ---
-  duration_ms: 6.735714
+  duration_ms: 11.248277
   type: 'test'
   ...
 # Subtest: v0.2.12 two unnamed daughters become count-aware unresolved slots and resolve later without creating a third child
 ok 267 - v0.2.12 two unnamed daughters become count-aware unresolved slots and resolve later without creating a third child
   ---
-  duration_ms: 11.364482
+  duration_ms: 11.404821
   type: 'test'
   ...
 # Subtest: v0.2.12 partial named child resolution consumes one slot while unrelated named NPC does not resolve remaining family
 ok 268 - v0.2.12 partial named child resolution consumes one slot while unrelated named NPC does not resolve remaining family
   ---
-  duration_ms: 4.366362
+  duration_ms: 4.911283
   type: 'test'
   ...
 # Subtest: v0.2.12 twin daughters infer symmetric twin sibling relation without older-younger invention
 ok 269 - v0.2.12 twin daughters infer symmetric twin sibling relation without older-younger invention
   ---
-  duration_ms: 1.115702
+  duration_ms: 1.173535
   type: 'test'
   ...
 # Subtest: v0.2.12 deceased counterpart remains in graph and projects a deceased family note instead of losing the relation
 ok 270 - v0.2.12 deceased counterpart remains in graph and projects a deceased family note instead of losing the relation
   ---
-  duration_ms: 0.668508
+  duration_ms: 0.623657
   type: 'test'
   ...
 # Subtest: v0.2.12 manual key relationship edits update and remove graph edges deterministically
 ok 271 - v0.2.12 manual key relationship edits update and remove graph edges deterministically
   ---
-  duration_ms: 0.546444
+  duration_ms: 0.560063
   type: 'test'
   ...
 # Subtest: v0.2.12 hard deletion removes graph edges and stale structured references
 ok 272 - v0.2.12 hard deletion removes graph edges and stale structured references
   ---
-  duration_ms: 0.539143
+  duration_ms: 0.545311
   type: 'test'
   ...
 # Subtest: v0.2.12 hidden graph relationships can raise runtime salience even when not projected into top-five key relationships
 ok 273 - v0.2.12 hidden graph relationships can raise runtime salience even when not projected into top-five key relationships
   ---
-  duration_ms: 1.165056
+  duration_ms: 1.215578
   type: 'test'
   ...
 # Subtest: v0.2.12 unnamed-family parser handles singular, twin-without-count, and explicit parent-of phrasing without distant descriptor contamination
 ok 274 - v0.2.12 unnamed-family parser handles singular, twin-without-count, and explicit parent-of phrasing without distant descriptor contamination
   ---
-  duration_ms: 4.844603
+  duration_ms: 5.098562
   type: 'test'
   ...
 # Subtest: v0.2.12 descriptor-aware partial resolution prefers the explicitly matching older daughter slot
 ok 275 - v0.2.12 descriptor-aware partial resolution prefers the explicitly matching older daughter slot
   ---
-  duration_ms: 4.66324
+  duration_ms: 4.483598
   type: 'test'
   ...
 # Subtest: v0.2.12 pre-existing split interim/proper dossiers merge conservatively and remap social edges to the survivor id
 ok 276 - v0.2.12 pre-existing split interim/proper dossiers merge conservatively and remap social edges to the survivor id
   ---
-  duration_ms: 1.76405
+  duration_ms: 1.809772
   type: 'test'
   ...
 # Subtest: v0.2.12 ambiguous shared alias never forces canonical relationship merge
 ok 277 - v0.2.12 ambiguous shared alias never forces canonical relationship merge
   ---
-  duration_ms: 8.627024
+  duration_ms: 7.038357
   type: 'test'
   ...
 # Subtest: v0.2.12 reconciliation prunes graph edges whose dossier endpoint was hard-pruned while keeping surviving structured prose safe
 ok 278 - v0.2.12 reconciliation prunes graph edges whose dossier endpoint was hard-pruned while keeping surviving structured prose safe
   ---
-  duration_ms: 0.267293
+  duration_ms: 0.330401
   type: 'test'
   ...
 # Subtest: v0.2.12 inferred sibling expansion cannot crowd explicit social edges out of a large family graph
 ok 279 - v0.2.12 inferred sibling expansion cannot crowd explicit social edges out of a large family graph
   ---
-  duration_ms: 61.910953
+  duration_ms: 59.387371
   type: 'test'
   ...
 # Subtest: extension data filename is deterministic and filesystem-safe
 ok 280 - extension data filename is deterministic and filesystem-safe
   ---
-  duration_ms: 1.561253
+  duration_ms: 1.467773
   type: 'test'
   ...
 # Subtest: extension-owned JSON payload round-trips full chat state
 ok 281 - extension-owned JSON payload round-trips full chat state
   ---
-  duration_ms: 2.906812
+  duration_ms: 3.539674
   type: 'test'
   ...
 # Subtest: v0.2.11 sidecar round-trips exact sibling checkpoints, root anchor, and relationship milestone internals
 ok 282 - v0.2.11 sidecar round-trips exact sibling checkpoints, root anchor, and relationship milestone internals
   ---
-  duration_ms: 1.831351
+  duration_ms: 1.751495
   type: 'test'
   ...
 # Subtest: data-file API writes JSON bytes, reads them back, and deletes the sidecar
 ok 283 - data-file API writes JSON bytes, reads them back, and deletes the sidecar
   ---
-  duration_ms: 1.63851
+  duration_ms: 3.520325
   type: 'test'
   ...
 # Subtest: sidecar read rejects a valid NPC State payload belonging to another chat
 ok 284 - sidecar read rejects a valid NPC State payload belonging to another chat
   ---
-  duration_ms: 2.213757
+  duration_ms: 1.011594
   type: 'test'
   ...
 # Subtest: v0.2.7 sidecar persists high-resolution portrait binary only once
 ok 285 - v0.2.7 sidecar persists high-resolution portrait binary only once
   ---
-  duration_ms: 0.573976
+  duration_ms: 0.597699
   type: 'test'
   ...
 # Subtest: v0.2.7 sidecar portrait compaction prefers the live NPC portrait over a stale asset copy
 ok 286 - v0.2.7 sidecar portrait compaction prefers the live NPC portrait over a stale asset copy
   ---
-  duration_ms: 0.55725
+  duration_ms: 0.508606
   type: 'test'
   ...
 # Subtest: v0.2.12 sidecar round-trips social graph edges and unresolved family slots
 ok 287 - v0.2.12 sidecar round-trips social graph edges and unresolved family slots
   ---
-  duration_ms: 0.654397
+  duration_ms: 0.62583
   type: 'test'
   ...
 # Subtest: swipe branch handling waits for SillyTavern swipe idle before dossier generation
 ok 288 - swipe branch handling waits for SillyTavern swipe idle before dossier generation
   ---
-  duration_ms: 2.323062
+  duration_ms: 2.373139
   type: 'test'
   ...
 # Subtest: present NPC pane uses portrait-first cards and a focused dossier viewer
 ok 289 - present NPC pane uses portrait-first cards and a focused dossier viewer
   ---
-  duration_ms: 2.535552
+  duration_ms: 2.943467
   type: 'test'
   ...
 # Subtest: present NPC gallery keeps sparse rosters card-sized on tablet instead of stretching to the block
 ok 290 - present NPC gallery keeps sparse rosters card-sized on tablet instead of stretching to the block
   ---
-  duration_ms: 0.428335
+  duration_ms: 0.514936
   type: 'test'
   ...
 # Subtest: focused dossier uses a portrait rail, scrollable document, and bottom command bar
 ok 291 - focused dossier uses a portrait rail, scrollable document, and bottom command bar
   ---
-  duration_ms: 1.305818
+  duration_ms: 1.41154
   type: 'test'
   ...
 # Subtest: focused dossier gives long-form prose breathing room instead of table-like compression
 ok 292 - focused dossier gives long-form prose breathing room instead of table-like compression
   ---
-  duration_ms: 1.222933
+  duration_ms: 1.354684
   type: 'test'
   ...
 # Subtest: focused dossier refresh preserves whichever responsive viewer surface is scrolling
 ok 293 - focused dossier refresh preserves whichever responsive viewer surface is scrolling
   ---
-  duration_ms: 0.525753
+  duration_ms: 0.536037
   type: 'test'
   ...
 # Subtest: tablet viewer is viewport-bound and switches between portrait rail and cinematic hero layouts
 ok 294 - tablet viewer is viewport-bound and switches between portrait rail and cinematic hero layouts
   ---
-  duration_ms: 0.549929
+  duration_ms: 0.573683
   type: 'test'
   ...
 # Subtest: present cards and viewer resolve the current canonical NPC name after identity promotion
 ok 295 - present cards and viewer resolve the current canonical NPC name after identity promotion
   ---
-  duration_ms: 0.274705
+  duration_ms: 0.273216
   type: 'test'
   ...
 # Subtest: inline dossier uses trust affection desire tension and strict presence wording
 ok 296 - inline dossier uses trust affection desire tension and strict presence wording
   ---
-  duration_ms: 0.811353
+  duration_ms: 0.829804
   type: 'test'
   ...
 # Subtest: relationship tuning exposes baseline, caps, editable rubrics, and delta audit UI
 ok 297 - relationship tuning exposes baseline, caps, editable rubrics, and delta audit UI
   ---
-  duration_ms: 2.854393
+  duration_ms: 7.078907
   type: 'test'
   ...
 # Subtest: important memory criteria are editable and resettable from settings
 ok 298 - important memory criteria are editable and resettable from settings
   ---
-  duration_ms: 1.323906
+  duration_ms: 1.454994
   type: 'test'
   ...
 # Subtest: present-only behavior injection and manual dossier editor controls are exposed
 ok 299 - present-only behavior injection and manual dossier editor controls are exposed
   ---
-  duration_ms: 1.202292
+  duration_ms: 1.236539
   type: 'test'
   ...
 # Subtest: archive lifecycle controls stay reversible while settings roster exposes confirmed hard delete
 ok 300 - archive lifecycle controls stay reversible while settings roster exposes confirmed hard delete
   ---
-  duration_ms: 1.029062
+  duration_ms: 1.06219
   type: 'test'
   ...
 # Subtest: roster exposes present versus current off-screen World State activity
 ok 301 - roster exposes present versus current off-screen World State activity
   ---
-  duration_ms: 0.430739
+  duration_ms: 0.445172
   type: 'test'
   ...
 # Subtest: generation injection budget is player-configurable in settings
 ok 302 - generation injection budget is player-configurable in settings
   ---
-  duration_ms: 0.29861
+  duration_ms: 0.733942
   type: 'test'
   ...
 # Subtest: relationship UI is bipolar around neutral zero and legacy audit values are finite-filtered
 ok 303 - relationship UI is bipolar around neutral zero and legacy audit values are finite-filtered
   ---
-  duration_ms: 1.809017
+  duration_ms: 1.846617
   type: 'test'
   ...
 # Subtest: dossier exposes species/race, age, prompt-ready appearance, and portrait generation controls
 ok 304 - dossier exposes species/race, age, prompt-ready appearance, and portrait generation controls
   ---
-  duration_ms: 1.53235
+  duration_ms: 1.53339
   type: 'test'
   ...
 # Subtest: scanner uses current-exchange auto context and keeps wider history for manual scans
 ok 305 - scanner uses current-exchange auto context and keeps wider history for manual scans
   ---
-  duration_ms: 1.052807
+  duration_ms: 1.105874
   type: 'test'
   ...
 # Subtest: inline card truth follows merged presence and settings roster editor uses direct mobile-safe binding
 ok 306 - inline card truth follows merged presence and settings roster editor uses direct mobile-safe binding
   ---
-  duration_ms: 1.621484
+  duration_ms: 1.666629
   type: 'test'
   ...
 # Subtest: UI integration remounts inline cards on SillyTavern render lifecycle and captures roster editor clicks
 ok 307 - UI integration remounts inline cards on SillyTavern render lifecycle and captures roster editor clicks
   ---
-  duration_ms: 1.123404
+  duration_ms: 1.147777
   type: 'test'
   ...
 # Subtest: mobile viewer is true full-screen and isolates horizontal swipe gestures
 ok 308 - mobile viewer is true full-screen and isolates horizontal swipe gestures
   ---
-  duration_ms: 0.705744
+  duration_ms: 3.806921
   type: 'test'
   ...
 # Subtest: visible inline rendering is latest-scene present cast only while historical snapshots remain internal
 ok 309 - visible inline rendering is latest-scene present cast only while historical snapshots remain internal
   ---
-  duration_ms: 1.593903
+  duration_ms: 1.619058
   type: 'test'
   ...
 # Subtest: inline renderer self-heals host redraws without destructive full remounts
 ok 310 - inline renderer self-heals host redraws without destructive full remounts
   ---
-  duration_ms: 0.682368
+  duration_ms: 0.657898
   type: 'test'
   ...
 # Subtest: Megumin master block receives NPC State as an in-card tab with standalone fallback preserved
 ok 311 - Megumin master block receives NPC State as an in-card tab with standalone fallback preserved
   ---
-  duration_ms: 4.220022
+  duration_ms: 4.314556
   type: 'test'
   ...
 # Subtest: Megumin integration never rewrites canonical message text and reattaches through the existing render watchdog
 ok 312 - Megumin integration never rewrites canonical message text and reattaches through the existing render watchdog
   ---
-  duration_ms: 0.83573
+  duration_ms: 0.847591
   type: 'test'
   ...
 # Subtest: compact Megumin World State preserves omitted off-screen activity while still resetting physical presence
 ok 313 - compact Megumin World State preserves omitted off-screen activity while still resetting physical presence
   ---
-  duration_ms: 0.209085
+  duration_ms: 0.243292
   type: 'test'
   ...
 # Subtest: per-NPC Scan dossier workflow and Key Relationships controls are exposed
 ok 314 - per-NPC Scan dossier workflow and Key Relationships controls are exposed
   ---
-  duration_ms: 6.614271
+  duration_ms: 3.88632
   type: 'test'
   ...
 # Subtest: stale NPC lifecycle is configurable and recurring NPCs can be protected
 ok 315 - stale NPC lifecycle is configurable and recurring NPCs can be protected
   ---
-  duration_ms: 0.691823
+  duration_ms: 0.723235
   type: 'test'
   ...
 # Subtest: minor NPC toggle hides portrait cards without disabling dossier tracking
 ok 316 - minor NPC toggle hides portrait cards without disabling dossier tracking
   ---
-  duration_ms: 0.523579
+  duration_ms: 0.560163
   type: 'test'
   ...
 # Subtest: v0.2 portrait generation settings expose theme, positive/negative prompts, and backend-neutral controls
 ok 317 - v0.2 portrait generation settings expose theme, positive/negative prompts, and backend-neutral controls
   ---
-  duration_ms: 2.453459
+  duration_ms: 4.630055
   type: 'test'
   ...
 # Subtest: portrait generator is a review-before-apply workflow with per-NPC prompt overrides
 ok 318 - portrait generator is a review-before-apply workflow with per-NPC prompt overrides
   ---
-  duration_ms: 3.259844
+  duration_ms: 1.402846
   type: 'test'
   ...
 # Subtest: native portrait bridge uses quiet SillyTavern imagine command and separate negative prompt
 ok 319 - native portrait bridge uses quiet SillyTavern imagine command and separate negative prompt
   ---
-  duration_ms: 0.820647
+  duration_ms: 0.817646
   type: 'test'
   ...
 # Subtest: portrait generator top layer stays above the full-screen dossier on tablet and mobile
 ok 320 - portrait generator top layer stays above the full-screen dossier on tablet and mobile
   ---
-  duration_ms: 0.48428
+  duration_ms: 3.553124
   type: 'test'
   ...
 # Subtest: successful hydration is the only default authority transition
 ok 321 - successful hydration is the only default authority transition
   ---
-  duration_ms: 1.106508
+  duration_ms: 0.923133
   type: 'test'
   ...
 # Subtest: hydration errors render an explicit read-only retry surface
 ok 322 - hydration errors render an explicit read-only retry surface
   ---
-  duration_ms: 0.567515
+  duration_ms: 0.540303
   type: 'test'
   ...
 # Subtest: rename verifies new storage before switching ownership
 ok 323 - rename verifies new storage before switching ownership
   ---
-  duration_ms: 0.286161
+  duration_ms: 0.248059
   type: 'test'
   ...
 # Subtest: scan timeout drains coalesced automatic work
 ok 324 - scan timeout drains coalesced automatic work
   ---
-  duration_ms: 0.280183
+  duration_ms: 0.209091
   type: 'test'
   ...
 # Subtest: automatic backfill retries are durable cooled down and bounded
 ok 325 - automatic backfill retries are durable cooled down and bounded
   ---
-  duration_ms: 0.290048
+  duration_ms: 0.514144
   type: 'test'
   ...
 # Subtest: editor and portrait workflows are chat-affine
 ok 326 - editor and portrait workflows are chat-affine
   ---
-  duration_ms: 0.59093
+  duration_ms: 0.619491
   type: 'test'
   ...
 # Subtest: release metadata is v0.2.14
 ok 327 - release metadata is v0.2.14
   ---
-  duration_ms: 0.283918
+  duration_ms: 0.320587
   type: 'test'
   ...
 # Subtest: same stock greeting alone never proves cross-chat ancestry
 ok 328 - same stock greeting alone never proves cross-chat ancestry
   ---
-  duration_ms: 1.845652
+  duration_ms: 1.964622
   type: 'test'
   ...
 # Subtest: shared greeting plus user-authored history can prove branch ancestry
 ok 329 - shared greeting plus user-authored history can prove branch ancestry
   ---
-  duration_ms: 0.813726
+  duration_ms: 0.79332
   type: 'test'
   ...
 # Subtest: persistence and branch async work are explicitly chat-bound
 ok 330 - persistence and branch async work are explicitly chat-bound
   ---
-  duration_ms: 0.268936
+  duration_ms: 0.293496
   type: 'test'
   ...
 # Subtest: queued scans carry branch identity and validate before drain
 ok 331 - queued scans carry branch identity and validate before drain
   ---
-  duration_ms: 0.188764
+  duration_ms: 0.190023
   type: 'test'
   ...
 # Subtest: startup mounts recovery UI machinery before hydration
 ok 332 - startup mounts recovery UI machinery before hydration
   ---
-  duration_ms: 0.407334
+  duration_ms: 0.38359
   type: 'test'
   ...
 # Subtest: character fallback cannot become a durable mutation namespace
 ok 333 - character fallback cannot become a durable mutation namespace
   ---
-  duration_ms: 0.133812
+  duration_ms: 0.193888
   type: 'test'
   ...
 # Subtest: rename retains predecessor recovery copy and deterministic recovery probe exists
 ok 334 - rename retains predecessor recovery copy and deterministic recovery probe exists
   ---
-  duration_ms: 0.234864
+  duration_ms: 0.240087
   type: 'test'
   ...
 # Subtest: chat changes cancel global delayed branch and swipe work
 ok 335 - chat changes cancel global delayed branch and swipe work
   ---
-  duration_ms: 0.239251
+  duration_ms: 1.140386
   type: 'test'
   ...
 1..335
 # tests 335
 # suites 0
-# pass 332
-# fail 3
+# pass 333
+# fail 2
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 744.704225
+# duration_ms 780.483033
