@@ -1,6 +1,7 @@
 /* NPC State v0.3.0 - clean runtime */
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../../script.js';
+import { createBundleManagementUi } from './bundle-ui.js';
 import { createNpcStateEngine } from './engine.js';
 import { getChatIdentity } from './identity.js';
 import { buildInjection } from './injection.js';
@@ -17,6 +18,7 @@ let eventsRegistered = false;
 let activeChatKey = 'no-chat';
 let ui = null;
 let staleUi = null;
+let bundleUi = null;
 
 const DEFAULT_RELATIONSHIP_CRITERIA = `Relationship deltas measure only changes caused by the current USER+ASSISTANT exchange.
 Trust: confidence in the player's reliability, honesty, competence, safety, or judgment.
@@ -67,7 +69,7 @@ function getSettings() {
     settings.injectDepth = Math.max(0, Math.min(20, Math.round(Number(settings.injectDepth) || 1)));
     settings.injectLimit = Math.max(1, Math.min(20, Math.round(Number(settings.injectLimit) || 6)));
     settings.injectBudgetTokens = Math.max(256, Math.min(8000, Math.round(Number(settings.injectBudgetTokens) || 1800)));
-    settings.staleArchiveAfter = Math.max(1, Math.min(10000, Math.round(Number(settings.staleArchiveAfter) || 30)));
+    settings.staleArchiveAfter = Math.max(1, Math.min(9999, Math.round(Number(settings.staleArchiveAfter) || 30)));
     settings.staleDeleteAfter = Math.max(settings.staleArchiveAfter + 1, Math.min(10000, Math.round(Number(settings.staleDeleteAfter) || 50)));
     settings.relationshipCaps = { ...DEFAULT_RELATIONSHIP_CAPS, ...(settings.relationshipCaps || {}) };
     if (!settings.dataFiles || typeof settings.dataFiles !== 'object' || Array.isArray(settings.dataFiles)) settings.dataFiles = {};
@@ -146,6 +148,7 @@ const engine = createNpcStateEngine({
         updateInjection();
         ui?.refresh();
         staleUi?.refresh();
+        bundleUi?.refresh();
     },
 });
 
@@ -165,18 +168,28 @@ staleUi = createStaleManagementUi({
     persistSettings,
 });
 
+bundleUi = createBundleManagementUi({
+    engine,
+    ui,
+});
+
 const meguminBlockIntegration = createMeguminBlockIntegration({
     renderInline: () => ui?.renderInline(),
 });
+
+function refreshSurfaces() {
+    updateInjection();
+    ui.refresh();
+    staleUi.refresh();
+    bundleUi.refresh();
+}
 
 async function hydrateActiveChat({ reconcile = true } = {}) {
     const identity = getChatIdentity(getContext());
     const key = identity.key;
     if (identity.pending || key === 'no-chat') {
         activeChatKey = key;
-        updateInjection();
-        ui.refresh();
-        staleUi.refresh();
+        refreshSurfaces();
         return null;
     }
     activeChatKey = key;
@@ -188,16 +201,12 @@ async function hydrateActiveChat({ reconcile = true } = {}) {
             if (branch?.unsafeDivergence) notify('warning', 'this chat diverged before its first v0.3 branch baseline. Live injection and model scans are paused because v0.2 branch checkpoints are intentionally not imported. Return to the original baseline branch to restore safe tracking.');
         }
         if (getChatKey() !== key) return null;
-        updateInjection();
-        ui.refresh();
-        staleUi.refresh();
+        refreshSurfaces();
         return state;
     } catch (error) {
         console.error('[NPC State v0.3] hydration failed safely', error);
         notify('error', `could not load this dossier. Existing sidecar data was not overwritten. ${error?.message || error}`);
-        updateInjection();
-        ui.refresh();
-        staleUi.refresh();
+        refreshSurfaces();
         return null;
     }
 }
@@ -214,9 +223,7 @@ async function settledBranchReconcile() {
         const result = await engine.reconcileBranch({ rescan: true });
         if (result?.unsafeDivergence) notify('warning', 'branch change predates the v0.3 baseline; live injection and model scans are paused rather than trusting stale legacy timeline data.');
         if (result?.rescan?.discarded) return;
-        updateInjection();
-        ui.refresh();
-        staleUi.refresh();
+        refreshSurfaces();
     } catch (error) {
         console.error('[NPC State v0.3] branch reconciliation failed safely', error);
         notify('error', `branch reconciliation failed without committing partial state. ${error?.message || error}`);
@@ -239,11 +246,7 @@ function registerEvents() {
     if (events.MESSAGE_RECEIVED) source.on(events.MESSAGE_RECEIVED, async messageId => {
         try {
             const result = await engine.scan(messageId, { manual: false });
-            if (result?.ok || result?.discarded) {
-                updateInjection();
-                ui.refresh();
-                staleUi.refresh();
-            }
+            if (result?.ok || result?.discarded) refreshSurfaces();
         } catch (error) {
             console.error('[NPC State v0.3] automatic scan failed safely', error);
             notify('error', `automatic scan failed without committing partial state. ${error?.message || error}`);
@@ -270,6 +273,7 @@ async function init() {
     getSettings();
     ui.scheduleMount();
     staleUi.scheduleMount();
+    bundleUi.scheduleMount();
     meguminBlockIntegration.start();
     registerEvents();
     await hydrateActiveChat({ reconcile: true });
@@ -316,6 +320,9 @@ globalThis.NPCState = Object.freeze({
     resetStaleness: reference => engine.resetNpcStaleness(reference),
     staleReport: () => engine.getStaleReport(),
     openStaleReview: () => staleUi.openReview(),
+    exportBundle: reference => engine.exportBundle(reference),
+    previewBundleImport: (bundle, options) => engine.previewBundleImport(bundle, options),
+    importBundle: (bundle, options) => engine.importBundle(bundle, options),
     deleteNpc: reference => engine.deleteNpc(reference),
     reconcile: options => engine.reconcileBranch(options),
     openLibrary: reference => ui.openLibrary(reference),
