@@ -1,0 +1,91 @@
+name: NPC State v0.2.23 hard pass
+
+on:
+  push:
+    branches:
+      - fix/v0.2.23-cast-reconcile-portrait-save
+    paths:
+      - .release/apply_v023.py
+      - .github/workflows/v023-hard-pass.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hard-pass:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.2.23-cast-reconcile-portrait-save
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply candidate patch
+        run: python3 .release/apply_v023.py
+
+      - name: Upload candidate snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: v023-candidate-${{ github.run_id }}
+          path: |
+            index.js
+            core.js
+            manifest.json
+            README.md
+            CHANGELOG.md
+            tests/runtime-smoke.mjs
+            tests/package.test.js
+            tests/hardening-v0223.test.js
+          retention-days: 2
+
+      - name: Syntax and diff check
+        run: |
+          git diff --check
+          node --check index.js
+          node --check core.js
+          node --check tests/runtime-smoke.mjs
+          node --check tests/hardening-v0223.test.js
+
+      - name: Ten consecutive hard passes
+        run: |
+          set -eu
+          for i in $(seq 1 10); do
+            echo "========== HARD PASS $i/10 =========="
+            npm test
+          done
+
+      - name: Release invariants
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          const index = fs.readFileSync('index.js', 'utf8');
+          const core = fs.readFileSync('core.js', 'utf8');
+          const readme = fs.readFileSync('README.md', 'utf8');
+          if (manifest.version !== '0.2.23') throw new Error(`manifest ${manifest.version}`);
+          if (!core.includes("NPC_STATE_VERSION = '0.2.23'")) throw new Error('core version mismatch');
+          if (!index.includes('schemaVersion: 29')) throw new Error('schema 29 missing');
+          if (!index.includes('currentExchangeRelationshipRelevant')) throw new Error('current-exchange target repair missing');
+          if (!index.includes('for (let offset = 0; offset < targets.length; offset += 4)')) throw new Error('relationship batching missing');
+          if (!index.includes('deepSweep: true')) throw new Error('deep cast sweep missing');
+          if (!index.includes('touchedIds = new Set')) throw new Error('omitted participant continuity repair missing');
+          if (!index.includes('Save Portrait Settings')) throw new Error('portrait save UI missing');
+          if (!index.includes('await saveHostSettings()')) throw new Error('portrait durable save missing');
+          if (!readme.startsWith('# NPC State v0.2.23')) throw new Error('README version mismatch');
+          NODE
+
+      - name: Commit verified candidate
+        run: |
+          git config user.name "kohz87"
+          git config user.email "83744063+kohz87@users.noreply.github.com"
+          git add index.js core.js manifest.json README.md CHANGELOG.md tests/runtime-smoke.mjs tests/package.test.js tests/hardening-v0223.test.js
+          git diff --cached --quiet && { echo "No candidate changes to commit"; exit 1; }
+          git commit -m "release: v0.2.23 cast reconciliation and portrait settings"
+          git push origin HEAD:fix/v0.2.23-cast-reconcile-portrait-save
