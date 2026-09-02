@@ -244,7 +244,7 @@ test('scanner uses current-exchange auto context and keeps wider history for man
     assert.match(index, /Quick automatic scans still use only the current user \+ assistant exchange/);
     assert.match(index, /settings\.fullScanEveryTurn \|\| state\.assistantSinceScan >= settings\.scanEvery/);
     assert.match(index, /prepareFullWindowRelationshipEvaluation\(resolvedParsed, state\.npcs\)/);
-    assert.match(index, /runFocusedRelationshipPass\(ctx, fullWindowRelationship\.evaluation, state\.npcs, currentTranscript \|\| transcript, settings\)/);
+    assert.match(index, /runFocusedRelationshipPass\(\s*ctx,\s*fullWindowRelationship\.evaluation,\s*state\.npcs,\s*currentTranscript \|\| transcript,\s*settings,\s*\{ currentExchangeOnly: manual \|\| fullWindowScan \},\s*\)/);
     assert.match(index, /npc_state_admission_mode/);
     assert.match(index, /Conservative/);
     assert.match(index, /Balanced/);

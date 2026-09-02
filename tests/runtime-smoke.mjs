@@ -30,6 +30,7 @@ const mockState = {
     uploadBarrier: null,
     readBarrier: null,
     hostChatsByAvatar: new Map(),
+    saveSettingsCalls: 0,
 };
 
 fs.writeFileSync(path.join(tempRoot, 'public', 'scripts', 'extensions.js'), `
@@ -40,7 +41,7 @@ fs.writeFileSync(path.join(tempRoot, 'public', 'script.js'), `
 export const extension_prompt_types = { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 };
 export const extension_prompt_roles = { SYSTEM: 0, USER: 1, ASSISTANT: 2 };
 export function getRequestHeaders() { return { 'Content-Type': 'application/json', 'X-CSRF-Token': 'mock' }; }
-export async function saveSettings() {}
+export async function saveSettings() { globalThis.__npcMock.saveSettingsCalls += 1; }
 `);
 
 const POPUP_TYPE = { TEXT: 1, DISPLAY: 4 };
@@ -377,7 +378,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.22');
+    assert.equal(globalThis.NPCState?.version, '0.2.23');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');
@@ -492,6 +493,34 @@ try {
     assert.equal(globalThis.NPCState.uiStatus().viewerOpen, true, 'closing the generator should return to the same still-open dossier');
     globalThis.NPCState.closeViewer();
     assert.equal(globalThis.NPCState.uiStatus().viewerOpen, false, 'focused viewer should close without affecting the chat state');
+
+    // v0.2.23: portrait settings are an explicit transaction. A custom draft must not rely on
+    // saveSettingsDebounced; Save calls the host persistence API and retains every parameter.
+    const originalPortraitSettings = globalThis.NPCState.portraitSettings();
+    const hostSavesBeforePortrait = mockState.saveSettingsCalls;
+    assert.equal(await globalThis.NPCState.savePortraitSettings({
+        portraitGenerationEnabled: true,
+        portraitThemePreset: 'custom',
+        portraitStylePositive: 'custom violet key visual, luminous eyes',
+        portraitStyleNegative: 'watermark, text, malformed hands',
+        portraitComposition: 'solo waist-up portrait, centered',
+        portraitPromptFormat: 'tags',
+        portraitUseMood: false,
+        portraitUseLocation: true,
+        portraitSaveToGallery: true,
+    }), true);
+    assert.equal(mockState.saveSettingsCalls, hostSavesBeforePortrait + 1, 'portrait Save must call the immediate host settings persistence API exactly once');
+    const savedPortraitSettings = globalThis.NPCState.portraitSettings();
+    assert.equal(savedPortraitSettings.portraitThemePreset, 'custom');
+    assert.match(savedPortraitSettings.portraitStylePositive, /custom violet key visual/);
+    assert.match(savedPortraitSettings.portraitStyleNegative, /malformed hands/);
+    assert.equal(savedPortraitSettings.portraitComposition, 'solo waist-up portrait, centered');
+    assert.equal(savedPortraitSettings.portraitPromptFormat, 'tags');
+    assert.equal(savedPortraitSettings.portraitUseMood, false);
+    assert.equal(savedPortraitSettings.portraitUseLocation, true);
+    assert.equal(savedPortraitSettings.portraitSaveToGallery, true);
+    assert.deepEqual(mockState.extensionSettings.npc_state.portraitStylePositive, savedPortraitSettings.portraitStylePositive);
+    await globalThis.NPCState.savePortraitSettings(originalPortraitSettings);
 
     // Durable-profile updates use their own top-level channel so a manual baseline can
     // organically refine even when the ordinary NPC delta object carries no profile text.
@@ -958,6 +987,85 @@ try {
     mockState.extensionSettings.npc_state.relationshipBaseline = savedMiraBaseline;
     mockState.extensionSettings.npc_state.fullScanEveryTurn = savedMiraFullScan;
 
+    // v0.2.23: an NPC involved at the beginning of a response must still reconcile when the
+    // broad full-window scan returns only a newcomer from the ending scene. Relationship uses
+    // the complete current exchange; the omitted existing NPC also gets a targeted memory repair.
+    const savedCastFullScan = mockState.extensionSettings.npc_state.fullScanEveryTurn;
+    const savedCastDepth = mockState.extensionSettings.npc_state.scanDepth;
+    mockState.extensionSettings.npc_state.fullScanEveryTurn = true;
+    mockState.extensionSettings.npc_state.scanDepth = 2;
+    const miraBeforeCast = structuredClone(globalThis.NPCState.getState().npcs.find(n => n.name === 'Mira'));
+    mockState.context.chat.push({ is_user: true, is_system: false, name: 'Kazuma', mes: 'I help Mira gather her scattered spell notes, then head across town to the apothecary.' });
+    mockState.context.chat.push({ is_user: false, is_system: false, name: 'Megumin', swipe_id: 0, mes: 'Mira accepts the recovered notes with visible relief and thanks Kazuma for taking the time to help. Later, at the apothecary, a new clerk named Neri introduces herself and points out the herb shelves.' });
+    const castSweepMessageId = mockState.context.chat.length - 1;
+    let castBroadCalls = 0;
+    let castRelationshipCalls = 0;
+    let miraContinuityCalls = 0;
+    let neriBackfillCalls = 0;
+    mockState.quietResponder = async (args = {}) => {
+        const prompt = String(args.prompt || '');
+        if (/private NPC dossier scanner/i.test(prompt) && /Neri/i.test(prompt)) {
+            castBroadCalls += 1;
+            // Deliberately omit Mira to reproduce the old failure mode.
+            return JSON.stringify({ npcs: [{
+                name: 'Neri', identityKind: 'proper_name', dossierSignal: 'meaningful', role: 'Apothecary clerk', present: true,
+                relationshipImpact: 'none', relationshipDelta: { trust: 0, affection: 0, desire: 0, tension: 0 },
+            }] });
+        }
+        if (/focused relationship evaluator/i.test(prompt)) {
+            castRelationshipCalls += 1;
+            const live = globalThis.NPCState.getState();
+            const rows = [];
+            for (const npc of live.npcs) {
+                if (!prompt.includes(npc.name)) continue;
+                const isMira = npc.name === 'Mira';
+                rows.push({
+                    id: npc.id, name: npc.name, relationshipImpact: isMira ? 'ordinary' : 'none',
+                    relationshipDelta: { trust: isMira ? 1 : 0, affection: 0, desire: 0, tension: 0 },
+                    relationshipEvidence: { trust: isMira ? 'Kazuma helped Mira gather her scattered spell notes.' : '', affection: '', desire: '', tension: '' },
+                    relationshipChangeReason: isMira ? 'Kazuma helped Mira gather her scattered spell notes.' : '',
+                    relationshipSummary: isMira ? 'Mira has another small reason to rely on Kazuma.' : '',
+                });
+            }
+            return JSON.stringify({ npcs: rows });
+        }
+        if (/targeted dossier backfill extractor/i.test(prompt) && /Requested NPC: Mira/i.test(prompt)) {
+            miraContinuityCalls += 1;
+            const id = globalThis.NPCState.getState().npcs.find(n => n.name === 'Mira')?.id;
+            return JSON.stringify({ npcs: [{
+                id, name: 'Mira', memories: ['Kazuma helped recover her scattered spell notes before leaving for the apothecary.'],
+                memoryRetention: ['Kazuma helped recover her scattered spell notes before leaving for the apothecary.'],
+                relationshipImpact: 'none', relationshipDelta: { trust: 0, affection: 0, desire: 0, tension: 0 },
+            }] });
+        }
+        if (/targeted dossier backfill extractor/i.test(prompt) && /^Requested NPC: Neri$/im.test(prompt)) {
+            neriBackfillCalls += 1;
+            const id = globalThis.NPCState.getState().npcs.find(n => n.name === 'Neri')?.id;
+            return JSON.stringify({ npcs: [{
+                id, name: 'Neri', role: 'Apothecary clerk', personality: 'Attentive and practical.', speech: 'Short professional explanations.',
+                memories: ['First met Kazuma while showing him the apothecary herb shelves.'],
+                memoryRetention: ['First met Kazuma while showing him the apothecary herb shelves.'],
+                relationshipImpact: 'none', relationshipDelta: { trust: 0, affection: 0, desire: 0, tension: 0 },
+            }] });
+        }
+        return '{"npcs":[]}';
+    };
+    eventSource.emit('message_received', castSweepMessageId);
+    await sleep(520);
+    state = globalThis.NPCState.getState();
+    const miraAfterCast = state.npcs.find(n => n.name === 'Mira');
+    const neri = state.npcs.find(n => n.name === 'Neri');
+    assert.ok(neri, 'new ending-scene NPC should be admitted');
+    assert.equal(castBroadCalls, 1, 'one full-window broad scan should discover the newcomer');
+    assert.ok(castRelationshipCalls >= 1, 'current-exchange relationship reconciliation should run even though the broad scanner omitted Mira');
+    assert.equal(miraAfterCast.relationship.trust, miraBeforeCast.relationship.trust + 1, 'Mira should gain the current-exchange trust point despite appearing before the scene transition');
+    assert.ok(miraAfterCast.memories.some(item => /scattered spell notes/i.test(item)), 'omitted current participant should receive targeted important-memory repair');
+    assert.equal(miraContinuityCalls, 1, 'cast sweep/participant repair should reconcile Mira exactly once');
+    assert.equal(neriBackfillCalls, 1, 'new NPC should receive one targeted deep reconciliation');
+    assert.equal(state.pendingBackfills.some(item => item.npcId === miraAfterCast.id || item.npcId === neri.id), false, 'successful cast reconciliation should drain the current Mira/Neri requests without deleting unrelated retry backlog');
+    mockState.extensionSettings.npc_state.fullScanEveryTurn = savedCastFullScan;
+    mockState.extensionSettings.npc_state.scanDepth = savedCastDepth;
+
     // Non-truncation structural JSON errors also get one clean correction retry. Local separator
     // repair handles missing commas without a second call; this invalid literal forces the fallback.
     let malformedRetryAttempt = 0;
@@ -1021,6 +1129,7 @@ try {
     // SillyTavern 1.18 emits MESSAGE_SWIPED before it starts Generate('swipe'). NPC State
     // must not launch generateRaw in that pre-generation window or it can steal the host request.
     const rawCallsBeforeSwipe = mockState.rawCalls.length;
+    const broadScansBeforeSwipe = mockState.rawCalls.filter(call => /isolated dossier scanner/i.test(String(call?.[0]?.systemPrompt || ''))).length;
     mockState.quietResponder = async () => '{"npcs":[]}';
     mockState.context.chat[lateDomMessageId] = {
         is_user: false, is_system: false, name: 'Megumin', swipe_id: 1,
@@ -1040,7 +1149,8 @@ try {
 
     mockState.swipeState = 'none';
     await sleep(420);
-    assert.equal(mockState.rawCalls.length, rawCallsBeforeSwipe + 1, 'settled replacement should receive exactly one deferred dossier scan');
+    const broadScansAfterSwipe = mockState.rawCalls.filter(call => /isolated dossier scanner/i.test(String(call?.[0]?.systemPrompt || ''))).length;
+    assert.equal(broadScansAfterSwipe, broadScansBeforeSwipe + 1, 'settled replacement should receive exactly one deferred dossier scan even when that scan also needs focused relationship evaluation');
     assert.equal(globalThis.NPCState.uiStatus().swipeSettlementPending, false, 'settlement queue should clear after host swipe becomes idle');
 
     // Explicit per-NPC dossier import reads Megumin's structured New_NPC / NPC_Update blocks

@@ -1,4 +1,4 @@
-/* NPC State v0.2.22 - standalone SillyTavern extension */
+/* NPC State v0.2.23 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders, saveSettings as saveHostSettings } from '../../../../script.js';
 import {
@@ -148,6 +148,8 @@ let activePortraitGeneratorChatKey = '';
 let activePortraitGeneratorNpcId = '';
 let activePortraitGenerationUrl = '';
 let portraitGenerationBusy = false;
+let portraitSettingsDirty = false;
+let portraitSettingsSaveBusy = false;
 let lastViewerActivation = { npcId: '', at: 0 };
 let lastEditorActivation = { npcId: '', at: 0 };
 let lastScanMetrics = null;
@@ -240,7 +242,7 @@ const PORTRAIT_THEME_PRESETS = Object.freeze({
 const DURABLE_COMPACTION_VERSION = 1;
 
 const DEFAULTS = Object.freeze({
-    schemaVersion: 28,
+    schemaVersion: 29,
     enabled: true,
     autoScan: true,
     fullScanEveryTurn: false,
@@ -1738,11 +1740,13 @@ function queueNpcBackfillInState(state, npcId, label, requestedMessageId = null,
         label: cleanLabel,
         requestedMessageId: Number.isInteger(requestedMessageId) ? requestedMessageId : null,
         preserveLiveState: options?.preserveLiveState === true,
+        deepSweep: options?.deepSweep === true,
+        silent: options?.silent === true,
         requestedAt: Date.now(),
         attempts: 0,
         lastAttemptAt: 0,
     });
-    if (state.pendingBackfills.length > 8) state.pendingBackfills.splice(0, state.pendingBackfills.length - 8);
+    if (state.pendingBackfills.length > 100) state.pendingBackfills.splice(0, state.pendingBackfills.length - 100);
     return state;
 }
 
@@ -1763,6 +1767,26 @@ function transcriptMentionsBackfillTarget(transcript, label) {
     const haystack = normalizeName(transcript);
     if (!target || !haystack) return false;
     return (` ${haystack} `).includes(` ${target} `);
+}
+
+function transcriptMentionsNpcRecord(transcript, npc) {
+    const haystack = ` ${normalizeName(transcript)} `;
+    if (!haystack.trim() || !npc) return false;
+    const labels = [npc.name, ...(npc.aliases || [])]
+        .map(normalizeName)
+        .filter(label => label.length >= 2);
+    return labels.some(label => haystack.includes(` ${label} `));
+}
+
+function currentExchangeRelationshipRelevant(npc, transcript, raw = null, { currentExchangeOnly = false } = {}) {
+    if (!npc || npc.archived) return false;
+    // Full-window reconciliation must never turn historical presence or a previous live flag
+    // into a fresh relationship event. Only an explicit name/alias participation cue in the
+    // current exchange can make an omitted existing dossier a relationship target. Quick scans
+    // already operate on the current exchange, so their returned row remains sufficient.
+    if (transcriptMentionsNpcRecord(transcript, npc)) return true;
+    if (currentExchangeOnly) return false;
+    return Boolean(raw);
 }
 
 
@@ -2225,6 +2249,10 @@ async function backfillNpcFromHistory(request, messageId = null) {
     if (!existing) return false;
     const transcript = recentTranscript(settings.scanDepth);
     if (!transcript) return false;
+    // Cast-wide deep sweeps consider every active dossier, but an NPC with no name/alias
+    // anywhere in the configured history window has no evidence that this pass can safely
+    // reconcile. Treat it as a clean no-op rather than spending a model call or creating a retry.
+    if (request.deepSweep === true && !transcriptMentionsNpcRecord(transcript, existing)) return true;
     const scanLineage = chatLineage(ctx.chat || []);
     const prompt = buildBackfillPrompt({
         transcript,
@@ -2284,7 +2312,7 @@ async function backfillNpcFromHistory(request, messageId = null) {
         if (!parsed.npcs.length) {
             const literalMention = transcriptMentionsBackfillTarget(transcript, request.label);
             console.warn('[NPC State] targeted backfill returned no accepted NPC', { target: request.label, literalMention, returnedCount: returned.length });
-            globalThis.toastr?.warning?.(`NPC State: ${request.label} was added, but the backfill model returned no matching dossier details from the last ${settings.scanDepth} messages.`);
+            if (!request.silent) globalThis.toastr?.warning?.(`NPC State: ${request.label} was added, but the backfill model returned no matching dossier details from the last ${settings.scanDepth} messages.`);
             return false;
         }
         const latestState = getChatState(chatKey);
@@ -2328,11 +2356,11 @@ async function backfillNpcFromHistory(request, messageId = null) {
         renderDossier();
         updateInjection();
         const savedNpc = nextState.npcs.find(npc => npc.id === request.npcId);
-        globalThis.toastr?.success?.(`NPC State: backfilled ${savedNpc?.name || request.label} from recent story context.`);
+        if (!request.silent) globalThis.toastr?.success?.(`NPC State: backfilled ${savedNpc?.name || request.label} from recent story context.`);
         return true;
     } catch (error) {
         console.error('[NPC State] dossier backfill failed', error);
-        globalThis.toastr?.warning?.(`NPC State backfill failed for ${request.label}: ${error?.message || error}`);
+        if (!request.silent) globalThis.toastr?.warning?.(`NPC State backfill failed for ${request.label}: ${error?.message || error}`);
         return false;
     } finally {
         endScanOperation(chatKey, operation);
@@ -2345,33 +2373,40 @@ async function processPendingBackfills(messageId = null) {
     const chatKey = getChatKey();
     if (chatKey === 'no-chat' || !requireReadyChatMutation('process queued dossier backfills', chatKey, { notify: false }) || isScanBusy(chatKey) || isHostSwipeActive()) return 0;
     let processed = 0;
+    const attemptedNpcIds = new Set();
     while (getChatKey() === chatKey && !isScanBusy(chatKey)) {
         const state = getChatState(chatKey);
         if (!Array.isArray(state.pendingBackfills) || !state.pendingBackfills.length) break;
-        const request = state.pendingBackfills[0];
+        const request = state.pendingBackfills.find(item => item?.npcId && !attemptedNpcIds.has(item.npcId));
+        if (!request) break;
+        attemptedNpcIds.add(request.npcId);
         const attempts = Math.max(0, Math.round(Number(request.attempts) || 0));
         if (attempts >= BACKFILL_MAX_ATTEMPTS) {
-            state.pendingBackfills.shift();
+            state.pendingBackfills = state.pendingBackfills.filter(item => item.npcId !== request.npcId);
             persist();
-            globalThis.toastr?.warning?.(`NPC State: stopped automatic backfill retries for ${request.label} after ${BACKFILL_MAX_ATTEMPTS} failed attempts. The bare dossier is preserved; use Scan dossier to retry manually.`);
+            if (!request.silent) globalThis.toastr?.warning?.(`NPC State: stopped automatic backfill retries for ${request.label} after ${BACKFILL_MAX_ATTEMPTS} failed attempts. The bare dossier is preserved; use Scan dossier to retry manually.`);
             continue;
         }
         const lastAttemptAt = Math.max(0, Number(request.lastAttemptAt || 0) || 0);
-        if (attempts > 0 && lastAttemptAt && Date.now() - lastAttemptAt < BACKFILL_RETRY_COOLDOWN_MS) break;
+        if (attempts > 0 && lastAttemptAt && Date.now() - lastAttemptAt < BACKFILL_RETRY_COOLDOWN_MS) continue;
 
         const succeeded = await backfillNpcFromHistory(request, messageId);
+        const latest = getChatState(chatKey);
         if (!succeeded) {
-            request.attempts = attempts + 1;
-            request.lastAttemptAt = Date.now();
-            if (request.attempts >= BACKFILL_MAX_ATTEMPTS) {
-                state.pendingBackfills = state.pendingBackfills.filter(item => item !== request && item.npcId !== request.npcId);
-                globalThis.toastr?.warning?.(`NPC State: automatic backfill for ${request.label} failed ${BACKFILL_MAX_ATTEMPTS} times and was removed from the retry queue. The dossier itself was not deleted.`);
+            const queued = (latest.pendingBackfills || []).find(item => item.npcId === request.npcId);
+            if (queued) {
+                queued.attempts = attempts + 1;
+                queued.lastAttemptAt = Date.now();
+                if (queued.attempts >= BACKFILL_MAX_ATTEMPTS) {
+                    latest.pendingBackfills = latest.pendingBackfills.filter(item => item.npcId !== request.npcId);
+                    if (!queued.silent) globalThis.toastr?.warning?.(`NPC State: automatic backfill for ${queued.label} failed ${BACKFILL_MAX_ATTEMPTS} times and was removed from the retry queue. The dossier itself was not deleted.`);
+                }
             }
             persist();
-            break;
+            // One failed dossier must not starve the rest of a cast reconciliation sweep.
+            continue;
         }
-        const latest = getChatState(chatKey);
-        latest.pendingBackfills = (latest.pendingBackfills || []).filter(item => item !== request && item.npcId !== request.npcId);
+        latest.pendingBackfills = (latest.pendingBackfills || []).filter(item => item.npcId !== request.npcId);
         persist();
         processed += 1;
     }
@@ -2413,80 +2448,90 @@ function hasCompletePrimaryRelationshipDecision(raw, transcript = '') {
     return true;
 }
 
-async function runFocusedRelationshipPass(ctx, parsed, existingNpcs, transcript, settings) {
+async function runFocusedRelationshipPass(ctx, parsed, existingNpcs, transcript, settings, options = {}) {
     const returned = Array.isArray(parsed?.npcs) ? parsed.npcs : [];
-    // The focused evaluator is a REPAIR path, not a mandatory second scanner. A complete
-    // primary relationship decision is applied directly, keeping normal scans to one model call.
+    // Relationship reconciliation is keyed to the CURRENT exchange, not to whether the broad
+    // dossier scanner happened to return a row. This prevents an NPC who acts early in a long
+    // response from being skipped merely because the response ends with another cast/location.
     const targets = (Array.isArray(existingNpcs) ? existingNpcs : [])
         .filter(npc => !npc?.archived)
         .filter(npc => {
             const raw = returned.find(item => rawScanMatchesExisting(item, npc));
-            return Boolean(raw) && !hasCompletePrimaryRelationshipDecision(raw, transcript);
-        })
-        .slice(0, 4);
+            if (!currentExchangeRelationshipRelevant(npc, transcript, raw, options)) return false;
+            return !raw || !hasCompletePrimaryRelationshipDecision(raw, transcript);
+        });
     if (!targets.length) return { decisions: new Map(), used: false, responseChars: 0, retried: false, targetCount: 0 };
 
-    try {
-        const relationshipPrompt = buildRelationshipPassPrompt({
-            transcript,
-            targets,
-            userName: ctx.name1 || 'User',
-            relationshipCriteria: settings.relationshipCriteria,
-            impactCriteria: settings.relationshipImpactCriteria,
-            relationshipCaps: settings.relationshipCaps,
-        });
-        const { parsed: relationshipParsed, raw, retried } = await generateParsedNpcJson(ctx, {
-            systemPrompt: "You are NPC State's isolated relationship evaluator. Use only the supplied targets and current exchange. Return only the requested JSON object.",
-            prompt: relationshipPrompt,
-            responseLength: RELATIONSHIP_RESPONSE_LENGTH,
-            label: 'relationship pass',
-        });
-        const decisions = new Map();
-        for (const target of targets) {
-            const rawDecision = (relationshipParsed.npcs || []).find(item => String(item?.id || '') === String(target.id) || (item?.name && npcMatchesLabel(target, item.name)));
-            if (!rawDecision) continue;
-            const deltaSource = rawDecision.relationshipDelta ?? rawDecision.relationship_delta;
-            const hasFullDelta = deltaSource && typeof deltaSource === 'object'
-                && ['trust', 'affection', 'desire', 'tension'].every(key => Number.isFinite(Number(deltaSource[key])));
-            if (!hasFullDelta) continue;
-            const normalized = normalizeScanNpc(rawDecision);
-            const requestedHasDelta = Object.values(normalized.relationshipDelta).some(value => value !== 0);
-            const reasonPresent = Boolean(String(normalized.relationshipChangeReason || '').trim());
-            const relationshipDelta = requestedHasDelta && reasonPresent
-                ? filterRelationshipDeltaByEvidence(normalized.relationshipDelta, normalized.relationshipEvidence, transcript)
-                : { trust: 0, affection: 0, desire: 0, tension: 0 };
-            const hasNonZeroNormalizedDelta = Object.values(relationshipDelta).some(value => value !== 0);
-            const relationshipImpact = hasNonZeroNormalizedDelta ? normalized.relationshipImpact : 'none';
-            const rawSummary = rawDecision.relationshipSummary ?? rawDecision.relationship_summary;
-            const explicitSummaryProvided = typeof rawSummary === 'string';
-            const explicitSummary = explicitSummaryProvided ? String(rawSummary).trim().slice(0, 700) : '';
-            const hasNonZeroDelta = Object.values(relationshipDelta).some(value => value !== 0);
-            const needsTurningPointSummary = hasNonZeroDelta && ['major', 'extreme'].includes(relationshipImpact);
-            const fallbackSummary = needsTurningPointSummary && !explicitSummary && normalized.relationshipChangeReason
-                ? `${target.name || 'This NPC'}'s relationship with the player changed ${normalized.relationshipImpact === 'extreme' ? 'fundamentally' : 'substantially'}: ${normalized.relationshipChangeReason}`.slice(0, 700)
-                : '';
-            const relationshipSummary = explicitSummary || fallbackSummary;
-            const relationshipSummaryDecisionProvided = explicitSummaryProvided || Boolean(fallbackSummary);
-            decisions.set(target.id, {
-                relationshipDelta,
-                relationshipImpact,
-                relationshipEvidence: normalized.relationshipEvidence,
-                relationshipChangeReason: normalized.relationshipChangeReason,
-                relationshipSummary,
-                relationshipSummaryDecisionProvided,
+    const decisions = new Map();
+    let responseChars = 0;
+    let retried = false;
+    let failed = false;
+    for (let offset = 0; offset < targets.length; offset += 4) {
+        const batch = targets.slice(offset, offset + 4);
+        try {
+            const relationshipPrompt = buildRelationshipPassPrompt({
+                transcript,
+                targets: batch,
+                userName: ctx.name1 || 'User',
+                relationshipCriteria: settings.relationshipCriteria,
+                impactCriteria: settings.relationshipImpactCriteria,
+                relationshipCaps: settings.relationshipCaps,
             });
-        }
-        if (decisions.size !== targets.length) {
-            console.warn('[NPC State] focused relationship pass omitted or malformed one or more target decisions.', {
-                targets: targets.map(npc => npc.id),
-                decided: [...decisions.keys()],
+            const { parsed: relationshipParsed, raw, retried: batchRetried } = await generateParsedNpcJson(ctx, {
+                systemPrompt: "You are NPC State's isolated relationship evaluator. Use only the supplied targets and current exchange. Return only the requested JSON object.",
+                prompt: relationshipPrompt,
+                responseLength: RELATIONSHIP_RESPONSE_LENGTH,
+                label: `relationship pass ${Math.floor(offset / 4) + 1}`,
             });
+            responseChars += String(raw ?? '').length;
+            retried ||= Boolean(batchRetried);
+            for (const target of batch) {
+                const rawDecision = (relationshipParsed.npcs || []).find(item => String(item?.id || '') === String(target.id) || (item?.name && npcMatchesLabel(target, item.name)));
+                if (!rawDecision) continue;
+                const deltaSource = rawDecision.relationshipDelta ?? rawDecision.relationship_delta;
+                const hasFullDelta = deltaSource && typeof deltaSource === 'object'
+                    && ['trust', 'affection', 'desire', 'tension'].every(key => Number.isFinite(Number(deltaSource[key])));
+                if (!hasFullDelta) continue;
+                const normalized = normalizeScanNpc(rawDecision);
+                const requestedHasDelta = Object.values(normalized.relationshipDelta).some(value => value !== 0);
+                const reasonPresent = Boolean(String(normalized.relationshipChangeReason || '').trim());
+                const relationshipDelta = requestedHasDelta && reasonPresent
+                    ? filterRelationshipDeltaByEvidence(normalized.relationshipDelta, normalized.relationshipEvidence, transcript)
+                    : { trust: 0, affection: 0, desire: 0, tension: 0 };
+                const hasNonZeroNormalizedDelta = Object.values(relationshipDelta).some(value => value !== 0);
+                const relationshipImpact = hasNonZeroNormalizedDelta ? normalized.relationshipImpact : 'none';
+                const rawSummary = rawDecision.relationshipSummary ?? rawDecision.relationship_summary;
+                const explicitSummaryProvided = typeof rawSummary === 'string';
+                const explicitSummary = explicitSummaryProvided ? String(rawSummary).trim().slice(0, 700) : '';
+                const hasNonZeroDelta = Object.values(relationshipDelta).some(value => value !== 0);
+                const needsTurningPointSummary = hasNonZeroDelta && ['major', 'extreme'].includes(relationshipImpact);
+                const fallbackSummary = needsTurningPointSummary && !explicitSummary && normalized.relationshipChangeReason
+                    ? `${target.name || 'This NPC'}'s relationship with the player changed ${normalized.relationshipImpact === 'extreme' ? 'fundamentally' : 'substantially'}: ${normalized.relationshipChangeReason}`.slice(0, 700)
+                    : '';
+                const relationshipSummary = explicitSummary || fallbackSummary;
+                const relationshipSummaryDecisionProvided = explicitSummaryProvided || Boolean(fallbackSummary);
+                decisions.set(target.id, {
+                    relationshipDelta,
+                    relationshipImpact,
+                    relationshipEvidence: normalized.relationshipEvidence,
+                    relationshipChangeReason: normalized.relationshipChangeReason,
+                    relationshipSummary,
+                    relationshipSummaryDecisionProvided,
+                });
+            }
+            const missing = batch.filter(target => !decisions.has(target.id));
+            if (missing.length) {
+                console.warn('[NPC State] focused relationship pass omitted or malformed one or more target decisions.', {
+                    targets: batch.map(npc => npc.id),
+                    decided: batch.filter(npc => decisions.has(npc.id)).map(npc => npc.id),
+                });
+            }
+        } catch (error) {
+            failed = true;
+            console.warn('[NPC State] focused relationship batch failed; retaining safe zero/primary output for that batch.', error);
         }
-        return { decisions, used: true, responseChars: String(raw ?? '').length, retried: Boolean(retried), targetCount: targets.length };
-    } catch (error) {
-        console.warn('[NPC State] focused relationship pass failed; retaining the primary scanner relationship output.', error);
-        return { decisions: new Map(), used: true, responseChars: 0, retried: false, targetCount: targets.length, failed: true };
     }
+    return { decisions, used: true, responseChars, retried, targetCount: targets.length, failed };
 }
 
 function prepareFullWindowRelationshipEvaluation(parsed, existingNpcs) {
@@ -2736,10 +2781,20 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
         relationshipEdgeFallbacks = explicitRelationshipEdges.length;
         relationshipEdgeCount = modelEdges.length + explicitRelationshipEdges.length;
         if (explicitRelationshipEdges.length) resolvedParsed.keyRelationshipEdges = [...modelEdges, ...explicitRelationshipEdges];
-        const fullWindowRelationship = fullWindowScan
+        // Any scan that reads rolling history must scrub numeric relationship output from the
+        // broad dossier scanner. Relationship movement is evaluated separately against the
+        // current exchange only, so manual/full scans cannot replay older relationship events.
+        const fullWindowRelationship = (manual || fullWindowScan)
             ? prepareFullWindowRelationshipEvaluation(resolvedParsed, state.npcs)
             : { evaluation: resolvedParsed, mergeSafe: resolvedParsed };
-        const relationshipPass = await runFocusedRelationshipPass(ctx, fullWindowRelationship.evaluation, state.npcs, currentTranscript || transcript, settings);
+        const relationshipPass = await runFocusedRelationshipPass(
+            ctx,
+            fullWindowRelationship.evaluation,
+            state.npcs,
+            currentTranscript || transcript,
+            settings,
+            { currentExchangeOnly: manual || fullWindowScan },
+        );
         const scanFinishedAt = performance.now?.() ?? Date.now();
         lastScanMetrics = {
             label: manual ? 'manual' : (fullWindowScan ? 'automatic-full' : 'automatic'),
@@ -2807,6 +2862,7 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
                         batch,
                         currentTranscript || transcript,
                         settings,
+                        { currentExchangeOnly: true },
                     );
                     for (const [id, decision] of result.decisions || []) combinedDecisions.set(id, decision);
                     combinedTargetCount += Number(result.targetCount || 0);
@@ -2862,10 +2918,31 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
             lastScannedMessageId: Number.isInteger(messageId) ? messageId : ((ctx.chat || []).length - 1),
             scanCount: Number(state.scanCount || 0) + 1,
         };
-        if (!manual && newlyAdmittedIds.length) {
-            for (const id of newlyAdmittedIds) {
-                const npc = nextState.npcs.find(item => item.id === id && !item.archived);
-                if (npc) queueNpcBackfillInState(nextState, npc.id, npc.name, targetMessageId, { preserveLiveState: true });
+        if (!manual) {
+            // If the broad scanner omitted an NPC explicitly involved anywhere in the current
+            // exchange, schedule a silent targeted continuity repair so memories/profile changes
+            // get the same second chance as relationship scoring.
+            const touchedIds = new Set([...(merged.report?.updated || []), ...newlyAdmittedIds]);
+            for (const npc of nextState.npcs || []) {
+                if (npc.archived || touchedIds.has(npc.id) || !transcriptMentionsNpcRecord(currentTranscript || '', npc)) continue;
+                queueNpcBackfillInState(nextState, npc.id, npc.name, targetMessageId, {
+                    preserveLiveState: true,
+                    silent: true,
+                });
+            }
+
+            // A cast topology change is a natural checkpoint for a deeper continuity sweep.
+            // Consider every active dossier; the backfill worker turns dossiers with no evidence
+            // in the configured history window into clean no-ops instead of spending model calls.
+            if (newlyAdmittedIds.length) {
+                for (const npc of nextState.npcs || []) {
+                    if (npc.archived) continue;
+                    queueNpcBackfillInState(nextState, npc.id, npc.name, targetMessageId, {
+                        preserveLiveState: true,
+                        deepSweep: true,
+                        silent: true,
+                    });
+                }
             }
         }
         const inlineIds = scanInlineNpcIds(resolvedParsed, merged);
@@ -2959,7 +3036,11 @@ function buildSettingsHtml() {
                 ${settingRow('npc_state_portrait_use_location', 'Use current location', '<input id="npc_state_portrait_use_location" type="checkbox">', 'Off by default so portraits stay character-focused.')}
                 ${settingRow('npc_state_portrait_save_gallery', 'Also save to ST character gallery', '<input id="npc_state_portrait_save_gallery" type="checkbox">', 'Off by default. NPC State embeds only the result you choose as its portrait. Enable this if you also want each native generation placed in the current SillyTavern character gallery.')}
               </div>
-              <div class="npc-state-actions npc-state-tuning-actions"><div id="npc_state_reset_portrait_theme" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Reset Fantasy Anime theme</div></div>
+              <div class="npc-state-actions npc-state-tuning-actions">
+                <div id="npc_state_reset_portrait_theme" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Reset Fantasy Anime theme</div>
+                <div id="npc_state_save_portrait_settings" class="menu_button"><i class="fa-solid fa-floppy-disk"></i> Save Portrait Settings</div>
+                <small id="npc_state_portrait_settings_status" class="npc-state-muted">Saved</small>
+              </div>
             </div>
           </details>
           <details class="npc-state-relationship-tuning">
@@ -3036,15 +3117,18 @@ function syncSettingsControls() {
     $('#npc_state_archive_deaths').prop('checked', s.autoArchiveDeaths !== false);
     $('#npc_state_reactivate_archived').prop('checked', s.autoReactivateArchived !== false);
     $('#npc_state_branch_rescan').prop('checked', s.branchRescan !== false);
-    $('#npc_state_portrait_generation_enabled').prop('checked', s.portraitGenerationEnabled !== false);
-    $('#npc_state_portrait_theme_preset').val(s.portraitThemePreset);
-    $('#npc_state_portrait_style_positive').val(s.portraitStylePositive);
-    $('#npc_state_portrait_style_negative').val(s.portraitStyleNegative);
-    $('#npc_state_portrait_composition').val(s.portraitComposition);
-    $('#npc_state_portrait_prompt_format').val(s.portraitPromptFormat);
-    $('#npc_state_portrait_use_mood').prop('checked', s.portraitUseMood !== false);
-    $('#npc_state_portrait_use_location').prop('checked', s.portraitUseLocation === true);
-    $('#npc_state_portrait_save_gallery').prop('checked', s.portraitSaveToGallery === true);
+    if (!portraitSettingsDirty) {
+        $('#npc_state_portrait_generation_enabled').prop('checked', s.portraitGenerationEnabled !== false);
+        $('#npc_state_portrait_theme_preset').val(s.portraitThemePreset);
+        $('#npc_state_portrait_style_positive').val(s.portraitStylePositive);
+        $('#npc_state_portrait_style_negative').val(s.portraitStyleNegative);
+        $('#npc_state_portrait_composition').val(s.portraitComposition);
+        $('#npc_state_portrait_prompt_format').val(s.portraitPromptFormat);
+        $('#npc_state_portrait_use_mood').prop('checked', s.portraitUseMood !== false);
+        $('#npc_state_portrait_use_location').prop('checked', s.portraitUseLocation === true);
+        $('#npc_state_portrait_save_gallery').prop('checked', s.portraitSaveToGallery === true);
+    }
+    updatePortraitSettingsSaveUi();
     $('#npc_state_base_trust').val(s.relationshipBaseline.trust);
     $('#npc_state_base_affection').val(s.relationshipBaseline.affection);
     $('#npc_state_base_desire').val(s.relationshipBaseline.desire);
@@ -4740,6 +4824,112 @@ async function importDossierBundle(file) {
     }
 }
 
+function portraitSettingsSnapshot(source = getSettings()) {
+    return {
+        portraitGenerationEnabled: source.portraitGenerationEnabled !== false,
+        portraitThemePreset: PORTRAIT_THEME_PRESETS[source.portraitThemePreset] ? source.portraitThemePreset : 'custom',
+        portraitStylePositive: String(source.portraitStylePositive ?? DEFAULT_PORTRAIT_STYLE_POSITIVE).slice(0, 2400),
+        portraitStyleNegative: String(source.portraitStyleNegative ?? DEFAULT_PORTRAIT_STYLE_NEGATIVE).slice(0, 2400),
+        portraitComposition: String(source.portraitComposition ?? DEFAULT_PORTRAIT_COMPOSITION).slice(0, 1200),
+        portraitPromptFormat: normalizePortraitPromptFormat(source.portraitPromptFormat),
+        portraitUseMood: source.portraitUseMood !== false,
+        portraitUseLocation: source.portraitUseLocation === true,
+        portraitSaveToGallery: source.portraitSaveToGallery === true,
+    };
+}
+
+function normalizePortraitSettingsDraft(raw = {}) {
+    const current = portraitSettingsSnapshot(getSettings());
+    const key = PORTRAIT_THEME_PRESETS[raw.portraitThemePreset] ? raw.portraitThemePreset : (raw.portraitThemePreset === 'custom' ? 'custom' : current.portraitThemePreset);
+    const preset = PORTRAIT_THEME_PRESETS[key];
+    const next = {
+        portraitGenerationEnabled: raw.portraitGenerationEnabled !== undefined ? Boolean(raw.portraitGenerationEnabled) : current.portraitGenerationEnabled,
+        portraitThemePreset: key,
+        portraitStylePositive: String(raw.portraitStylePositive ?? current.portraitStylePositive).slice(0, 2400),
+        portraitStyleNegative: String(raw.portraitStyleNegative ?? current.portraitStyleNegative).slice(0, 2400),
+        portraitComposition: String(raw.portraitComposition ?? current.portraitComposition).slice(0, 1200),
+        portraitPromptFormat: normalizePortraitPromptFormat(raw.portraitPromptFormat ?? current.portraitPromptFormat),
+        portraitUseMood: raw.portraitUseMood !== undefined ? Boolean(raw.portraitUseMood) : current.portraitUseMood,
+        portraitUseLocation: raw.portraitUseLocation !== undefined ? Boolean(raw.portraitUseLocation) : current.portraitUseLocation,
+        portraitSaveToGallery: raw.portraitSaveToGallery !== undefined ? Boolean(raw.portraitSaveToGallery) : current.portraitSaveToGallery,
+    };
+    if (key !== 'custom' && preset) {
+        next.portraitStylePositive = preset.positive;
+        next.portraitStyleNegative = preset.negative;
+    }
+    return next;
+}
+
+function portraitSettingsDraftFromUi() {
+    return normalizePortraitSettingsDraft({
+        portraitGenerationEnabled: $('#npc_state_portrait_generation_enabled').prop('checked'),
+        portraitThemePreset: String($('#npc_state_portrait_theme_preset').val() || 'custom'),
+        portraitStylePositive: String($('#npc_state_portrait_style_positive').val() || ''),
+        portraitStyleNegative: String($('#npc_state_portrait_style_negative').val() || ''),
+        portraitComposition: String($('#npc_state_portrait_composition').val() || ''),
+        portraitPromptFormat: String($('#npc_state_portrait_prompt_format').val() || 'hybrid'),
+        portraitUseMood: $('#npc_state_portrait_use_mood').prop('checked'),
+        portraitUseLocation: $('#npc_state_portrait_use_location').prop('checked'),
+        portraitSaveToGallery: $('#npc_state_portrait_save_gallery').prop('checked'),
+    });
+}
+
+function writePortraitSettingsDraftToUi(draft) {
+    const next = normalizePortraitSettingsDraft(draft);
+    $('#npc_state_portrait_generation_enabled').prop('checked', next.portraitGenerationEnabled);
+    $('#npc_state_portrait_theme_preset').val(next.portraitThemePreset);
+    $('#npc_state_portrait_style_positive').val(next.portraitStylePositive);
+    $('#npc_state_portrait_style_negative').val(next.portraitStyleNegative);
+    $('#npc_state_portrait_composition').val(next.portraitComposition);
+    $('#npc_state_portrait_prompt_format').val(next.portraitPromptFormat);
+    $('#npc_state_portrait_use_mood').prop('checked', next.portraitUseMood);
+    $('#npc_state_portrait_use_location').prop('checked', next.portraitUseLocation);
+    $('#npc_state_portrait_save_gallery').prop('checked', next.portraitSaveToGallery);
+    return next;
+}
+
+function updatePortraitSettingsSaveUi() {
+    const button = $('#npc_state_save_portrait_settings');
+    const status = $('#npc_state_portrait_settings_status');
+    button.toggleClass?.('npc-state-busy', portraitSettingsSaveBusy);
+    button.prop?.('disabled', portraitSettingsSaveBusy);
+    if (portraitSettingsSaveBusy) status.text?.('Saving…');
+    else if (portraitSettingsDirty) status.text?.('Unsaved changes');
+    else status.text?.('Saved');
+}
+
+function markPortraitSettingsDirty() {
+    portraitSettingsDirty = true;
+    updatePortraitSettingsSaveUi();
+}
+
+async function savePortraitSettingsDraft(explicitDraft = null) {
+    if (portraitSettingsSaveBusy) return false;
+    const settings = getSettings();
+    const before = portraitSettingsSnapshot(settings);
+    const next = normalizePortraitSettingsDraft(explicitDraft || portraitSettingsDraftFromUi());
+    Object.assign(settings, next);
+    portraitSettingsSaveBusy = true;
+    updatePortraitSettingsSaveUi();
+    try {
+        await saveHostSettings();
+        portraitSettingsDirty = false;
+        portraitSettingsSaveBusy = false;
+        syncSettingsControls();
+        refreshNpcViewer();
+        globalThis.toastr?.success?.('NPC State: portrait settings saved.');
+        return true;
+    } catch (error) {
+        Object.assign(settings, before);
+        portraitSettingsSaveBusy = false;
+        portraitSettingsDirty = true;
+        updatePortraitSettingsSaveUi();
+        console.error('[NPC State] portrait settings save failed', error);
+        globalThis.toastr?.error?.(`NPC State portrait settings were not saved: ${error?.message || error}`);
+        return false;
+    }
+}
+
 function bindSettingsCheckbox(selector, key, after = null) {
     $(document).on('change.npcState', selector, function () {
         getSettings()[key] = Boolean(this.checked);
@@ -4776,47 +4966,40 @@ function bindUi() {
     bindSettingsCheckbox('#npc_state_archive_deaths', 'autoArchiveDeaths');
     bindSettingsCheckbox('#npc_state_reactivate_archived', 'autoReactivateArchived');
     bindSettingsCheckbox('#npc_state_branch_rescan', 'branchRescan');
-    bindSettingsCheckbox('#npc_state_portrait_generation_enabled', 'portraitGenerationEnabled', refreshNpcViewer);
     $(document).on('change.npcState', '#npc_state_portrait_theme_preset', function () {
-        const settings = getSettings();
         const key = PORTRAIT_THEME_PRESETS[this.value] ? this.value : 'custom';
-        settings.portraitThemePreset = key;
         const preset = PORTRAIT_THEME_PRESETS[key];
-        if (key !== 'custom') {
-            settings.portraitStylePositive = preset.positive;
-            settings.portraitStyleNegative = preset.negative;
+        if (key !== 'custom' && preset) {
+            $('#npc_state_portrait_style_positive').val(preset.positive);
+            $('#npc_state_portrait_style_negative').val(preset.negative);
         }
-        syncSettingsControls(); persistSettings();
+        markPortraitSettingsDirty();
     });
-    $(document).on('change.npcState', '#npc_state_portrait_style_positive, #npc_state_portrait_style_negative', function () {
-        const settings = getSettings();
-        settings.portraitStylePositive = String($('#npc_state_portrait_style_positive').val() || '').slice(0, 2400);
-        settings.portraitStyleNegative = String($('#npc_state_portrait_style_negative').val() || '').slice(0, 2400);
-        settings.portraitThemePreset = 'custom';
-        syncSettingsControls(); persistSettings();
+    $(document).on('input.npcState', '#npc_state_portrait_style_positive, #npc_state_portrait_style_negative, #npc_state_portrait_composition', function () {
+        if (this.id === 'npc_state_portrait_style_positive' || this.id === 'npc_state_portrait_style_negative') {
+            $('#npc_state_portrait_theme_preset').val('custom');
+        }
+        markPortraitSettingsDirty();
     });
-    $(document).on('change.npcState', '#npc_state_portrait_composition', function () {
-        getSettings().portraitComposition = String(this.value || '').slice(0, 1200); persistSettings();
+    $(document).on('change.npcState', '#npc_state_portrait_generation_enabled, #npc_state_portrait_prompt_format, #npc_state_portrait_use_mood, #npc_state_portrait_use_location, #npc_state_portrait_save_gallery', () => {
+        markPortraitSettingsDirty();
     });
-    $(document).on('change.npcState', '#npc_state_portrait_prompt_format', function () {
-        getSettings().portraitPromptFormat = normalizePortraitPromptFormat(this.value); this.value = getSettings().portraitPromptFormat; persistSettings();
-    });
-    bindSettingsCheckbox('#npc_state_portrait_use_mood', 'portraitUseMood');
-    bindSettingsCheckbox('#npc_state_portrait_use_location', 'portraitUseLocation');
-    bindSettingsCheckbox('#npc_state_portrait_save_gallery', 'portraitSaveToGallery');
     $(document).on('click.npcState', '#npc_state_reset_portrait_theme', () => {
-        const settings = getSettings();
-        settings.portraitThemePreset = 'fantasy_anime';
-        settings.portraitStylePositive = DEFAULT_PORTRAIT_STYLE_POSITIVE;
-        settings.portraitStyleNegative = DEFAULT_PORTRAIT_STYLE_NEGATIVE;
-        settings.portraitComposition = DEFAULT_PORTRAIT_COMPOSITION;
-        settings.portraitPromptFormat = 'hybrid';
-        settings.portraitUseMood = true;
-        settings.portraitUseLocation = false;
-        settings.portraitSaveToGallery = false;
-        syncSettingsControls(); persistSettings();
-        globalThis.toastr?.success?.('NPC State: portrait generation theme reset to Fantasy Anime defaults.');
+        writePortraitSettingsDraftToUi({
+            portraitGenerationEnabled: true,
+            portraitThemePreset: 'fantasy_anime',
+            portraitStylePositive: DEFAULT_PORTRAIT_STYLE_POSITIVE,
+            portraitStyleNegative: DEFAULT_PORTRAIT_STYLE_NEGATIVE,
+            portraitComposition: DEFAULT_PORTRAIT_COMPOSITION,
+            portraitPromptFormat: 'hybrid',
+            portraitUseMood: true,
+            portraitUseLocation: false,
+            portraitSaveToGallery: false,
+        });
+        markPortraitSettingsDirty();
+        globalThis.toastr?.info?.('NPC State: Fantasy Anime defaults loaded as an unsaved portrait-settings draft.');
     });
+    $(document).on('click.npcState', '#npc_state_save_portrait_settings', () => { void savePortraitSettingsDraft(); });
     bindSettingsNumber('#npc_state_scan_every', 'scanEvery', 1, 20, 2);
     bindSettingsNumber('#npc_state_scan_depth', 'scanDepth', 2, 30, 6);
     $(document).on('change.npcState', '#npc_state_admission_mode', function () {
@@ -5397,6 +5580,9 @@ window.NPCState = Object.freeze({
         );
     },
     openPortraitGenerator: value => { const npc = findNpcByIdOrName(value); return npc ? openPortraitGenerator(npc.id) : false; },
+    portraitSettings: () => portraitSettingsSnapshot(getSettings()),
+    portraitSettingsDirty: () => portraitSettingsDirty,
+    savePortraitSettings: draft => savePortraitSettingsDraft(draft),
     render: renderDossier,
     renderInline: renderInlineCards,
     openEditor: value => { const npc = findNpcByIdOrName(value); return npc ? openNpcEditorSafely(npc.id) : false; },
