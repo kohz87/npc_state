@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.18
+
+- Promotes the fully verified owner-qualified identity and storage hardening as the actual production release.
+- Corrects release metadata so manifest, runtime constant, README, tests, and reports all agree on v0.2.18.
+- Keeps permanent CI read-only and version-neutral while moving the ten-pass release gate into a separate temporary workflow.
+- Avoids GitHub App workflow-permission failures by never asking CI-authored commits to modify `.github/workflows/**`.
+
+## 0.2.17
+
+- Owner-qualified chat identity prevents same-filename character and group conversations from sharing state.
+- Legacy unqualified sidecars migrate only when active conversation lineage proves ownership; ambiguous legacy data remains recoverable.
+- Branch ancestry is restricted to the same character/group owner.
+- Destructive tombstones override stale live pointers after interrupted delete/retire operations.
+- Successful unchanged hydration is marked clean so page-hide does not force a redundant whole-sidecar rewrite.
+- Portrait assets are garbage-collected against live/branch-restorable NPC ids and permanent deletion tombstones.
+- Branch checkpoint snapshots are adaptively compacted under a bounded serialized-character budget.
+- Hydrated chat state uses bounded LRU-style eviction once pending writes, loads, and scans have settled.
+- High-value manual dossier edits, imports, deletes, archive changes, and portrait changes start persistence immediately.
+- Production CI returns to read-only, version-neutral verification after the ten-pass release gate.
+
 ## 0.2.16
 
 - Release verification for the completed chat-identity and persistent-ownership hardening.

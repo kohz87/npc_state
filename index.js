@@ -1,4 +1,4 @@
-/* NPC State v0.2.16 - standalone SillyTavern extension */
+/* NPC State v0.2.18 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';
 import {
@@ -80,6 +80,7 @@ import {
     fingerprintMessage,
     firstLineageDivergence,
     lineageCheckpointKey,
+    legacyChatLineageV0210,
     addUserDismissedGroup,
     clearUserDismissedGroupsFor,
     ensureBranchParentAnchor,
@@ -104,6 +105,17 @@ import {
     retireNpcStateDataFile,
     writeNpcStateDataFile,
 } from './storage.js';
+import {
+    buildQualifiedChatKey,
+    chatOwnerScope,
+    encodeChatKeyPart,
+    getCharacterOwnerId,
+    getChatIdentityFromContext,
+    isQualifiedChatKey,
+    legacyChatKey,
+    parseQualifiedChatKey,
+    sameChatOwnerScope,
+} from './identity.js';
 
 const EXTENSION_NAME = 'npc_state';
 const PROMPT_KEY = 'npc_state_live_dossier';
@@ -149,6 +161,8 @@ const stateWritePromises = new Map();
 const stateVersions = new Map();
 const persistedVersions = new Map();
 const ownershipEpochs = new Map();
+const chatCacheTouches = new Map();
+const CHAT_CACHE_LIMIT = 6;
 const BRANCH_INDEX_PREFIX_LIMIT = 12;
 const BRANCH_INDEX_MAX_CANDIDATES = 16;
 const LEGACY_BRANCH_DISCOVERY_LIMIT = 8;
@@ -211,7 +225,7 @@ const PORTRAIT_THEME_PRESETS = Object.freeze({
 const DURABLE_COMPACTION_VERSION = 1;
 
 const DEFAULTS = Object.freeze({
-    schemaVersion: 25,
+    schemaVersion: 26,
     enabled: true,
     autoScan: true,
     fullScanEveryTurn: false,
@@ -248,6 +262,7 @@ const DEFAULTS = Object.freeze({
     sidecarTombstones: {},
     recoveryFiles: {},
     branchIndex: {},
+    legacyOwnershipClaims: {},
 });
 
 function escapeHtml(value) {
@@ -291,6 +306,7 @@ function getSettings() {
     if (!settings.sidecarTombstones || typeof settings.sidecarTombstones !== 'object') assign('sidecarTombstones', {});
     if (!settings.recoveryFiles || typeof settings.recoveryFiles !== 'object') assign('recoveryFiles', {});
     if (!settings.branchIndex || typeof settings.branchIndex !== 'object') assign('branchIndex', {});
+    if (!settings.legacyOwnershipClaims || typeof settings.legacyOwnershipClaims !== 'object') assign('legacyOwnershipClaims', {});
 
     // One-shot migrations. All changes are saved once at the end rather than once
     // per historical schema step, which matters on older installations.
@@ -370,18 +386,7 @@ function getSettings() {
 }
 
 function getChatIdentity(ctx = getContext()) {
-    const raw = ctx.chatId || ctx.getCurrentChatId?.();
-    const hasGroup = ctx.groupId !== undefined && ctx.groupId !== null && String(ctx.groupId) !== '';
-    if (hasGroup) {
-        if (raw) return { key: `group:${raw}`, kind: 'group', id: String(raw), pending: false };
-        return { key: `group-pending:${ctx.groupId}`, kind: 'group', id: String(ctx.groupId), pending: true };
-    }
-    if (raw) return { key: `chat:${raw}`, kind: 'chat', id: String(raw), pending: false };
-    if (ctx.characterId !== undefined && ctx.characterId !== null) {
-        const avatar = ctx.characters?.[ctx.characterId]?.avatar || ctx.characterId;
-        return { key: `character:${avatar}`, kind: 'character', id: String(avatar), pending: true };
-    }
-    return { key: 'no-chat', kind: 'none', id: '', pending: true };
+    return getChatIdentityFromContext(ctx);
 }
 
 function getChatKey() {
@@ -389,7 +394,65 @@ function getChatKey() {
 }
 
 function isCanonicalChatKey(key = getChatKey()) {
-    return /^chat:|^group:/.test(String(key || ''));
+    return isQualifiedChatKey(key);
+}
+
+function resolveOwnedChatKey(rawId, kind = 'chat', ownerId = '') {
+    const id = String(rawId ?? '').replace(/\.jsonl$/i, '').trim();
+    if (!id) return '';
+    const resolvedOwner = String(ownerId || (kind === 'group' ? getContext().groupId || '' : getCharacterOwnerId(getContext()))).trim();
+    const direct = buildQualifiedChatKey(kind, resolvedOwner, id);
+    const suffix = `:${encodeChatKeyPart(id)}`;
+    const prefix = `${kind}:`;
+    const settings = getSettings();
+    const keys = new Set([
+        ...Object.keys(settings.dataFiles || {}),
+        ...Object.keys(settings.branchIndex || {}),
+        ...Object.keys(settings.sidecarTombstones || {}),
+        ...Object.keys(settings.recoveryFiles || {}),
+        ...chatStateCache.keys(),
+    ]);
+    if (direct && keys.has(direct)) return direct;
+    const matches = [...keys].filter(key => isCanonicalChatKey(key) && key.startsWith(prefix) && key.endsWith(suffix));
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) {
+        console.warn(`[NPC State] refused ambiguous ${kind} lifecycle lookup for ${id}; ${matches.length} owner-qualified states share that chat id.`);
+        return '';
+    }
+    return direct;
+}
+
+function touchChatCache(key) {
+    if (!isCanonicalChatKey(key)) return;
+    chatCacheTouches.set(key, Date.now());
+}
+
+function forgetCachedChat(key) {
+    if (!key || key === getChatKey()) return false;
+    if (stateWriteTimers.has(key) || stateWritePromises.has(key) || loadingChatStates.has(key) || isScanBusy(key)) return false;
+    chatStateCache.delete(key);
+    loadedChatKeys.delete(key);
+    hydrationErrors.delete(key);
+    pendingAutoScans.delete(key);
+    stateVersions.delete(key);
+    persistedVersions.delete(key);
+    chatCacheTouches.delete(key);
+    return true;
+}
+
+function evictDormantChatStates(activeKey = getChatKey(), limit = CHAT_CACHE_LIMIT) {
+    const cap = Math.max(2, Number(limit) || CHAT_CACHE_LIMIT);
+    const loaded = [...chatStateCache.keys()].filter(isCanonicalChatKey);
+    if (loaded.length <= cap) return 0;
+    const candidates = loaded
+        .filter(key => key !== activeKey)
+        .sort((a, b) => Number(chatCacheTouches.get(a) || 0) - Number(chatCacheTouches.get(b) || 0));
+    let removed = 0;
+    for (const key of candidates) {
+        if (chatStateCache.size <= cap) break;
+        if (forgetCachedChat(key)) removed += 1;
+    }
+    return removed;
 }
 
 function ownershipEpoch(key) {
@@ -508,6 +571,7 @@ function normalizeChatState(raw = {}) {
 function getChatState(key = getChatKey()) {
     if (key === 'no-chat') return freshChatState();
     if (!chatStateCache.has(key)) chatStateCache.set(key, freshChatState());
+    touchChatCache(key);
     return chatStateCache.get(key);
 }
 
@@ -515,6 +579,7 @@ function setChatState(key, state, { markLoaded = false } = {}) {
     if (!key || key === 'no-chat') return state;
     const normalized = normalizeChatState(state);
     chatStateCache.set(key, normalized);
+    touchChatCache(key);
     if (markLoaded) { loadedChatKeys.add(key); hydrationErrors.delete(key); }
     stateVersions.set(key, Number(stateVersions.get(key) || 0) + 1);
     return normalized;
@@ -605,7 +670,15 @@ async function ensureChatStateLoaded(key = getChatKey()) {
         const settings = getSettings();
         let pointer = settings.dataFiles?.[key] || null;
         let recoveredState = null;
-        const tombstoned = Boolean(settings.sidecarTombstones?.[key]);
+        const tombstone = settings.sidecarTombstones?.[key] || null;
+        const tombstoned = Boolean(tombstone);
+        if (tombstoned && pointer?.path) {
+            if (!settings.recoveryFiles[key]) settings.recoveryFiles[key] = { ...pointer, reason: `tombstoned:${tombstone?.reason || 'retired'}`, retiredAt: Number(tombstone?.at || Date.now()) };
+            delete settings.dataFiles[key];
+            pointer = null;
+            persistSettings();
+            console.warn(`[NPC State] ignored live sidecar pointer for tombstoned ${key}; destructive tombstone remains authoritative.`);
+        }
         if (!pointer?.path && !tombstoned) {
             const recoveryName = makeNpcStateDataFileName(key);
             const recoveryPointer = { name: recoveryName, path: `/user/files/${recoveryName}` };
@@ -664,6 +737,7 @@ async function ensureChatStateLoaded(key = getChatKey()) {
         const needsDurableCompactionWrite = Boolean(loaded)
             && Number(sourceState?.durableCompactionVersion || 0) < DURABLE_COMPACTION_VERSION;
         const state = setChatState(key, sourceState, { markLoaded: true });
+        if (loaded && !needsDurableCompactionWrite) persistedVersions.set(key, Number(stateVersions.get(key) || 0));
         if (recordBranchIndex(key, state)) persistSettings();
         if ((!loaded && legacy) || needsDurableCompactionWrite) {
             try {
@@ -694,9 +768,10 @@ async function ensureChatStateLoaded(key = getChatKey()) {
     return task;
 }
 
-function branchIndexEntry(state) {
+function branchIndexEntry(key, state) {
     const lineage = Array.isArray(state?.lineage) ? state.lineage : [];
     return {
+        ownerScope: chatOwnerScope(key),
         head: lineage.slice(0, BRANCH_INDEX_PREFIX_LIMIT),
         checkpointIds: (Array.isArray(state?.checkpoints) ? state.checkpoints : [])
             .map(item => Number(item?.messageId))
@@ -709,7 +784,7 @@ function branchIndexEntry(state) {
 function recordBranchIndex(key, state) {
     if (!isCanonicalChatKey(key)) return false;
     const settings = getSettings();
-    const next = branchIndexEntry(state);
+    const next = branchIndexEntry(key, state);
     const previous = settings.branchIndex?.[key];
     const stablePrevious = previous ? { ...previous, updatedAt: 0 } : null;
     const stableNext = { ...next, updatedAt: 0 };
@@ -721,10 +796,11 @@ function recordBranchIndex(key, state) {
 function likelyAncestorKeys(currentKey, currentChat = []) {
     const settings = getSettings();
     const lineage = chatLineage(currentChat);
-    if (lineage.length < 4) return [];
+    const ownerScope = chatOwnerScope(currentKey);
+    if (!ownerScope || lineage.length < 4) return [];
     const matches = [];
     for (const [key, entry] of Object.entries(settings.branchIndex || {})) {
-        if (key === currentKey || !isCanonicalChatKey(key) || !Array.isArray(entry?.head)) continue;
+        if (key === currentKey || !isCanonicalChatKey(key) || !sameChatOwnerScope(key, currentKey) || entry?.ownerScope !== ownerScope || !Array.isArray(entry?.head)) continue;
         let prefix = 0;
         const max = Math.min(lineage.length, entry.head.length);
         while (prefix < max && lineage[prefix] === entry.head[prefix]) prefix += 1;
@@ -737,7 +813,7 @@ async function ensureLikelyAncestorStatesLoaded(currentKey, currentChat = []) {
     const settings = getSettings();
     const indexed = likelyAncestorKeys(currentKey, currentChat);
     const legacy = Object.entries(settings.dataFiles || {})
-        .filter(([key]) => key !== currentKey && isCanonicalChatKey(key) && !settings.branchIndex?.[key])
+        .filter(([key]) => key !== currentKey && isCanonicalChatKey(key) && sameChatOwnerScope(key, currentKey) && !settings.branchIndex?.[key])
         .sort((a, b) => Number(b[1]?.updatedAt || 0) - Number(a[1]?.updatedAt || 0))
         .slice(0, LEGACY_BRANCH_DISCOVERY_LIMIT)
         .map(([key]) => key);
@@ -747,10 +823,9 @@ async function ensureLikelyAncestorStatesLoaded(currentKey, currentChat = []) {
 }
 
 async function migrateLegacyChatStates() {
-    const settings = getSettings();
-    const legacyKeys = Object.keys(settings.chats || {}).filter(key => key !== 'no-chat');
-    if (!legacyKeys.length) return;
-    for (const key of legacyKeys) await ensureChatStateLoaded(key);
+    // v0.2.17 no longer hydrates unqualified legacy keys globally. Ownership is claimed lazily
+    // by migrateActiveLegacyNamespace() only when active-chat lineage proves the match.
+    return false;
 }
 
 function markStateDirty(key = getChatKey()) {
@@ -837,6 +912,17 @@ function persist(key = getChatKey()) {
     }
     persistSettings();
     queueStateFileWrite(key);
+    return true;
+}
+
+function persistCritical(key = getChatKey()) {
+    if (!requireReadyChatMutation('save chat dossier changes', key, { notify: false })) return false;
+    persistSettings();
+    markStateDirty(key);
+    void flushStateFile(key).catch(error => {
+        console.error('[NPC State] critical data-file persistence failed', error);
+        globalThis.toastr?.error?.('NPC State could not immediately save a critical dossier change.');
+    });
     return true;
 }
 
@@ -967,21 +1053,26 @@ function queueSettledSwipeReconcile(options = {}) {
 
 async function maybeInheritKnownBranch() {
     const key = getChatKey();
-    if (key === 'no-chat') return false;
-    await ensureChatStateLoaded(key);
-    if (getChatKey() !== key) return false;
-    const current = getChatState(key);
-    const chat = getContext().chat || [];
-    const lineageAtStart = chatLineage(chat);
-    const isEmptyState = !current.npcs.length && !current.candidates.length && !current.dismissed.length && !current.checkpoints.length && !current.lineage.length;
-    if (!isEmptyState || chat.length < 4 || chat.filter(message => message?.is_user).length < 2) return false;
-    await ensureLikelyAncestorStatesLoaded(key, chat);
-    if (getChatKey() !== key || firstLineageDivergence(lineageAtStart, chatLineage(getContext().chat || [])) !== -1) return false;
-    const inherited = bestAncestorState(Object.fromEntries(chatStateCache.entries()), key, chat);
-    if (!inherited) return false;
-    setChatState(key, { ...freshChatState(), ...inherited });
-    queueStateFileWrite(key, 0);
-    return true;
+    if (key === 'no-chat' || !isCanonicalChatKey(key)) return false;
+    try {
+        await ensureChatStateLoaded(key);
+        if (getChatKey() !== key) return false;
+        const current = getChatState(key);
+        const chat = getContext().chat || [];
+        const lineageAtStart = chatLineage(chat);
+        const isEmptyState = !current.npcs.length && !current.candidates.length && !current.dismissed.length && !current.checkpoints.length && !current.lineage.length;
+        if (!isEmptyState || chat.length < 4 || chat.filter(message => message?.is_user).length < 2) return false;
+        await ensureLikelyAncestorStatesLoaded(key, chat);
+        if (getChatKey() !== key || firstLineageDivergence(lineageAtStart, chatLineage(getContext().chat || [])) !== -1) return false;
+        const scopedStates = Object.fromEntries([...chatStateCache.entries()].filter(([candidate]) => sameChatOwnerScope(candidate, key)));
+        const inherited = bestAncestorState(scopedStates, key, chat);
+        if (!inherited) return false;
+        setChatState(key, { ...freshChatState(), ...inherited });
+        queueStateFileWrite(key, 0);
+        return true;
+    } finally {
+        evictDormantChatStates(key);
+    }
 }
 
 async function reconcileCurrentBranch({ explicitDivergence = null, rescan = true, processOocMessageId = null, reason = 'branch', chatKey = null } = {}) {
@@ -1093,8 +1184,8 @@ function queueBranchReconcile(options = {}, delay = 90) {
     }, delay);
 }
 
-async function removeDeletedChatState(rawId, kind = 'chat') {
-    const key = deletedChatStateKey(rawId, kind);
+async function removeDeletedChatState(rawId, kind = 'chat', ownerId = '') {
+    const key = resolveOwnedChatKey(rawId, kind, ownerId);
     if (!key) return false;
     const settings = getSettings();
     let removed = false;
@@ -1134,9 +1225,12 @@ async function moveRenamedChatState(eventData = {}) {
     const newId = String(eventData.newFileName || '').replace(/\.jsonl$/i, '');
     if (!oldId || !newId || oldId === newId) return false;
     const isGroup = eventData.groupId !== undefined && eventData.groupId !== null && String(eventData.groupId) !== '';
-    const prefix = isGroup ? 'group:' : 'chat:';
-    const oldKey = `${prefix}${oldId}`;
-    const newKey = `${prefix}${newId}`;
+    const kind = isGroup ? 'group' : 'chat';
+    const eventOwner = isGroup ? String(eventData.groupId || '') : String(eventData.avatarId || getCharacterOwnerId(getContext()) || '');
+    const oldKey = resolveOwnedChatKey(oldId, kind, eventOwner);
+    const parsedOld = parseQualifiedChatKey(oldKey);
+    const newKey = buildQualifiedChatKey(kind, parsedOld?.ownerId || eventOwner, newId);
+    if (!oldKey || !newKey) return false;
     const settings = getSettings();
     const hasOld = Boolean(settings.dataFiles?.[oldKey] || settings.chats?.[oldKey] || chatStateCache.has(oldKey));
     if (!hasOld) return false;
@@ -1179,6 +1273,7 @@ async function moveRenamedChatState(eventData = {}) {
         delete settings.dataFiles[oldKey];
         delete settings.branchIndex[oldKey];
         if (settings.chats?.[oldKey]) delete settings.chats[oldKey];
+        if (settings.chats && Object.keys(settings.chats).length === 0) delete settings.chats;
         chatStateCache.delete(oldKey);
         loadedChatKeys.delete(oldKey);
         loadingChatStates.delete(oldKey);
@@ -1200,54 +1295,91 @@ async function moveRenamedChatState(eventData = {}) {
     }
 }
 
-async function migrateActiveGroupNamespace() {
+function legacyMigrationMatchesActiveChat(state, chat = getContext().chat || []) {
+    const stored = Array.isArray(state?.lineage) ? state.lineage : [];
+    const messages = Array.isArray(chat) ? chat : [];
+    if (!stored.length || !messages.length) return false;
+    const candidates = [chatLineage(messages), legacyChatLineageV0210(messages)];
+    for (const current of candidates) {
+        const common = firstLineageDivergence(stored, current);
+        const prefix = common < 0 ? Math.min(stored.length, current.length) : common;
+        const required = Math.min(4, stored.length, current.length);
+        if (required > 0 && prefix >= required && messages.slice(0, required).some(message => message?.is_user)) return true;
+    }
+    return false;
+}
+
+async function migrateActiveLegacyNamespace() {
     const identity = getChatIdentity();
-    if (identity.kind !== 'group' || identity.pending || !identity.id) return false;
-    const newKey = `group:${identity.id}`;
-    const oldKey = `chat:${identity.id}`;
+    if (identity.pending || !isCanonicalChatKey(identity.key) || !identity.legacyKey) return false;
+    const newKey = identity.key;
+    const oldKey = identity.legacyKey;
     const settings = getSettings();
     if (settings.dataFiles?.[newKey] || chatStateCache.has(newKey)) return false;
-    if (!settings.dataFiles?.[oldKey] && !settings.chats?.[oldKey] && !chatStateCache.has(oldKey)) return false;
+    const oldPointer = settings.dataFiles?.[oldKey] || null;
+    const oldInline = settings.chats?.[oldKey] || null;
+    if (!oldPointer?.path && !oldInline) return false;
+    const existingClaim = settings.legacyOwnershipClaims?.[oldKey];
+    if (existingClaim?.canonicalKey && existingClaim.canonicalKey !== newKey) {
+        console.warn(`[NPC State] refused legacy ownership claim for ${oldKey}; it is already claimed by ${existingClaim.canonicalKey}.`);
+        return false;
+    }
 
     const oldEpoch = bumpOwnershipEpoch(oldKey);
     const newEpoch = bumpOwnershipEpoch(newKey);
     try {
-        await ensureChatStateLoaded(oldKey);
-        assertOwnershipEpoch(oldKey, oldEpoch);
-        const state = structuredClone(getChatState(oldKey));
-        const currentLineage = chatLineage(getContext().chat || []);
-        if (state.lineage?.length && currentLineage.length && state.lineage[0] !== currentLineage[0]) {
-            console.warn(`[NPC State] refused automatic group namespace migration for ${oldKey}; lineage does not match the active group chat.`);
+        let rawState = oldInline;
+        if (oldPointer?.path) {
+            const payload = await readNpcStateDataFile(oldPointer, { expectedChatKey: oldKey });
+            assertOwnershipEpoch(oldKey, oldEpoch);
+            if (payload?.retired || !payload?.state) return false;
+            rawState = payload.state;
+        }
+        const state = normalizeChatState(rawState || {});
+        if (!legacyMigrationMatchesActiveChat(state, getContext().chat || [])) {
+            console.warn(`[NPC State] preserved ambiguous legacy sidecar ${oldKey}; active conversation lineage did not prove ownership for ${newKey}.`);
             return false;
         }
-        await settleStateFileWrite(oldKey, { flush: true });
-        assertOwnershipEpoch(oldKey, oldEpoch);
-        const oldPointer = settings.dataFiles?.[oldKey] || { name: makeNpcStateDataFileName(oldKey), path: `/user/files/${makeNpcStateDataFileName(oldKey)}` };
+        // Ownership proof uses the legacy lineage first. Only after that proof succeeds do we
+        // migrate old swipe-index/checkpoint state against the active conversation, ensuring the
+        // newly qualified sidecar is canonical branch-lineage v2 from its first durable write.
+        seedBranchTracking(state);
         const newPointer = await writeNpcStateDataFile({ chatKey: newKey, state, appVersion: NPC_STATE_VERSION, pointer: { name: makeNpcStateDataFileName(newKey) }, headers: requestHeaders() });
         assertOwnershipEpoch(newKey, newEpoch);
         const verified = await readNpcStateDataFile(newPointer, { expectedChatKey: newKey });
         assertOwnershipEpoch(newKey, newEpoch);
-        if (!verified?.state || verified.retired) throw new Error('NPC State group namespace migration verification failed.');
-        await retireNpcStateDataFile({ chatKey: oldKey, pointer: oldPointer, reason: `group-namespace-migrated:${newKey}`, appVersion: NPC_STATE_VERSION, headers: requestHeaders() });
-        settings.sidecarTombstones[oldKey] = { reason: `group-namespace-migrated:${newKey}`, at: Date.now() };
+        if (!verified?.state || verified.retired) throw new Error('NPC State qualified namespace migration verification failed.');
+
+        const recoveryPointer = await writeNpcStateDataFile({ chatKey: oldKey, state, appVersion: NPC_STATE_VERSION, pointer: { name: makeNpcStateRecoveryFileName(oldKey) }, headers: requestHeaders() });
+        assertOwnershipEpoch(oldKey, oldEpoch);
+        if (oldPointer?.path) await retireNpcStateDataFile({ chatKey: oldKey, pointer: oldPointer, reason: `qualified-namespace-migrated:${newKey}`, appVersion: NPC_STATE_VERSION, headers: requestHeaders() });
+
+        settings.recoveryFiles[oldKey] = { ...recoveryPointer, reason: `qualified-namespace-migrated:${newKey}`, retiredAt: Date.now() };
+        settings.sidecarTombstones[oldKey] = { reason: `qualified-namespace-migrated:${newKey}`, at: Date.now() };
+        settings.legacyOwnershipClaims[oldKey] = { canonicalKey: newKey, ownerId: identity.ownerId, kind: identity.kind, at: Date.now() };
         settings.dataFiles[newKey] = newPointer;
         delete settings.dataFiles[oldKey];
         delete settings.branchIndex[oldKey];
+        if (settings.chats?.[oldKey]) delete settings.chats[oldKey];
+        if (settings.chats && Object.keys(settings.chats).length === 0) delete settings.chats;
         chatStateCache.delete(oldKey);
         loadedChatKeys.delete(oldKey);
         hydrationErrors.delete(oldKey);
         stateVersions.delete(oldKey);
         persistedVersions.delete(oldKey);
         stateWritePromises.delete(oldKey);
+        pendingAutoScans.delete(oldKey);
         const installed = setChatState(newKey, state, { markLoaded: true });
         recordBranchIndex(newKey, installed);
         persistedVersions.set(newKey, Number(stateVersions.get(newKey) || 0));
         persistSettings();
-        try { await deleteNpcStateDataFile(oldPointer, { headers: requestHeaders() }); } catch {}
-        console.info(`[NPC State] migrated legacy group state ${oldKey} -> ${newKey}.`);
+        if (oldPointer?.path) {
+            try { await deleteNpcStateDataFile(oldPointer, { headers: requestHeaders() }); } catch {}
+        }
+        console.info(`[NPC State] migrated legacy ownership ${oldKey} -> ${newKey}.`);
         return true;
     } catch (error) {
-        if (error?.code !== 'NPC_STATE_STALE_OWNERSHIP') console.warn(`[NPC State] group namespace migration failed for ${oldKey}; old state was left recoverable.`, error);
+        if (error?.code !== 'NPC_STATE_STALE_OWNERSHIP') console.warn(`[NPC State] qualified namespace migration failed for ${oldKey}; legacy state remains recoverable.`, error);
         return false;
     }
 }
@@ -3881,7 +4013,7 @@ async function useGeneratedPortrait() {
         npc.portrait = await portraitAssetFromGeneratedUrl(activePortraitGenerationUrl, npc.name);
         getChatState().portraitAssets[npc.id] = structuredClone(npc.portrait);
         npc.updatedAt = Date.now();
-        persist();
+        persistCritical(activePortraitGeneratorChatKey || getChatKey());
         renderDossier();
         refreshNpcViewer();
         const name = npc.name;
@@ -4030,7 +4162,7 @@ function saveNpcEditor(npcId, { close = true, silent = false } = {}) {
         // now renders the promoted/manual canonical name through the stable NPC id.
     }
     if (targetMessageId >= 0) commitBranchCheckpoint(state, targetMessageId, 'manual-edit');
-    persist();
+    persistCritical(originChatKey);
     if (close) closeNpcEditor();
     renderDossier();
     updateInjection();
@@ -4074,10 +4206,11 @@ function deleteNpcById(npcId, { confirmAction = true } = {}) {
     purgeInlineCardsInState(working, result.report.npcId, result.report.name);
     const reportKey = normalizeName(result.report.name);
     working.pendingBackfills = (working.pendingBackfills || []).filter(item => item.npcId !== result.report.npcId && normalizeName(item.label) !== reportKey);
+    if (working.portraitAssets && typeof working.portraitAssets === 'object') delete working.portraitAssets[current.id];
     const targetMessageId = latestMessageId(false);
     if (targetMessageId >= 0) commitBranchCheckpoint(working, targetMessageId, 'manual-delete');
     setChatState(getChatKey(), working);
-    persist();
+    persistCritical();
     closeNpcEditor();
     renderDossier();
     updateInjection();
@@ -4105,7 +4238,7 @@ function setNpcArchiveStateById(npcId, archived, { reason = 'manual', confirmAct
     });
     const targetMessageId = latestMessageId(false);
     if (targetMessageId >= 0) commitBranchCheckpoint(state, targetMessageId, archived ? 'manual-archive' : 'manual-restore');
-    persist();
+    persistCritical();
     closeNpcEditor();
     renderDossier();
     updateInjection();
@@ -4257,7 +4390,7 @@ function importBundleBytes(bytes) {
     const targetMessageId = latestMessageId(false);
     if (targetMessageId >= 0) commitBranchCheckpoint(merged, targetMessageId, 'import');
     setChatState(getChatKey(), merged);
-    persist();
+    persistCritical();
     renderDossier();
     updateInjection();
     return { decoded, merged, importReport };
@@ -4443,7 +4576,7 @@ function bindUi() {
         const targetMessageId = latestMessageId(false);
         if (targetMessageId >= 0) commitBranchCheckpoint(result.state, targetMessageId, 'manual-add');
         setChatState(getChatKey(), result.state);
-        persist(); renderDossier(); updateInjection();
+        persistCritical(); renderDossier(); updateInjection();
         const addedNpc = result.report.npcId ? result.state.npcs.find(npc => npc.id === result.report.npcId) : null;
         if (addedNpc) globalThis.toastr?.success?.(`NPC State: ${addedNpc.name} created. Use the wand beside the dossier to Scan dossier and populate it.`);
     });
@@ -4471,7 +4604,7 @@ function bindUi() {
         const cleared = freshChatState();
         cleared.lineage = chatLineage(getContext().chat || []);
         setChatState(getChatKey(), cleared);
-        persist(); renderDossier(); updateInjection();
+        persistCritical(); renderDossier(); updateInjection();
     });
     $(document).on('change.npcState', '.npc-state-inline-portrait-file', async function () {
         if (!requireReadyChatMutation('attach a portrait')) { this.value = ''; return; }
@@ -4489,7 +4622,7 @@ function bindUi() {
             liveNpc.portrait = portrait;
             getChatState(originChatKey).portraitAssets[liveNpc.id] = structuredClone(liveNpc.portrait);
             liveNpc.updatedAt = Date.now();
-            persist(); renderDossier();
+            persistCritical(originChatKey); renderDossier();
             globalThis.toastr?.success?.(`Portrait attached to ${liveNpc.name}.`);
         } catch (error) {
             globalThis.toastr?.error?.(`NPC State portrait: ${error?.message || error}`);
@@ -4501,7 +4634,7 @@ function bindUi() {
         if (!npc) return;
         npc.portrait = null;
         delete getChatState().portraitAssets[npc.id];
-        npc.updatedAt = Date.now(); persist(); renderDossier();
+        npc.updatedAt = Date.now(); persistCritical(); renderDossier();
     });
 }
 
@@ -4590,7 +4723,7 @@ function processOocCommands(messageId = null) {
     working.npcs = oocSocial.state.npcs;
     if (resolvedId >= 0) commitBranchCheckpoint(working, resolvedId, 'ooc');
     setChatState(getChatKey(), working);
-    persist();
+    persistCritical();
     renderDossier();
     updateInjection();
 
@@ -4748,8 +4881,8 @@ function registerEvents() {
             closeNpcEditor();
             let key = getChatKey();
             try {
-                if (getChatIdentity().kind === 'group' && !getChatIdentity().pending) {
-                    await migrateActiveGroupNamespace();
+                if (!getChatIdentity().pending && isCanonicalChatKey(getChatKey())) {
+                    await migrateActiveLegacyNamespace();
                     key = getChatKey();
                 }
                 if (isCanonicalChatKey(key)) await ensureChatStateLoaded(key);
@@ -4766,6 +4899,7 @@ function registerEvents() {
                 updateInjection();
                 if (!inherited && state?.lineage?.length) queueBranchReconcile({ chatKey: key, rescan: false, reason: 'chat-changed' }, 80);
                 if (key !== 'no-chat') void drainPendingAutoScan(key);
+                evictDormantChatStates(key);
             } catch (error) {
                 if (getChatKey() === key) { renderDossier(); updateInjection(); }
                 console.error('[NPC State] chat change hydration failed; durable state was preserved.', error);
@@ -4773,8 +4907,8 @@ function registerEvents() {
         });
     }
 
-    if (events.CHAT_DELETED) source.on(events.CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId, 'chat'); });
-    if (events.GROUP_CHAT_DELETED) source.on(events.GROUP_CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId, 'group'); });
+    if (events.CHAT_DELETED) source.on(events.CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId, 'chat', getCharacterOwnerId(getContext())); });
+    if (events.GROUP_CHAT_DELETED) source.on(events.GROUP_CHAT_DELETED, async (chatId) => { await removeDeletedChatState(chatId, 'group', String(getContext().groupId || '')); });
     if (events.CHAT_RENAMED) source.on(events.CHAT_RENAMED, async (eventData) => { await moveRenamedChatState(eventData || {}); });
 }
 
@@ -4797,8 +4931,8 @@ async function init() {
     try {
         await migrateLegacyChatStates();
         if (getChatKey() !== key) return;
-        if (getChatIdentity().kind === 'group' && !getChatIdentity().pending) {
-            await migrateActiveGroupNamespace();
+        if (!getChatIdentity().pending && isCanonicalChatKey(getChatKey())) {
+            await migrateActiveLegacyNamespace();
             key = getChatKey();
         }
         if (isCanonicalChatKey(key)) {
@@ -4813,6 +4947,7 @@ async function init() {
         if (getChatKey() === key) renderDossier();
     }
     updateInjection();
+    evictDormantChatStates(getChatKey());
     console.log(`[NPC State] v${NPC_STATE_VERSION} loaded`);
 }
 

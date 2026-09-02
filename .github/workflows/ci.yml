@@ -2,12 +2,12 @@ name: NPC State CI
 
 on:
   push:
-    branches: [main, v0.2.15-release-hardening-10x]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
@@ -15,15 +15,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Apply staged v0.2.16 release metadata
-        if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
-        run: python3 .github/scripts/apply_v0215_release.py
       - name: Syntax and diff check
         run: |
           node --check index.js
@@ -32,26 +27,10 @@ jobs:
           node --check bundle.js
           node --check social.js
           node --check storage.js
+          node --check identity.js
           git diff --check
-      - name: Ten hard-pass cycles
-        run: |
-          for pass in $(seq 1 10); do
-            echo "========== HARD PASS ${pass}/10 =========="
-            npm test
-            node tests/compatibility-check.js
-            node --check index.js
-            node --check core.js
-            node --check branch.js
-            node --check bundle.js
-            node --check social.js
-            node --check storage.js
-            git diff --check
-          done
-      - name: Lifecycle adversarial regression
-        if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
-        run: |
-          node --test tests/v0215-hardening.test.js
-          test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.16"
+      - name: Full verification
+        run: npm test
       - name: Release consistency
         run: |
           node --input-type=module <<'NODE'
@@ -63,15 +42,3 @@ jobs:
           if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
           if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
           NODE
-      - name: Commit verified v0.2.16 release
-        if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
-        run: |
-          if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
-            echo "No release changes required"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.js core.js manifest.json README.md CHANGELOG.md CODE-REVIEW.md TEST-REPORT.md tests/package.test.js tests/v0214-hardening.test.js tests/runtime-smoke.mjs
-          git commit -m "release: verify v0.2.16 lifecycle hardening"
-          git push origin HEAD:v0.2.15-release-hardening-10x

@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
+const identity = fs.readFileSync(path.join(root, 'identity.js'), 'utf8');
+const contextSource = `${index}\n${identity}`;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 
 const st118Contract = {
     extensionsModule: ['extension_settings', 'getContext'],
     scriptModule: ['extension_prompt_types', 'extension_prompt_roles', 'getRequestHeaders'],
-    context: ['chat', 'chatId', 'getCurrentChatId', 'saveSettingsDebounced', 'eventSource', 'eventTypes', 'generateRaw', 'setExtensionPrompt', 'Popup', 'POPUP_TYPE', 'POPUP_RESULT', 'swipe'],
+    context: ['chat', 'chatId', 'getCurrentChatId', 'characterId', 'characters', 'groupId', 'saveSettingsDebounced', 'eventSource', 'eventTypes', 'generateRaw', 'setExtensionPrompt', 'Popup', 'POPUP_TYPE', 'POPUP_RESULT', 'swipe'],
     events: ['MESSAGE_SENT', 'MESSAGE_RECEIVED', 'CHARACTER_MESSAGE_RENDERED', 'MESSAGE_EDITED', 'MESSAGE_SWIPED', 'MESSAGE_DELETED', 'CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_RENAMED'],
 };
 
@@ -22,6 +24,9 @@ assert.match(index, /from '\.\.\/\.\.\/\.\.\/extensions\.js'/);
 assert.match(index, /from '\.\.\/\.\.\/\.\.\/\.\.\/script\.js'/);
 for (const symbol of [...st118Contract.extensionsModule, ...st118Contract.scriptModule]) {
     assert.match(index, new RegExp(`\\b${symbol}\\b`), `missing API symbol ${symbol}`);
+}
+for (const symbol of st118Contract.context) {
+    assert.match(contextSource, new RegExp(`\\b${symbol}\\b`), `missing context contract symbol ${symbol}`);
 }
 for (const event of st118Contract.events) {
     assert.match(index, new RegExp(`events\\.${event}`), `missing/changed event ${event}`);
@@ -49,7 +54,7 @@ assert.match(index, /function inlineRosterHtml/, 'present-only roster renderer m
 assert.match(index, /function openNpcViewer/, 'portrait-card dossier viewer missing');
 assert.doesNotMatch(index, /\bnpcBank\b|\blocalProfile\b|from\s+['"][^'"]*Megumin|extension_settings\s*\[[^\]]*Megumin-Suite/i, 'standalone build must not import or access Megumin NPC Bank internals');
 
-for (const file of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js', 'style.css', 'manifest.json']) {
+for (const file of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js', 'identity.js', 'style.css', 'manifest.json']) {
     assert.ok(fs.existsSync(path.join(root, file)), `missing ${file}`);
 }
 

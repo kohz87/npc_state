@@ -2,6 +2,7 @@ import { normalizeName } from './core.js';
 import { normalizeSocialGraph, removeNpcFromSocialGraph, purgeNpcStructuredReferences } from './social.js';
 
 export const BRANCH_HISTORY_LIMIT = 160;
+export const BRANCH_SNAPSHOT_BUDGET_CHARS = 2_000_000;
 export const BRANCH_LINEAGE_VERSION = 2;
 
 export const DEFAULT_SCAN_OPERATION_TIMEOUT_MS = 5 * 60 * 1000;
@@ -117,6 +118,10 @@ function legacyFingerprintMessageV0210(message = {}) {
         swipe: Number.isInteger(message.swipe_id) ? message.swipe_id : null,
     });
     return fnv1a32(payload);
+}
+
+export function legacyChatLineageV0210(chat = []) {
+    return (Array.isArray(chat) ? chat : []).map(legacyFingerprintMessageV0210);
 }
 
 export function fingerprintMessage(message = {}) {
@@ -464,37 +469,52 @@ export function migrateLegacyBranchState(state, chat, limit = BRANCH_HISTORY_LIM
 export function pruneBranchCheckpoints(checkpoints = [], activeLineage = [], limit = BRANCH_HISTORY_LIMIT) {
     const cap = Math.max(8, Number(limit) || BRANCH_HISTORY_LIMIT);
     const normalized = normalizeBranchCheckpoints(checkpoints, activeLineage);
-    if (normalized.length <= cap) return normalized.sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
-
     const activeKeys = new Set(lineageCheckpointKeys(activeLineage));
     const active = normalized.filter(item => activeKeys.has(item.lineageKey)).sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
     const siblings = normalized.filter(item => !activeKeys.has(item.lineageKey)).sort((a, b) => b.createdAt - a.createdAt || b.messageId - a.messageId);
-    const siblingBudget = Math.min(siblings.length, Math.max(8, Math.floor(cap * 0.25)));
-    const activeBudget = Math.max(1, cap - siblingBudget);
     const keep = new Map();
 
-    if (active.length) {
-        // Keep one old anchor so an ancient edit can still rebuild from a safe ancestor,
-        // then devote the rest of the active budget to the newest checkpoints.
-        keep.set(active[0].lineageKey, active[0]);
-        for (const item of active.slice(1).reverse()) {
-            if ([...keep.values()].filter(entry => activeKeys.has(entry.lineageKey)).length >= activeBudget) break;
-            keep.set(item.lineageKey, item);
+    if (normalized.length <= cap) {
+        for (const item of normalized) keep.set(item.lineageKey, item);
+    } else {
+        const siblingBudget = Math.min(siblings.length, Math.max(8, Math.floor(cap * 0.25)));
+        const activeBudget = Math.max(1, cap - siblingBudget);
+        if (active.length) {
+            keep.set(active[0].lineageKey, active[0]);
+            const newestActive = active.slice(-Math.max(1, activeBudget - 1));
+            for (const item of newestActive) keep.set(item.lineageKey, item);
         }
+        for (const item of siblings.slice(0, siblingBudget)) keep.set(item.lineageKey, item);
+        if (!active.length) for (const item of normalized.slice(-cap)) keep.set(item.lineageKey, item);
     }
-    for (const item of siblings.slice(0, siblingBudget)) keep.set(item.lineageKey, item);
 
-    // Fill unused capacity with the newest omitted checkpoints regardless of category.
-    if (keep.size < cap) {
-        const omitted = normalized
-            .filter(item => !keep.has(item.lineageKey))
-            .sort((a, b) => b.createdAt - a.createdAt || b.messageId - a.messageId);
-        for (const item of omitted) {
-            if (keep.size >= cap) break;
-            keep.set(item.lineageKey, item);
-        }
+    let selected = [...keep.values()].sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
+    const sizeOf = item => {
+        try { return JSON.stringify(item?.snapshot || {}).length + 256; }
+        catch { return BRANCH_SNAPSHOT_BUDGET_CHARS; }
+    };
+    let used = selected.reduce((sum, item) => sum + sizeOf(item), 0);
+    if (used <= BRANCH_SNAPSHOT_BUDGET_CHARS) return selected;
+
+    // Preserve one ancient active anchor plus the newest useful checkpoints. Older redundant
+    // snapshots are safely discarded; reconciliation can rescan from the retained ancestor.
+    const budgeted = new Map();
+    used = 0;
+    const oldestActive = selected.find(item => activeKeys.has(item.lineageKey)) || null;
+    if (oldestActive) {
+        budgeted.set(oldestActive.lineageKey, oldestActive);
+        used += sizeOf(oldestActive);
     }
-    return [...keep.values()].sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
+    const newestFirst = [...selected].sort((a, b) => b.createdAt - a.createdAt || b.messageId - a.messageId);
+    for (const item of newestFirst) {
+        if (budgeted.has(item.lineageKey)) continue;
+        const size = sizeOf(item);
+        if (budgeted.size && used + size > BRANCH_SNAPSHOT_BUDGET_CHARS) continue;
+        budgeted.set(item.lineageKey, item);
+        used += size;
+    }
+    if (!budgeted.size && newestFirst.length) budgeted.set(newestFirst[0].lineageKey, newestFirst[0]);
+    return [...budgeted.values()].sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt);
 }
 
 export function ensureBranchParentAnchor(state, chat, messageId, reason = 'parent-anchor', limit = BRANCH_HISTORY_LIMIT) {

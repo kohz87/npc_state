@@ -12,8 +12,8 @@ test('runtime integration uses per-chat scan operations and no legacy global sca
 });
 
 test('chat deletion handlers preserve chat/group namespace isolation',()=>{
-  assert.match(source,/removeDeletedChatState\(chatId, 'chat'\)/);
-  assert.match(source,/removeDeletedChatState\(chatId, 'group'\)/);
+  assert.match(source,/removeDeletedChatState\(chatId, 'chat', getCharacterOwnerId\(getContext\(\)\)\)/);
+  assert.match(source,/removeDeletedChatState\(chatId, 'group', String\(getContext\(\)\.groupId \|\| ''\)\)/);
   assert.doesNotMatch(source,/for \(const key of \[`chat:\$\{id\}`, `group:\$\{id\}`\]\)/);
 });
 

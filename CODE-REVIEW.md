@@ -1,4 +1,28 @@
-# NPC State v0.2.16 Code Review
+# NPC State v0.2.18 Code Review
+
+## v0.2.18 verified release promotion
+
+The v0.2.17 identity/storage hardening candidate is promoted as v0.2.18 after the release pipeline itself was corrected. Runtime behavior is unchanged from the fully hardened candidate: owner-qualified chat identity, owner-scoped ancestry, lineage-gated legacy migration, destructive tombstone authority, bounded branch snapshots, portrait garbage collection, bounded dormant-chat caching, clean hydration revisions, and immediate persistence for high-value manual mutations remain intact.
+
+**Release-process fix:** production `ci.yml` is read-only and version-neutral. The temporary v0.2.18 gate is a separate workflow and never attempts to commit or modify workflow files, avoiding GitHub App workflow-permission rejection. The exact v0.2.18 candidate must complete ten consecutive full passes before promotion to `main`.
+
+## v0.2.17 identity and storage hardening
+
+**Critical: ordinary character chat keys were not owner-qualified.** Two different character cards could use the same SillyTavern chat filename and collide in cache, sidecar, tombstone, and branch-index ownership. Canonical keys now include character avatar identity plus chat id; group keys include group id plus active group-chat id. Rename/delete lifecycle resolution prefers event-provided ownership and fails closed when an owner-less lookup is ambiguous.
+
+**High: cross-chat branch ancestry was not owner-scoped.** Candidate ancestor loading and inheritance now require the same qualified owner scope before narrative-prefix matching is considered.
+
+**High: legacy namespace migration could guess ownership or lose old branch semantics.** Unqualified v0.2.16-and-earlier sidecars migrate lazily only after stored lineage proves the active conversation owns them. Both current content lineage and pre-v0.2.11 swipe-index lineage are recognized. The destination sidecar is written and verified before the old namespace is retired, and migrated branch state is canonicalized before its first durable write.
+
+**High: branch history and portraits could inflate long-session sidecars.** Checkpoint snapshots retain the existing count cap but now also obey a serialized-character budget, preserving a safe active anchor plus newest useful states. Portrait assets are rebuilt against live or branch-restorable NPC ids and permanent deletion tombstones so unreachable binary data cannot accumulate forever.
+
+**Medium: hydrated chats accumulated indefinitely in browser memory.** A bounded dormant-chat cache evicts settled non-active states while refusing to evict chats with pending load/write/scan work.
+
+**Medium: unchanged hydration looked dirty and destructive tombstones could lose a crash race.** Successful unchanged sidecar hydration initializes the persisted revision, avoiding needless page-hide rewrites. A persisted destructive tombstone now outranks any stale live pointer left behind by an interrupted delete/retire sequence.
+
+**Medium: explicit user mutations still waited for the ordinary scan debounce.** Manual edits, imports, deletion, archive/restore, clear, OOC changes, and portrait changes now start persistence immediately; versioned writers still coalesce any newer mutation safely.
+
+**Verification:** release gating runs the complete Node, SillyTavern compatibility, runtime smoke, migration smoke, syntax, and diff checks ten consecutive times from a clean application of the hardening patch, followed by dedicated identity/storage adversarial tests. No release commit is created until the entire gate succeeds.
 
 ## v0.2.13 runtime lifecycle hardening
 

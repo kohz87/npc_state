@@ -53,8 +53,8 @@ test('editor and portrait workflows are chat-affine', () => {
     assert.match(index, /closePortraitGenerator\(\);\n\s*closeNpcViewer\(\);\n\s*closeNpcEditor\(\);/);
 });
 
-test('release metadata is v0.2.16', () => {
-    assert.match(core, /NPC_STATE_VERSION = '0\.2\.16'/);
-    assert.equal(manifest.version, '0.2.16');
+test('release metadata is v0.2.18', () => {
+    assert.match(core, /NPC_STATE_VERSION = '0\.2\.18'/);
+    assert.equal(manifest.version, '0.2.18');
     assert.equal(manifest.author, 'kohz87');
 });

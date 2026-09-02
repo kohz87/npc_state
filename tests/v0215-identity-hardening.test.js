@@ -5,6 +5,7 @@ import { bestAncestorState, chatLineage, recordBranchCheckpoint } from '../branc
 import { encodeRetiredStateFilePayload, decodeStateFilePayload, makeNpcStateRecoveryFileName } from '../storage.js';
 
 const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+const identity = fs.readFileSync(new URL('../identity.js', import.meta.url), 'utf8');
 const ci = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
 
 function msg(text, isUser = false) { return { mes: text, is_user: isUser, is_system: false, name: isUser ? 'User' : 'Character' }; }
@@ -16,11 +17,10 @@ function stateFor(chat) {
 }
 
 test('group identity takes precedence over host chatId and pending identities are noncanonical', () => {
-    const body = index.slice(index.indexOf('function getChatIdentity'), index.indexOf('function freshChatState'));
-    assert.ok(body.indexOf('if (hasGroup)') < body.indexOf("if (raw) return { key: `chat:"));
-    assert.match(body, /group:\$\{raw\}/);
-    assert.match(body, /group-pending:/);
-    assert.match(body, /function isCanonicalChatKey/);
+    assert.match(identity, /if \(hasGroup\)/);
+    assert.match(identity, /buildQualifiedChatKey\('group', ownerId, raw\)/);
+    assert.match(identity, /group-pending:/);
+    assert.match(index, /return isQualifiedChatKey\(key\)/);
 });
 
 test('delete and hydration use ownership epochs and stale loader cannot clear a newer promise', () => {
@@ -41,7 +41,7 @@ test('retired sidecars are explicit durable tombstones', () => {
 });
 
 test('rename uses event groupId and writes a recovery backup before retiring predecessor', () => {
-    const fn = index.slice(index.indexOf('async function moveRenamedChatState'), index.indexOf('async function migrateActiveGroupNamespace'));
+    const fn = index.slice(index.indexOf('async function moveRenamedChatState'), index.indexOf('function legacyMigrationMatchesActiveChat'));
     assert.match(fn, /eventData\.groupId/);
     const recovery = fn.indexOf('makeNpcStateRecoveryFileName(oldKey)');
     const retire = fn.indexOf('retireNpcStateDataFile');
