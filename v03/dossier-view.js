@@ -111,7 +111,7 @@ function relationshipHistoryHtml(npc = {}) {
 }
 
 function block(title, body, className = '') {
-    return `<section class="npc-state-v3-dossier-block ${className}"><h3>${escapeHtml(title)}</h3>${body}</section>`;
+    return `<div class="npc-state-v3-dossier-block ${className}"><h3>${escapeHtml(title)}</h3>${body}</div>`;
 }
 
 export function dossierHtml(npc) {
