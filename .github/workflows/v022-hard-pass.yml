@@ -6,6 +6,7 @@ on:
       - fix/v0.2.22-dossier-relationship
     paths:
       - .release/run_v022_patch.py
+      - .release/post_v022_pass2.py
       - .github/workflows/v022-hard-pass.yml
   workflow_dispatch:
 
@@ -28,7 +29,9 @@ jobs:
           node-version: 22
 
       - name: Apply candidate patch
-        run: python3 .release/run_v022_patch.py
+        run: |
+          python3 .release/run_v022_patch.py
+          python3 .release/post_v022_pass2.py
 
       - name: Syntax and diff check
         run: |
@@ -55,18 +58,21 @@ jobs:
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
           if (manifest.version !== '0.2.22') throw new Error(`manifest ${manifest.version}`);
           const core = fs.readFileSync('core.js', 'utf8');
+          const retained = fs.readFileSync('core-v0218.js', 'utf8');
           const index = fs.readFileSync('index.js', 'utf8');
           if (!core.includes("NPC_STATE_VERSION = '0.2.22'")) throw new Error('core version mismatch');
           if (!index.includes('schemaVersion: 28')) throw new Error('schema 28 missing');
-          if (!index.includes('queueNpcBackfillInState(nextState, npc.id, npc.name, targetMessageId)')) throw new Error('auto enrichment wiring missing');
-          if (!index.includes('newNpcRelationshipPass = await runFocusedRelationshipPass')) throw new Error('new NPC relationship repair missing');
+          if (!index.includes('queueNpcBackfillInState(nextState, npc.id, npc.name, targetMessageId, { preserveLiveState: true })')) throw new Error('auto enrichment wiring missing');
+          if (!index.includes('for (let offset = 0; offset < newTargets.length; offset += 4)')) throw new Error('new NPC relationship batching missing');
+          if (!retained.includes('LOW-BAND FAMILIARITY')) throw new Error('low-band relationship policy missing');
+          if (!retained.includes('kisses|kissed|kissing')) throw new Error('Desire inflection coverage missing');
           NODE
 
       - name: Commit verified candidate
         run: |
           git config user.name "kohz87"
           git config user.email "83744063+kohz87@users.noreply.github.com"
-          git add core.js core-v0218.js index.js manifest.json CHANGELOG.md tests/package.test.js tests/migration-smoke.mjs tests/runtime-smoke.mjs tests/hardening-v0222.test.js
+          git add core.js core-v0218.js index.js manifest.json CHANGELOG.md tests/package.test.js tests/v0214-hardening.test.js tests/migration-smoke.mjs tests/runtime-smoke.mjs tests/hardening-v0222.test.js
           git diff --cached --quiet && { echo "No candidate changes to commit"; exit 1; }
           git commit -m "release: v0.2.22 dossier enrichment and relationship progression"
           git push origin HEAD:fix/v0.2.22-dossier-relationship
