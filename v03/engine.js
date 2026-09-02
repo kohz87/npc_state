@@ -1,4 +1,10 @@
 import { bestCheckpoint, ensureBranchBase, fingerprintMessage, reconcileToCurrentBranch, recordCheckpoint } from './branches.js';
+import {
+    applyNpcStateBundleImport,
+    bundleSuggestedFilename,
+    createNpcStateBundle,
+    previewNpcStateBundleImport,
+} from './bundle.js';
 import { readLegacyV02Sidecar } from './migrate-v02.js';
 import {
     DEFAULT_RELATIONSHIP_CAPS,
@@ -424,6 +430,74 @@ export function createNpcStateEngine(adapters = {}) {
         return buildStaleReport(state, getSettings(), narrativeTurnForMessage(chat, messageId));
     }
 
+    async function exportBundle(reference = '') {
+        const chatKey = getChatKey();
+        if (!chatKey || chatKey === 'no-chat' || /-pending:/.test(chatKey)) return { ok: false, reason: 'no-chat' };
+        return exclusive(chatKey, async () => {
+            const state = await loadChat(chatKey);
+            if (!state) return { ok: false, reason: 'no-state' };
+            let npcId = '';
+            if (reference) {
+                const npc = findNpcByReference(state, reference);
+                if (!npc) return { ok: false, reason: 'not-found' };
+                npcId = npc.id;
+            }
+            const chat = getContext().chat || [];
+            const messageId = latestAssistantMessageId(chat);
+            const bundle = createNpcStateBundle(state, {
+                npcId,
+                sourceNarrativeTurn: narrativeTurnForMessage(chat, messageId),
+            });
+            return {
+                ok: true,
+                bundle,
+                filename: bundleSuggestedFilename(bundle),
+                bundleType: bundle.bundleType,
+                npcCount: bundle.data.npcs.length,
+            };
+        });
+    }
+
+    async function previewBundleImport(bundleInput, options = {}) {
+        const chatKey = getChatKey();
+        if (!chatKey || chatKey === 'no-chat' || /-pending:/.test(chatKey)) return { ok: false, reason: 'no-chat' };
+        const state = normalizeState(await loadChat(chatKey), chatKey);
+        const chat = getContext().chat || [];
+        const messageId = latestAssistantMessageId(chat);
+        return previewNpcStateBundleImport(state, bundleInput, {
+            ...options,
+            currentNarrativeTurn: narrativeTurnForMessage(chat, messageId),
+        });
+    }
+
+    async function importBundle(bundleInput, options = {}) {
+        const chatKey = getChatKey();
+        if (!chatKey || chatKey === 'no-chat' || /-pending:/.test(chatKey)) return { ok: false, reason: 'no-chat' };
+        invalidate(chatKey);
+        return exclusive(chatKey, async () => {
+            const state = normalizeState(await loadChat(chatKey), chatKey);
+            if (state.branchSafety?.status === 'prebaseline-diverged') return { ok: false, reason: 'branch-unsafe' };
+            const chat = getContext().chat || [];
+            const messageId = latestAssistantMessageId(chat);
+            const imported = applyNpcStateBundleImport(state, bundleInput, {
+                ...options,
+                currentNarrativeTurn: narrativeTurnForMessage(chat, messageId),
+            });
+            if (!imported.ok) return imported;
+            let next = normalizeState(imported.state, chatKey);
+            if (messageId >= 0) next = recordCheckpoint(next, chat, messageId, imported.mode === 'replace' ? 'bundle-restore' : 'bundle-merge');
+            next.updatedAt = Date.now();
+            const persisted = await persist(chatKey, next);
+            return {
+                ok: true,
+                mode: imported.mode,
+                preview: imported.preview,
+                result: imported.result,
+                state: structuredClone(persisted),
+            };
+        });
+    }
+
     async function reconcileBranch({ rescan = false } = {}) {
         const chatKey = getChatKey();
         if (!chatKey || chatKey === 'no-chat') return { ok: false, reason: 'no-chat' };
@@ -457,6 +531,9 @@ export function createNpcStateEngine(adapters = {}) {
         resetNpcStaleness,
         deleteNpc,
         getStaleReport,
+        exportBundle,
+        previewBundleImport,
+        importBundle,
         reconcileBranch,
         invalidate,
         getState: chatKey => cache.has(chatKey || getChatKey()) ? structuredClone(cache.get(chatKey || getChatKey())) : null,
