@@ -13,10 +13,11 @@ for name in ['README.md', 'CODE-REVIEW.md', 'TEST-REPORT.md']:
     q = Path(name)
     if q.exists(): q.write_text(q.read_text().replace('v0.2.15', 'v0.2.16'))
 
-# Version assertions are release metadata, not behavioral contracts.
-for name in ['tests/package.test.js', 'tests/v0214-hardening.test.js']:
+for name in ['tests/package.test.js', 'tests/v0214-hardening.test.js', 'tests/runtime-smoke.mjs']:
     q = Path(name)
-    if q.exists(): q.write_text(q.read_text().replace('0.2.15', '0.2.16').replace('0\\.2\\.15', '0\\.2\\.16').replace('v0.2.15', 'v0.2.16'))
+    if q.exists():
+        t = q.read_text().replace('0\\.2\\.15', '0\\.2\\.16').replace('0.2.15', '0.2.16').replace('v0.2.15', 'v0.2.16')
+        q.write_text(t)
 
 ch = Path('CHANGELOG.md')
 text = ch.read_text()
