@@ -11,7 +11,7 @@ export function getCharacterOwnerId(ctx = {}) {
     const characterId = ctx.characterId;
     if (characterId === undefined || characterId === null) return '';
     const avatar = ctx.characters?.[characterId]?.avatar;
-    return String(avatar ?? characterId).trim();
+    return typeof avatar === 'string' ? avatar.trim() : '';
 }
 
 export function buildQualifiedChatKey(kind, ownerId, chatId) {
@@ -65,18 +65,20 @@ export function getChatIdentityFromContext(ctx = {}) {
         const ownerId = String(ctx.groupId).trim();
         if (raw) return {
             key: buildQualifiedChatKey('group', ownerId, raw),
-            legacyKey: legacyChatKey('group', raw),
+            legacyKey: '',
+            legacyCandidateKey: legacyChatKey('group', raw),
             kind: 'group', ownerId, id: String(raw), pending: false,
         };
-        return { key: `group-pending:${encodeChatKeyPart(ownerId)}`, legacyKey: '', kind: 'group', ownerId, id: '', pending: true };
+        return { key: `group-pending:${encodeChatKeyPart(ownerId)}`, legacyKey: '', legacyCandidateKey: '', kind: 'group', ownerId, id: '', pending: true };
     }
     const ownerId = getCharacterOwnerId(ctx);
     if (raw && ownerId) return {
         key: buildQualifiedChatKey('chat', ownerId, raw),
-        legacyKey: legacyChatKey('chat', raw),
+        legacyKey: '',
+        legacyCandidateKey: legacyChatKey('chat', raw),
         kind: 'chat', ownerId, id: String(raw), pending: false,
     };
-    if (raw) return { key: `chat-pending:${encodeChatKeyPart(raw)}`, legacyKey: '', kind: 'character', ownerId: '', id: String(raw), pending: true };
-    if (ownerId) return { key: `character:${encodeChatKeyPart(ownerId)}`, legacyKey: '', kind: 'character', ownerId, id: ownerId, pending: true };
-    return { key: 'no-chat', legacyKey: '', kind: 'none', ownerId: '', id: '', pending: true };
+    if (raw) return { key: `chat-pending:${encodeChatKeyPart(raw)}`, legacyKey: '', legacyCandidateKey: legacyChatKey('chat', raw), kind: 'character', ownerId: '', id: String(raw), pending: true };
+    if (ownerId) return { key: `character:${encodeChatKeyPart(ownerId)}`, legacyKey: '', legacyCandidateKey: '', kind: 'character', ownerId, id: ownerId, pending: true };
+    return { key: 'no-chat', legacyKey: '', legacyCandidateKey: '', kind: 'none', ownerId: '', id: '', pending: true };
 }
