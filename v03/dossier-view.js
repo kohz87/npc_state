@@ -17,6 +17,11 @@ function portraitSource(npc = {}) {
     return String(portrait.dataUrl || portrait.url || portrait.src || '').trim();
 }
 
+function portraitInputId(npc = {}) {
+    const id = String(npc?.id || 'npc').replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 120) || 'npc';
+    return `npc_state_v3_portrait_file_${id}`;
+}
+
 export function dossierStatusLabel(npc = {}) {
     if (npc.archived) return npc.archiveReason === 'deceased' ? 'Archived · deceased' : 'Archived';
     if (npc.present) return 'Present';
@@ -121,6 +126,8 @@ export function dossierHtml(npc) {
     const status = dossierStatusLabel(npc);
     const statusClass = dossierStatusClass(npc);
     const lifeState = npc.lifeState === 'dead' ? 'Dead' : (npc.lifeState === 'alive' ? 'Alive' : 'Life state unknown');
+    const portraitUrl = portraitSource(npc);
+    const portraitFileId = portraitInputId(npc);
     const flags = [
         npc.retentionProtected ? '<span><i class="fa-solid fa-shield-halved"></i> Protected</span>' : '',
         npc.manualProfileFields?.length ? '<span><i class="fa-solid fa-lock"></i> Profile locked</span>' : '',
@@ -142,6 +149,9 @@ export function dossierHtml(npc) {
           <button class="menu_button npc-state-v3-refresh" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-arrows-rotate"></i><span>Refresh</span></button>
           <details class="npc-state-v3-dossier-more"><summary><i class="fa-solid fa-ellipsis"></i><span>More</span></summary><div>
             <button class="menu_button npc-state-v3-generate-image-prompt" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-image"></i> Generate image prompt</button>
+            <input id="${escapeHtml(portraitFileId)}" class="npc-state-v3-portrait-file" data-npc-id="${escapeHtml(npc.id)}" type="file" accept="image/*" hidden>
+            <label for="${escapeHtml(portraitFileId)}" class="menu_button npc-state-v3-attach-portrait"><i class="fa-solid fa-image-portrait"></i> ${portraitUrl ? 'Change portrait' : 'Attach portrait'}</label>
+            ${portraitUrl ? `<button type="button" class="menu_button npc-state-v3-remove-portrait" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-xmark"></i> Remove portrait</button>` : ''}
             <button class="menu_button npc-state-v3-archive" data-npc-id="${escapeHtml(npc.id)}">${npc.archived ? '<i class="fa-solid fa-box-open"></i> Restore' : '<i class="fa-solid fa-box-archive"></i> Archive'}</button>
             <button class="menu_button redWarningBG npc-state-v3-delete" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-trash"></i> Delete</button>
           </div></details>
