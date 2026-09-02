@@ -1,4 +1,14 @@
-# NPC State v0.2.18 Code Review
+# NPC State v0.2.20 Code Review
+
+## v0.2.20 lifecycle/cache convergence
+
+The v0.2.19 deep pass found a split authority between the new hardening wrapper and the retained engine's private cache. v0.2.20 removes the shared-event-emitter monkey-patch and returns primary chat rename/delete ownership to the cache-aware engine. Destructive operations now refresh the latest durable revision, stage recovery/destination state, retire the source with compare-and-swap semantics, and only then publish tombstones or ownership moves. Active rename targets created by SillyTavern's pre-event reload are recognized as ephemeral and replaced with the migrated dossier rather than treated as collisions.
+
+Branch lineage advances to v4. Mutable display names remain excluded, while stable message-instance identity (send_date, with generation id fallback) differentiates identical text spoken by different group speakers or alternate generations. v3 text-only lineages migrate explicitly, and authoritative main_chat provenance can inherit a root snapshot before generic 4-message/2-user heuristics are satisfied.
+
+Character-owner rename/delete now flushes and invalidates retained-engine caches through an explicit lifecycle bridge. Historical rename rebasing covers both solo and group chats, using one bounded integrity index per character rename instead of repeatedly scanning every group chat. Hydration self-heals stale revision tokens from the sidecar payload, and recovery-history eviction queues the corresponding physical files for deletion.
+
+Release verification executes the complete Node/compatibility/runtime/migration suite ten consecutive times on the exact candidate before main is updated.
 
 ## v0.2.18 verified release promotion
 

@@ -1,197 +1,24 @@
-name: NPC State v0.2.20 Candidate Gate
+name: NPC State CI
 
 on:
   push:
-    branches: [fix/v0.2.20-hard-pass]
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  verify-and-promote-candidate:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout candidate tooling branch
+      - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Apply candidate patch
-        run: |
-          sed -i "/branch = replaceRange(branch, 'export function bestAncestorState', '', '', 'unused');/d" tests/apply-v0220-patch.mjs
-          sed -i 's#            const p = `/files/${body.name}`;#            const p = "/files/" + body.name;#' tests/apply-v0220-patch.mjs
-          node --check tests/apply-v0220-patch.mjs
-          node tests/apply-v0220-patch.mjs
-          sed -i "s/globalThis.NPCState?.version, '0.2.18'/globalThis.NPCState?.version, '0.2.20'/" tests/runtime-smoke.mjs
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def rewrite(path, old, new):
-              p = Path(path)
-              source = p.read_text()
-              if old not in source:
-                  raise RuntimeError(f'missing test patch anchor in {path}')
-              p.write_text(source.replace(old, new, 1))
-
-          rewrite('index.js',
-              "import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';",
-              "import { extension_prompt_types, extension_prompt_roles, getRequestHeaders, saveSettings as saveHostSettings } from '../../../../script.js';")
-
-          rewrite('index.js', """    if (settings.chats?.[key]) delete settings.chats[key];
-              persistSettings();
-              return true;
-          }
-
-          async function moveRenamedChatState""", """    if (settings.chats?.[key]) delete settings.chats[key];
-              persistSettings();
-              let tombstoneDurable = false;
-              try {
-                  await saveHostSettings();
-                  tombstoneDurable = true;
-              } catch (error) {
-                  console.warn(`[NPC State] chat deletion tombstone for ${key} could not be synchronously persisted; the retired sidecar is being retained as the crash-safe marker.`, error);
-              }
-              if (tombstoneDurable && pointer?.path) {
-                  try { await deleteNpcStateDataFile(pointer, { headers: requestHeaders() }); }
-                  catch (error) { console.warn(`[NPC State] retired sidecar for ${key} could not be physically deleted; the durable tombstone still prevents recovery.`, error); }
-              }
-              return true;
-          }
-
-          async function moveRenamedChatState""")
-
-          rewrite('index.js', """        persistedVersions.set(newKey, Number(stateVersions.get(newKey) || 0));
-                  persistSettings();
-                  renderDossier();
-                  updateInjection();
-                  return true;""", """        persistedVersions.set(newKey, Number(stateVersions.get(newKey) || 0));
-                  persistSettings();
-                  let renameOwnershipDurable = false;
-                  try {
-                      await saveHostSettings();
-                      renameOwnershipDurable = true;
-                  } catch (error) {
-                      console.warn(`[NPC State] renamed ownership for ${newKey} could not be synchronously persisted; the retired predecessor is being retained as a crash-safe marker.`, error);
-                  }
-                  if (renameOwnershipDurable && oldPointer?.path) {
-                      try { await deleteNpcStateDataFile(oldPointer, { headers: requestHeaders() }); }
-                      catch (error) { console.warn(`[NPC State] retired rename predecessor for ${oldKey} could not be physically deleted.`, error); }
-                  }
-                  renderDossier();
-                  updateInjection();
-                  return true;""")
-
-          # v0.2.19 renamed the non-owning legacy lookup hint to legacyCandidateKey, while the
-          # retained v0.2.18 engine still looked only at legacyKey. Accept the candidate only after
-          # the stored four-message prefix and two user-authored turns prove ownership.
-          rewrite('index.js', """function legacyMigrationMatchesActiveChat(state, chat = getContext().chat || []) {
-              const stored = Array.isArray(state?.lineage) ? state.lineage : [];
-              const messages = Array.isArray(chat) ? chat : [];
-              if (!stored.length || !messages.length) return false;
-              const candidates = [chatLineage(messages), legacyChatLineageV0210(messages)];
-              for (const current of candidates) {
-                  const common = firstLineageDivergence(stored, current);
-                  const prefix = common < 0 ? Math.min(stored.length, current.length) : common;
-                  const required = Math.min(4, stored.length, current.length);
-                  if (required > 0 && prefix >= required && messages.slice(0, required).some(message => message?.is_user)) return true;
-              }
-              return false;
-          }
-
-          async function migrateActiveLegacyNamespace() {
-              const identity = getChatIdentity();
-              if (identity.pending || !isCanonicalChatKey(identity.key) || !identity.legacyKey) return false;
-              const newKey = identity.key;
-              const oldKey = identity.legacyKey;""", """function legacyMigrationMatchesActiveChat(state, chat = getContext().chat || []) {
-              const stored = Array.isArray(state?.lineage) ? state.lineage : [];
-              const messages = Array.isArray(chat) ? chat : [];
-              if (!stored.length || !messages.length) return false;
-              const candidates = [chatLineage(messages), legacyChatLineageV0210(messages)];
-              for (const current of candidates) {
-                  const common = firstLineageDivergence(stored, current);
-                  const prefix = common < 0 ? Math.min(stored.length, current.length) : common;
-                  const required = Math.min(4, stored.length, current.length);
-                  const userTurns = messages.slice(0, required).filter(message => message?.is_user).length;
-                  if (required >= 4 && prefix >= required && userTurns >= 2) return true;
-              }
-              return false;
-          }
-
-          async function migrateActiveLegacyNamespace() {
-              const identity = getChatIdentity();
-              const oldKey = identity.legacyCandidateKey || identity.legacyKey || '';
-              if (identity.pending || !isCanonicalChatKey(identity.key) || !oldKey) return false;
-              const newKey = identity.key;""")
-
-          for smoke_path in ('tests/runtime-smoke.mjs', 'tests/migration-smoke.mjs'):
-              rewrite(smoke_path,
-                  "export function getRequestHeaders() { return { 'Content-Type': 'application/json'" + (", 'X-CSRF-Token': 'mock'" if smoke_path.endswith('runtime-smoke.mjs') else "") + " }; }",
-                  "export function getRequestHeaders() { return { 'Content-Type': 'application/json'" + (", 'X-CSRF-Token': 'mock'" if smoke_path.endswith('runtime-smoke.mjs') else "") + " }; }\nexport async function saveSettings() {}")
-
-          rewrite('tests/index-hardening.test.js', """test('chat deletion handlers preserve chat/group namespace isolation',()=>{
-            assert.match(source,/removeDeletedChatState\(chatId, 'chat', getCharacterOwnerId\(getContext\(\)\)\)/);
-            assert.match(source,/removeDeletedChatState\(chatId, 'group', String\(getContext\(\)\.groupId \|\| ''\)\)/);
-            assert.doesNotMatch(source,/for \(const key of \[`chat:\$\{id\}`, `group:\$\{id\}`\]\)/);
-          });""", """test('filename-only chat deletion fails closed instead of borrowing an unrelated active owner',()=>{
-            assert.match(source,/removeDeletedChatState\(chatId, 'chat', ''\)/);
-            assert.match(source,/removeDeletedChatState\(chatId, 'group', ''\)/);
-            assert.doesNotMatch(source,/removeDeletedChatState\(chatId, 'chat', getCharacterOwnerId\(getContext\(\)\)\)/);
-            assert.doesNotMatch(source,/for \(const key of \[`chat:\$\{id\}`, `group:\$\{id\}`\]\)/);
-          });""")
-
-          rewrite('tests/index-hardening.test.js', """test('manual trash removes narrative name suppression and branch inheritance requires user-authored provenance',()=>{
-            assert.match(source,/const permanentLabels = new Set/);
-            assert.match(source,/working\.dismissed = .*?working\.dismissed/s);
-            assert.match(source,/chat\.length < 4/);
-            assert.match(source,/chat\.filter\(message => message\?\.is_user\)\.length < 2/);
-          });""", """test('manual trash removes narrative name suppression while explicit host provenance can bypass generic branch heuristics',()=>{
-            assert.match(source,/const permanentLabels = new Set/);
-            assert.match(source,/working\.dismissed = .*?working\.dismissed/s);
-            assert.match(source,/const mainChat = String\(metadata\?\.main_chat/);
-            assert.match(source,/if \(!hasExplicitParent && \(chat\.length < 4 \|\| userTurns < 2\)\) return false/);
-          });""")
-
-          rewrite('tests/v0214-hardening.test.js', """    const switchPointer = fn.indexOf('settings.dataFiles[newKey] = newPointer');
-              assert.ok(write >= 0 && verify > write && switchPointer > verify);
-              assert.match(fn, /original mapping was preserved/);
-              assert.match(fn, /makeNpcStateDataFileName\(newKey\)/);""", """    const retire = fn.indexOf('retireNpcStateDataFile');
-              const switchPointer = fn.indexOf('settings.dataFiles[newKey] = newPointer');
-              assert.ok(write >= 0 && verify > write && retire > verify && switchPointer > retire);
-              assert.match(fn, /original durable ownership remains recoverable/);
-              assert.match(fn, /makeNpcStateDataFileName\(newKey\)/);""")
-
-          rewrite('tests/v0215-identity-hardening.test.js', """    assert.match(index, /bumpOwnershipEpoch\(key\);[\s\S]*scanOperations\.cancel\(key, 'chat-deleted'\)/);""", """    const lifecycleCache = index.slice(index.indexOf('function clearLifecycleCacheKey'), index.indexOf('async function loadLatestLifecycleState'));
-              assert.match(lifecycleCache, /bumpOwnershipEpoch\(key\)/);
-              assert.match(lifecycleCache, /scanOperations\.cancel\(key, reason\)/);
-              assert.match(index, /clearLifecycleCacheKey\(key, 'chat-deleted'\)/);""")
-
-          p = Path('tests/hardening-v0220.test.js')
-          source = p.read_text()
-          source += """
-          test('retired canonical sidecars are physically removed only after synchronous ownership metadata persistence', () => {
-            const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-            const deletion = index.slice(index.indexOf('async function removeDeletedChatState'), index.indexOf('async function moveRenamedChatState'));
-            const settingsSave = deletion.indexOf('await saveHostSettings()');
-            const physicalDelete = deletion.indexOf('deleteNpcStateDataFile(pointer');
-            assert.ok(settingsSave >= 0 && physicalDelete > settingsSave);
-            const rename = index.slice(index.indexOf('async function moveRenamedChatState'), index.indexOf('function legacyMigrationMatchesActiveChat'));
-            const renameSave = rename.indexOf('await saveHostSettings()');
-            const renameDelete = rename.indexOf('deleteNpcStateDataFile(oldPointer');
-            assert.ok(renameSave >= 0 && renameDelete > renameSave);
-          });
-
-          test('retained legacy migration consumes v0.2.19 legacyCandidateKey only with four-message two-user proof', () => {
-            const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-            const block = index.slice(index.indexOf('function legacyMigrationMatchesActiveChat'), index.indexOf('function flushLifecycleOwner'));
-            assert.match(block, /identity\.legacyCandidateKey \|\| identity\.legacyKey/);
-            assert.match(block, /required >= 4 && prefix >= required && userTurns >= 2/);
-          });
-          """
-          p.write_text(source)
-          PY
       - name: Syntax and diff check
         run: |
           node --check bootstrap.js
@@ -208,11 +35,6 @@ jobs:
           node --check identity.js
           node --check tests/hardening-v0219.test.js
           node --check tests/hardening-v0220.test.js
-          node --check tests/index-hardening.test.js
-          node --check tests/v0214-hardening.test.js
-          node --check tests/v0215-identity-hardening.test.js
-          node --check tests/runtime-smoke.mjs
-          node --check tests/migration-smoke.mjs
           git diff --check
       - name: Full verification
         run: npm test
@@ -223,18 +45,12 @@ jobs:
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
           const core = fs.readFileSync('core.js', 'utf8');
           const readme = fs.readFileSync('README.md', 'utf8');
-          if (manifest.version !== '0.2.20') throw new Error('candidate version mismatch');
-          if (!core.includes("NPC_STATE_VERSION = '0.2.20'")) throw new Error('core version mismatch');
-          if (!readme.startsWith('# NPC State v0.2.20')) throw new Error('README version mismatch');
+          const bootstrap = fs.readFileSync('bootstrap.js', 'utf8');
+          const escaped = String(manifest.version).replaceAll('.', '\\.');
+          if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
+          if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
+          if (manifest.js !== 'bootstrap.js') throw new Error('manifest must load bootstrap.js');
+          const prepareAt = bootstrap.indexOf('await prepareNpcStateHardening()');
+          const engineAt = bootstrap.indexOf("await import('./index.js')");
+          if (prepareAt < 0 || engineAt < 0 || prepareAt > engineAt) throw new Error('hardening must initialize before the retained engine');
           NODE
-      - name: Commit exact verified candidate
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No candidate changes to commit."
-            exit 0
-          fi
-          git commit -m "release: v0.2.20 lifecycle cache and branch hardening"
-          git push origin HEAD:fix/v0.2.20-hard-pass

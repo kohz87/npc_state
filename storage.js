@@ -359,6 +359,15 @@ export async function readNpcStateDataFile(pointer, { fetchFn = globalThis.fetch
     const text = typeof response.text === 'function' ? await response.text() : '';
     const payload = decodeStateFilePayload(text);
     if (expectedChatKey && String(payload.chatKey || '') !== String(expectedChatKey)) throw new Error('NPC State data file belongs to a different chat.');
+    // The sidecar is authoritative for its revision token. A crash can occur after the file
+    // upload but before debounced extension settings persist the returned pointer. Refresh the
+    // caller's pointer in place so the next write cannot remain permanently stuck on N vs N+1.
+    if (pointer && typeof pointer === 'object') {
+        pointer.revision = Math.max(0, Math.trunc(Number(payload.revision) || 0));
+        pointer.writerId = String(payload.writerId || pointer.writerId || '');
+        pointer.updatedAt = Number(payload.updatedAt || pointer.updatedAt || Date.now());
+        pointer.retired = Boolean(payload.retired);
+    }
     return payload;
 }
 

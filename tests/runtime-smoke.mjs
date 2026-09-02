@@ -9,7 +9,7 @@ const sourceRoot = path.resolve(here, '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'npc-state-runtime-'));
 const extRoot = path.join(tempRoot, 'public', 'scripts', 'extensions', 'third-party', 'npc_state');
 fs.mkdirSync(extRoot, { recursive: true });
-for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js', 'identity.js']) {
+for (const name of ['index.js', 'core.js', 'core-v0218.js', 'bundle.js', 'branch.js', 'branch-v0218.js', 'social.js', 'storage.js', 'identity.js']) {
     fs.copyFileSync(path.join(sourceRoot, name), path.join(extRoot, name));
 }
 fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ type: 'module' }));
@@ -39,6 +39,7 @@ fs.writeFileSync(path.join(tempRoot, 'public', 'script.js'), `
 export const extension_prompt_types = { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 };
 export const extension_prompt_roles = { SYSTEM: 0, USER: 1, ASSISTANT: 2 };
 export function getRequestHeaders() { return { 'Content-Type': 'application/json', 'X-CSRF-Token': 'mock' }; }
+export async function saveSettings() {}
 `);
 
 const POPUP_TYPE = { TEXT: 1, DISPLAY: 4 };
@@ -369,7 +370,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.18');
+    assert.equal(globalThis.NPCState?.version, '0.2.20');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');

@@ -24,9 +24,10 @@ test('rename verifies new storage before switching ownership', () => {
     const fn = index.slice(index.indexOf('async function moveRenamedChatState'), index.indexOf('function flushCurrentChatOnPageHide'));
     const write = fn.indexOf('writeNpcStateDataFile');
     const verify = fn.indexOf('readNpcStateDataFile(newPointer');
+    const retire = fn.indexOf('retireNpcStateDataFile');
     const switchPointer = fn.indexOf('settings.dataFiles[newKey] = newPointer');
-    assert.ok(write >= 0 && verify > write && switchPointer > verify);
-    assert.match(fn, /original mapping was preserved/);
+    assert.ok(write >= 0 && verify > write && retire > verify && switchPointer > retire);
+    assert.match(fn, /original durable ownership remains recoverable/);
     assert.match(fn, /makeNpcStateDataFileName\(newKey\)/);
 });
 
@@ -53,8 +54,8 @@ test('editor and portrait workflows are chat-affine', () => {
     assert.match(index, /closePortraitGenerator\(\);\n\s*closeNpcViewer\(\);\n\s*closeNpcEditor\(\);/);
 });
 
-test('release metadata is v0.2.18', () => {
-    assert.match(core, /NPC_STATE_VERSION = '0\.2\.18'/);
-    assert.equal(manifest.version, '0.2.18');
+test('release metadata is v0.2.20', () => {
+    assert.match(core, /NPC_STATE_VERSION = '0\.2\.20'/);
+    assert.equal(manifest.version, '0.2.20');
     assert.equal(manifest.author, 'kohz87');
 });

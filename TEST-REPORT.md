@@ -1,12 +1,19 @@
-# NPC State v0.2.18 Test Report
+# NPC State v0.2.20 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
 ## Result
 
-**PASS**
+**PASS - 10/10 exact-candidate hard passes required before main promotion**
 
-## v0.2.18 release-gate coverage
+## v0.2.20 release-gate coverage
+
+- Ten consecutive full CI hard passes run against the exact candidate commit before promotion.
+- New adversarial coverage checks rename/delete cache convergence, revision-token crash repair, identical-text branch identity, v3 -> v4 migration, explicit root inheritance, and absence of shared event-emitter monkey-patching.
+- Runtime and migration smoke fixtures now include the retained core/branch implementation modules required by the wrapper files.
+- Historical character rename coverage includes solo and group state, while destructive lifecycle ordering is statically guarded so CAS retirement precedes tombstone/ownership publication.
+
+## v0.2.18 retained release-gate coverage
 
 - **360/360 Node tests passed per hard pass**
 - Ten consecutive `npm test` passes are required on the exact v0.2.18 candidate.

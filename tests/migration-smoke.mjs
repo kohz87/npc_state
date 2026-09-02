@@ -10,7 +10,7 @@ const sourceRoot = path.resolve(here, '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'npc-state-migration-'));
 const extRoot = path.join(tempRoot, 'public', 'scripts', 'extensions', 'third-party', 'npc_state');
 fs.mkdirSync(extRoot, { recursive: true });
-for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js', 'identity.js']) fs.copyFileSync(path.join(sourceRoot, name), path.join(extRoot, name));
+for (const name of ['index.js', 'core.js', 'core-v0218.js', 'bundle.js', 'branch.js', 'branch-v0218.js', 'social.js', 'storage.js', 'identity.js']) fs.copyFileSync(path.join(sourceRoot, name), path.join(extRoot, name));
 fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ type: 'module' }));
 
 const legacyChat = [
@@ -56,6 +56,7 @@ fs.writeFileSync(path.join(tempRoot, 'public', 'script.js'), `
 export const extension_prompt_types = { IN_CHAT: 1 };
 export const extension_prompt_roles = { SYSTEM: 0 };
 export function getRequestHeaders() { return { 'Content-Type': 'application/json' }; }
+export async function saveSettings() {}
 `);
 const eventSource = { on(name, fn) { const list = mock.listeners.get(name) || []; list.push(fn); mock.listeners.set(name, list); } };
 mock.context = {
@@ -134,7 +135,7 @@ try {
     assert.ok(migratedMilestones.some(item => item.axis === 'trust' && item.polarity === 1 && item.threshold === 50));
     assert.ok(migratedMilestones.some(item => item.axis === 'affection' && item.polarity === 1 && item.threshold === 25));
     assert.ok(!migratedMilestones.some(item => item.axis === 'trust' && item.polarity === 1 && item.threshold === 75), 'legacy visible depth must not unlock a milestone it never reached');
-    assert.equal(payload.state.branchLineageVersion, 2);
+    assert.equal(payload.state.branchLineageVersion, 4);
     assert.equal('respect' in payload.state.npcs[0].relationship, false);
     assert.equal('thoughts' in payload.state.npcs[0], false, 'legacy Current Thoughts should be removed during v0.1.15 normalization');
     assert.equal(payload.state.inlineCards.length, 1, 'verified legacy inline-card history should migrate to content lineage');

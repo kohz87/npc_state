@@ -25,7 +25,10 @@ test('group identity takes precedence over host chatId and pending identities ar
 
 test('delete and hydration use ownership epochs and stale loader cannot clear a newer promise', () => {
     assert.match(index, /const ownershipEpochs = new Map\(\)/);
-    assert.match(index, /bumpOwnershipEpoch\(key\);[\s\S]*scanOperations\.cancel\(key, 'chat-deleted'\)/);
+    const lifecycleCache = index.slice(index.indexOf('function clearLifecycleCacheKey'), index.indexOf('async function loadLatestLifecycleState'));
+    assert.match(lifecycleCache, /bumpOwnershipEpoch\(key\)/);
+    assert.match(lifecycleCache, /scanOperations\.cancel\(key, reason\)/);
+    assert.match(index, /clearLifecycleCacheKey\(key, 'chat-deleted'\)/);
     assert.match(index, /assertOwnershipEpoch\(key, epoch\)/);
     assert.match(index, /if \(loadingChatStates\.get\(key\) === task\) loadingChatStates\.delete\(key\)/);
     assert.match(index, /if \(!ownershipEpochCurrent\(key, epoch\)\) return written/);
