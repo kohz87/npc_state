@@ -21,7 +21,9 @@ jobs:
         with:
           node-version: 24
       - name: Apply v0.2.17 hardening in workspace
-        run: python3 .github/scripts/apply_v0217_hardening.py
+        run: |
+          python3 .github/scripts/apply_v0217_hardening.py
+          python3 .github/scripts/apply_v0217_fix1.py
       - name: Preflight syntax and diff
         run: |
           node --check index.js
@@ -80,6 +82,7 @@ jobs:
           NODE
           test ! -e .github/scripts/apply_v0215_release.py
           test ! -e .github/scripts/apply_v0217_hardening.py
+          test ! -e .github/scripts/apply_v0217_fix1.py
           git diff --check
       - name: Commit only after all ten passes succeed
         run: |
