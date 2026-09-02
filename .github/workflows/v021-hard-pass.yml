@@ -28,6 +28,7 @@ jobs:
             python3 .release/v021_patch.py
             python3 .release/v021_postfix.py
             python3 .release/v021_manualfix.py
+            python3 .release/v021_fixturefix.py
           fi
       - name: Ten consecutive hard passes
         run: |
