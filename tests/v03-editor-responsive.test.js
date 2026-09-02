@@ -13,6 +13,13 @@ test('dossier editor can shrink inside its flex shell and uses the dynamic mobil
     assert.match(css, /safe-area-inset-bottom/);
 });
 
+test('mobile editor overlay is an explicit top-level viewport sheet above the dossier', () => {
+    assert.match(css, /z-index:2147483647!important/);
+    assert.match(css, /display:block!important/);
+    assert.match(css, /position:fixed!important/);
+    assert.match(css, /pointer-events:auto!important/);
+});
+
 test('runtime bootstrap loads the responsive editor stylesheet', () => {
     assert.match(bootstrap, /\.\/v03\/editor-responsive\.css/);
     assert.match(bootstrap, /data-npc-state-editor-responsive|npcStateEditorResponsive/);
