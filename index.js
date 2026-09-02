@@ -432,8 +432,7 @@ function lifecycleCandidateKeys(rawId, kind = 'chat') {
     const keys = new Set([
         ...Object.keys(settings.dataFiles || {}),
         ...Object.keys(settings.branchIndex || {}),
-        ...Object.keys(settings.sidecarTombstones || {}),
-        ...Object.keys(settings.recoveryFiles || {}),
+        ...Object.keys(settings.chats || {}),
         ...chatStateCache.keys(),
     ]);
     return [...keys].filter(key => isCanonicalChatKey(key) && key.startsWith(prefix) && key.endsWith(suffix));

@@ -158,3 +158,14 @@ test('owner-wide retired canonical predecessors are deleted only after settings 
   assert.ok(deletion.indexOf('await saveSettingsNow()') >= 0);
   assert.ok(deletion.indexOf('deleteNpcStateDataFile(predecessor.pointer') > deletion.indexOf('await saveSettingsNow()'));
 });
+
+
+test('ambiguous delete proof considers only live ownership and ignores historical tombstone/recovery records', () => {
+  const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  const block = index.slice(index.indexOf('function lifecycleCandidateKeys'), index.indexOf('async function hostCharacterChatPresence'));
+  assert.match(block, /settings\.dataFiles/);
+  assert.match(block, /settings\.branchIndex/);
+  assert.match(block, /settings\.chats/);
+  assert.match(block, /chatStateCache/);
+  assert.doesNotMatch(block, /sidecarTombstones|recoveryFiles/);
+});
