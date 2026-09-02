@@ -12,6 +12,8 @@
 - Added a one-way v0.2 importer that preserves durable dossier data while leaving the original v0.2 sidecar untouched.
 - Added one searchable canonical Dossier Library for present, off-screen, and archived NPCs.
 - Bound editor saves to an exact NPC ID and optimistic dossier version so cross-NPC and stale same-NPC overwrites are rejected.
+- Added a UI-only Megumin master-block adapter that mounts the existing present-NPC roster as an `NPC State` tab when Megumin's tab/panel hosts are present, with standalone inline fallback when they are not.
+- Kept Megumin outside the state architecture: the adapter owns no scanning, persistence, dossier import, or World State parsing.
 - Added focused v0.3 behavioral tests as the supported release gate.
 - Moved the complete v0.2.23 repository snapshot, including its source, tests, reports, changelog, and documentation, under `legacy/v0.2.x/`.
 - Made the repository root and default `main` branch the supported v0.3 install surface for SillyTavern.

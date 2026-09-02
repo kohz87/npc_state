@@ -33,6 +33,8 @@ Off-screen world-active NPCs may receive grounded live-state updates such as loc
 - One batch model call for the normal current-cast scan, rather than an automatic per-NPC backfill forest.
 - Relationship deltas use current-exchange evidence only. Older context can recover stable profile facts and durable memories, but cannot replay relationship changes.
 - Strict final-scene physical presence controls inline cards and generation injection.
+- When the latest assistant message contains a Megumin master block, the same present-NPC roster mounts as an **NPC State** tab inside that block. If Megumin is absent or its tab hosts are unavailable, NPC State keeps its normal standalone inline roster.
+- The Megumin bridge is UI-only. NPC State does not depend on Megumin-owned state, persistence, scanning, or dossier logic; generated World State text remains ordinary chat context for the normal v0.3 scanner.
 - Dossier Library searches every stored NPC, including off-screen and archived dossiers.
 - One canonical dossier detail surface is used by the library, roster, and inline present cards.
 - Background/model operations never save editor DOM state. Editor saves are identity-bound and use an optimistic `updatedAt` guard so a stale form cannot overwrite newer scan data.
@@ -77,6 +79,7 @@ v03/                 supported runtime
   migrate-v02.js
   injection.js
   ui.js
+  megumin.js          UI-only Megumin master-block tab adapter
   identity.js
   style.css
 tests/               v0.3 behavioral release gate
@@ -90,9 +93,9 @@ Nothing under `legacy/` is imported by the supported extension runtime.
 
 ## Current rewrite scope
 
-The v0.3.0 rewrite focuses on the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, and inline present cards.
+The v0.3.0 rewrite focuses on the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, inline present cards, and a UI-only Megumin master-block/tab mount for those same present cards.
 
-Feature areas intentionally staged for later v0.3 work rather than copied wholesale include the legacy portrait-generation workflow, bundle import/export UI, stale auto-prune workflow, OOC command layer, and the older Megumin-specific tab integration. Existing portrait data still migrates and displays.
+Feature areas intentionally staged for later v0.3 work rather than copied wholesale include stale NPC lifecycle management, bundle import/export, and portrait prompt/preset support. Existing portrait data still migrates and displays.
 
 ## Development
 
