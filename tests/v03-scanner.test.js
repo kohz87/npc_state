@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyScanResult, currentExchange } from '../v03/scanner.js';
+import { applyScanResult, buildScanPrompt, currentExchange, keyRelationshipReferencesPlayer } from '../v03/scanner.js';
 import { createEmptyState, normalizeNpc } from '../v03/schema.js';
 
 function stateWith(...npcs) {
@@ -120,4 +120,67 @@ test('an unknown model ID cannot retarget a same-name live dossier', () => {
     assert.equal(applied.state.npcs[0].id, 'mira-live');
     assert.equal(applied.state.npcs[0].personality, 'canonical');
     assert.equal(applied.state.npcs[0].present, true, 'participant resolution can still use the canonical name for presence');
+});
+
+test('fuzzy apparent-age patches cannot replace an existing canonical age', () => {
+    const state = stateWith({ id: 'a', name: 'Astra', apparentAge: '~25' });
+    const fuzzy = applyScanResult(state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{ id: 'a', name: 'Astra', apparentAge: 'late twenties' }], socialEdges: [],
+    }, { sourceMessageId: 12, turn: 3 });
+    assert.equal(fuzzy.state.npcs[0].apparentAge, '~25');
+
+    const numeric = applyScanResult(fuzzy.state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{ id: 'a', name: 'Astra', apparentAge: 'looks about 26' }], socialEdges: [],
+    }, { sourceMessageId: 13, turn: 4 });
+    assert.equal(numeric.state.npcs[0].apparentAge, '~26');
+});
+
+test('scan prompt reserves the current persona for the dedicated player relationship channel', () => {
+    const state = stateWith({ id: 'a', name: 'Astra' });
+    const chat = [
+        { is_user: true, name: 'Lucien Valentine', mes: 'I help Astra.' },
+        { is_user: false, name: 'Narrator', mes: 'Astra accepts the help.' },
+    ];
+    const prompt = buildScanPrompt({ state, chat, assistantMessageId: 1 });
+    assert.match(prompt, /PLAYER IDENTITY:[\s\S]*"name":"Lucien Valentine"/);
+    assert.match(prompt, /relationship, relationshipSummary, and relationshipChange describe THIS NPC toward the PLAYER/);
+    assert.match(prompt, /keyRelationships contains significant NON-PLAYER ties only/);
+    assert.match(prompt, /apparentAge is separate from actual age[\s\S]*written exactly as ~N/);
+});
+
+test('player references are removed from keyRelationships while the player meter still changes', () => {
+    const state = stateWith({
+        id: 'a',
+        name: 'Astra',
+        keyRelationships: ['Lucien Valentine - rescuer', 'Mira - sister'],
+        relationship: { trust: 3, affection: 1, desire: 0, tension: 0 },
+    });
+    const applied = applyScanResult(state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{
+            id: 'a',
+            name: 'Astra',
+            keyRelationships: ['Lucien Valentine - player character', 'Neri - rival'],
+            relationshipSummary: 'Astra increasingly trusts Lucien.',
+            relationshipChange: { impact: 'ordinary', delta: { trust: 1 }, evidence: 'Lucien kept his promise.', reason: 'Promise fulfilled.' },
+        }],
+        socialEdges: [],
+    }, {
+        sourceMessageId: 13,
+        turn: 4,
+        playerName: 'Lucien Valentine',
+        relationshipCaps: { ordinary: 1, meaningful: 2, major: 5, extreme: 10 },
+    });
+    const npc = applied.state.npcs[0];
+    assert.deepEqual(npc.keyRelationships, ['Mira - sister', 'Neri - rival']);
+    assert.equal(npc.relationship.trust, 4);
+    assert.equal(npc.relationshipSummary, 'Astra increasingly trusts Lucien.');
+});
+
+test('player-reference detector recognizes persona names and explicit player labels', () => {
+    assert.equal(keyRelationshipReferencesPlayer('Lucien Valentine - trusted ally', 'Lucien Valentine'), true);
+    assert.equal(keyRelationshipReferencesPlayer('The player character - rescuer', 'Lucien Valentine'), true);
+    assert.equal(keyRelationshipReferencesPlayer('Mira - sister', 'Lucien Valentine'), false);
 });
