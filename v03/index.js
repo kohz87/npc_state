@@ -4,6 +4,7 @@ import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } fro
 import { createNpcStateEngine } from './engine.js';
 import { getChatIdentity } from './identity.js';
 import { buildInjection } from './injection.js';
+import { createMeguminBlockIntegration } from './megumin.js';
 import { DEFAULT_RELATIONSHIP_CAPS, NPC_STATE_VERSION } from './schema.js';
 import { createNpcStateUi } from './ui.js';
 
@@ -149,6 +150,10 @@ ui = createNpcStateUi({
     onSettingsChanged: updateInjection,
 });
 
+const meguminBlockIntegration = createMeguminBlockIntegration({
+    renderInline: () => ui?.renderInline(),
+});
+
 async function hydrateActiveChat({ reconcile = true } = {}) {
     const identity = getChatIdentity(getContext());
     const key = identity.key;
@@ -244,6 +249,7 @@ function registerEvents() {
 async function init() {
     getSettings();
     ui.scheduleMount();
+    meguminBlockIntegration.start();
     registerEvents();
     await hydrateActiveChat({ reconcile: true });
     if (!initialized) console.log(`[NPC State] v${NPC_STATE_VERSION} clean runtime loaded`);
