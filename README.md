@@ -42,6 +42,13 @@ Off-screen world-active NPCs may receive grounded live-state updates such as loc
 - `Retention protected` dossiers and dossiers with manual stable-profile locks are hard-shielded from automatic stale archive/delete.
 - Automatic stale cleanup is intentionally softer than explicit manual Delete: it removes the dossier and its structured social edges but does not create a permanent deletion tombstone, allowing genuine later re-admission or branch recovery.
 - A dedicated **Review stale NPCs** surface keeps manual Open dossier, Reset activity, Protect, Archive/Restore, and explicit Delete controls available.
+- Bundle export uses an explicit portable v0.3 format instead of copying the raw sidecar. Full-chat backup preserves normalized dossiers, memories, relationships/history, social graph, portraits, suppression names, tombstones, archive/retention/stale fields, and stable IDs.
+- Selected-NPC export contains one normalized dossier plus social edges touching that stable ID. Edges whose counterpart does not exist in the destination are dropped safely during import.
+- Bundles never carry branch checkpoints/baselines/lineage, latest observation state, sidecar revision bookkeeping, migration state, or in-process operation locks.
+- Bundle imports are parsed, schema-checked, identity-validated, and normalized before commit. Unknown dossier fields are dropped by the v0.3 whitelist schema rather than written through raw.
+- Safe merge defaults to keeping current data for matching stable IDs and aborting on hard stable-ID/name or tombstone conflicts. The UI can instead use imported data for matching IDs or skip conflicting imported identities.
+- Full-chat **Replace durable state** is a separate explicit restore mode. It replaces portable dossier/social/tombstone domains but keeps the destination chat's branch/runtime machinery local and clears imported live presence.
+- Cross-chat bundle imports clear source-chat message IDs, preserve relative stale age by rebasing `lastActivityTurn`, and never import source live presence.
 - Dossier Library searches every stored NPC, including off-screen and archived dossiers.
 - One canonical dossier detail surface is used by the library, roster, and inline present cards.
 - Background/model operations never save editor DOM state. Editor saves are identity-bound and use an optimistic `updatedAt` guard so a stale form cannot overwrite newer scan data.
@@ -50,6 +57,21 @@ Off-screen world-active NPCs may receive grounded live-state updates such as loc
 - Per-chat model operations are serialized. A new user message invalidates an in-flight scan, and a late result is discarded before state commit.
 - Automatic scanning honors the global Enable setting. Manual dossier tools remain available while disabled.
 - v0.3 sidecars use revision checks, a cross-tab writer lock, and a local pointer hint so a stale tab cannot overwrite the first v0.3 write.
+
+## Bundle import / export
+
+The **Bundle import / export** section in NPC State settings supports:
+
+- **Export full chat** for a portable durable backup.
+- **Export selected NPC** for one dossier plus directly touching social edges.
+- **Safe merge** into the current chat.
+- **Replace durable state** from a full-chat bundle.
+- Matching-ID policy: keep the current dossier or use the imported dossier.
+- Hard-conflict policy: abort the entire import or skip conflicting imported identities.
+
+Imports are previewed before confirmation. A rejected preview or conflict performs no sidecar write. Successful import is committed through the normal serialized engine as one sidecar revision and receives a v0.3 branch checkpoint in the destination chat.
+
+Safe merge treats local manual-deletion tombstones as authoritative and will not silently resurrect those IDs. Likewise an imported tombstone cannot silently delete a live local dossier; that is surfaced as an identity conflict. Full-chat Replace is the deliberate escape hatch when the user genuinely intends to restore the bundle's durable state wholesale.
 
 ## v0.2 data migration
 
@@ -89,6 +111,8 @@ v03/                 supported runtime
   megumin.js          UI-only Megumin master-block tab adapter
   stale.js            narrative-turn stale lifecycle and reporting
   stale-ui.js         settings and manual stale-review surface
+  bundle.js           portable v0.3 bundle validation/export/import logic
+  bundle-ui.js        full-chat/selected-NPC bundle management surface
   identity.js
   style.css
 tests/               v0.3 behavioral release gate
@@ -102,9 +126,9 @@ Nothing under `legacy/` is imported by the supported extension runtime.
 
 ## Current rewrite scope
 
-The v0.3.0 rewrite focuses on the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, and narrative-turn stale NPC lifecycle management with manual review controls.
+The v0.3.0 rewrite now covers the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, and validated portable bundle import/export for full-chat and selected-NPC workflows.
 
-Feature areas intentionally staged for later v0.3 work rather than copied wholesale are bundle import/export and portrait prompt/preset support. Existing portrait data still migrates and displays.
+The remaining intentionally staged feature is portrait preset + generation-prompt support. Existing portrait data already migrates, displays, and is preserved by v0.3 bundles.
 
 ## Development
 
