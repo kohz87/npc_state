@@ -108,10 +108,11 @@ runtime_path.write_text(runtime, encoding='utf-8')
 
 migration_path = root / 'tests' / 'migration-smoke.mjs'
 migration = migration_path.read_text(encoding='utf-8')
-old_schema_assert = "    assert.equal(settings.schemaVersion, 28);"
-new_schema_assert = "    assert.equal(settings.schemaVersion, 29);"
-if old_schema_assert not in migration:
-    raise SystemExit('stale migration schema assertion not found')
-migration_path.write_text(migration.replace(old_schema_assert, new_schema_assert, 1), encoding='utf-8')
+old_schema_assert = 'schemaVersion, 28)'
+schema_assert_count = migration.count(old_schema_assert)
+if schema_assert_count < 1:
+    raise SystemExit('no stale migration schema assertions found')
+migration = migration.replace(old_schema_assert, 'schemaVersion, 29)')
+migration_path.write_text(migration, encoding='utf-8')
 
-print('v0.2.23 manual relationship repair preserved with rolling-history scrub')
+print(f'v0.2.23 final reconciliation applied; upgraded {schema_assert_count} migration schema assertions')
