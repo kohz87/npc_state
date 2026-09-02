@@ -21,7 +21,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Apply staged v0.2.15 release hardening
+      - name: Apply staged v0.2.16 release metadata
         if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
         run: python3 .github/scripts/apply_v0215_release.py
       - name: Syntax and diff check
@@ -47,15 +47,17 @@ jobs:
             node --check storage.js
             git diff --check
           done
-      - name: v0.2.15 adversarial invariants
+      - name: Ownership adversarial invariants
         if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
         run: |
-          grep -Fq "const chatOwnershipEpochs = new Map();" index.js
-          grep -Fq "assertChatOwnership(key, hydrationEpoch);" index.js
-          grep -Fq "settings.retiredChatKeys[key]" index.js
+          grep -Fq "function ownershipEpoch" index.js
+          grep -Fq "assertOwnershipEpoch(key, epoch);" index.js
+          grep -Fq "sidecarTombstones" index.js
           grep -Fq "eventData.groupId" index.js
-          grep -Fq "return `group:${groupChatId}`" index.js
-          test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.15"
+          grep -Fq "groupChatId" index.js
+          grep -Fq "detachBrokenSidecar" index.js
+          grep -Fq "likelyAncestorKeys" index.js
+          test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.16"
       - name: Release consistency
         run: |
           node --input-type=module <<'NODE'
@@ -67,7 +69,7 @@ jobs:
           if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
           if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
           NODE
-      - name: Commit verified v0.2.15 release
+      - name: Commit verified v0.2.16 release
         if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
         run: |
           if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
@@ -77,5 +79,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.js core.js manifest.json README.md CHANGELOG.md CODE-REVIEW.md TEST-REPORT.md
-          git commit -m "fix: harden v0.2.15 chat ownership lifecycle"
+          git commit -m "release: verify v0.2.16 lifecycle hardening"
           git push origin HEAD:v0.2.15-release-hardening-10x
