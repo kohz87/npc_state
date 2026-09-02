@@ -1,0 +1,20 @@
+[NPC State] migrated legacy ownership chat:legacy-chat -> chat:megumin.png:legacy-chat.
+[NPC State] v0.2.23 loaded
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+29 !== 28
+
+    at file:///home/runner/work/npc_state/npc_state/tests/migration-smoke.mjs:98:12 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 29,
+  expected: 28,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.23.2
