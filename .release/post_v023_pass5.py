@@ -69,4 +69,12 @@ if old_test not in hard:
     raise SystemExit('manual relationship hardening test not found')
 hard_path.write_text(hard.replace(old_test, new_test, 1), encoding='utf-8')
 
+ui_path = root / 'tests' / 'ui-layout.test.js'
+ui = ui_path.read_text(encoding='utf-8')
+old_ui = "    assert.match(index, /runFocusedRelationshipPass\\(ctx, fullWindowRelationship\\.evaluation, state\\.npcs, currentTranscript \\|\\| transcript, settings\\)/);"
+new_ui = "    assert.match(index, /runFocusedRelationshipPass\\(\\s*ctx,\\s*fullWindowRelationship\\.evaluation,\\s*state\\.npcs,\\s*currentTranscript \\|\\| transcript,\\s*settings,\\s*\\{ currentExchangeOnly: manual \\|\\| fullWindowScan \\},\\s*\\)/);"
+if old_ui not in ui:
+    raise SystemExit('stale relationship UI invariant not found')
+ui_path.write_text(ui.replace(old_ui, new_ui, 1), encoding='utf-8')
+
 print('v0.2.23 manual relationship repair preserved with rolling-history scrub')
