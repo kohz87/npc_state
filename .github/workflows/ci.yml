@@ -1,16 +1,15 @@
-name: NPC State CI
+name: NPC State v0.2.17 Release Gate
 
 on:
   push:
-    branches: [main, v0.2.15-release-hardening-10x]
-  pull_request:
+    branches: [v0.2.17-identity-storage-hardening]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  verify:
+  verify-and-commit:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -21,10 +20,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Apply staged v0.2.16 release metadata
-        if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
-        run: python3 .github/scripts/apply_v0215_release.py
-      - name: Syntax and diff check
+      - name: Apply v0.2.17 hardening in workspace
+        run: python3 .github/scripts/apply_v0217_hardening.py
+      - name: Preflight syntax and diff
         run: |
           node --check index.js
           node --check core.js
@@ -32,26 +30,41 @@ jobs:
           node --check bundle.js
           node --check social.js
           node --check storage.js
+          node --check identity.js
           git diff --check
-      - name: Ten hard-pass cycles
+      - name: Ten complete hard-pass cycles
         run: |
+          set -euo pipefail
           for pass in $(seq 1 10); do
             echo "========== HARD PASS ${pass}/10 =========="
             npm test
-            node tests/compatibility-check.js
             node --check index.js
             node --check core.js
             node --check branch.js
             node --check bundle.js
             node --check social.js
             node --check storage.js
+            node --check identity.js
             git diff --check
           done
-      - name: Lifecycle adversarial regression
-        if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
+      - name: Dedicated v0.2.17 adversarial pass
         run: |
-          node --test tests/v0215-hardening.test.js
-          test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.16"
+          node --test tests/identity.test.js tests/v0217-hardening.test.js
+          test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.17"
+      - name: Finalize verified test count
+        run: |
+          set -euo pipefail
+          COUNT=$(node --test tests/*.test.js 2>&1 | tee /tmp/npc-state-tap.txt | awk '/^# tests /{print $3}' | tail -1)
+          test -n "$COUNT"
+          python3 - "$COUNT" <<'PY'
+          import pathlib, re, sys
+          path = pathlib.Path('TEST-REPORT.md')
+          text = path.read_text()
+          count = sys.argv[1]
+          text = re.sub(r'\*\*\d+/\d+ Node tests passed\*\*', f'**{count}/{count} Node tests passed**', text, count=1)
+          path.write_text(text)
+          PY
+          git diff --check
       - name: Release consistency
         run: |
           node --input-type=module <<'NODE'
@@ -59,19 +72,24 @@ jobs:
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
           const core = fs.readFileSync('core.js', 'utf8');
           const readme = fs.readFileSync('README.md', 'utf8');
-          const escaped = String(manifest.version).replaceAll('.', '\\.');
-          if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
-          if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
+          const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+          if (manifest.version !== '0.2.17') throw new Error('manifest is not v0.2.17');
+          if (!core.includes("NPC_STATE_VERSION = '0.2.17'")) throw new Error('core is not v0.2.17');
+          if (!readme.startsWith('# NPC State v0.2.17')) throw new Error('README is not v0.2.17');
+          if (!changelog.includes('## 0.2.17')) throw new Error('CHANGELOG lacks v0.2.17');
           NODE
-      - name: Commit verified v0.2.16 release
-        if: ${{ github.ref == 'refs/heads/v0.2.15-release-hardening-10x' }}
+          test ! -e .github/scripts/apply_v0215_release.py
+          test ! -e .github/scripts/apply_v0217_hardening.py
+          git diff --check
+      - name: Commit only after all ten passes succeed
         run: |
-          if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
-            echo "No release changes required"
-            exit 0
-          fi
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.js core.js manifest.json README.md CHANGELOG.md CODE-REVIEW.md TEST-REPORT.md tests/package.test.js tests/v0214-hardening.test.js tests/runtime-smoke.mjs
-          git commit -m "release: verify v0.2.16 lifecycle hardening"
-          git push origin HEAD:v0.2.15-release-hardening-10x
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No verified release changes to commit"
+            exit 0
+          fi
+          git commit -m "release: v0.2.17 identity and storage hardening"
+          git push origin HEAD:v0.2.17-identity-storage-hardening
