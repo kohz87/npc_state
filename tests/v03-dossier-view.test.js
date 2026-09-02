@@ -65,6 +65,8 @@ test('portrait-first dossier renderer emits hero, current state, relationship, a
     assert.match(html, />Mannerisms</);
     assert.match(html, />Important memories</);
     assert.match(html, />Background</);
+    assert.match(html, /<div class="npc-state-v3-dossier-block /);
+    assert.doesNotMatch(html, /<section class="npc-state-v3-dossier-block/);
 });
 
 test('cast rail uses portrait cards and marks only the selected stable ID active', () => {
