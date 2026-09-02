@@ -1,4 +1,4 @@
-/* NPC State v0.2.21 - standalone SillyTavern extension */
+/* NPC State v0.2.22 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders, saveSettings as saveHostSettings } from '../../../../script.js';
 import {
@@ -18,6 +18,8 @@ import {
     isLegacyStockRelationshipCriteriaV029,
     isLegacyStockImpactCriteriaV029,
     isLegacyStockBehaviorCriteriaV029,
+    isLegacyStockRelationshipCriteriaV0221,
+    isLegacyStockImpactCriteriaV0221,
     relationshipHistoryLooksDuplicate,
     IMPORTANT_MEMORY_LIMIT,
     KEY_RELATIONSHIP_LIMIT,
@@ -35,6 +37,8 @@ import {
     applyRelationshipDelta,
     relationshipChangeReasonGrounded,
     relationshipAxisEvidenceGrounded,
+    filterRelationshipDeltaByEvidence,
+    prepareFullWindowRelationshipPayload,
     relationshipSummaryConsistent,
     calibrateRelationshipSummary,
     normalizeNpcAdmissionMode,
@@ -236,7 +240,7 @@ const PORTRAIT_THEME_PRESETS = Object.freeze({
 const DURABLE_COMPACTION_VERSION = 1;
 
 const DEFAULTS = Object.freeze({
-    schemaVersion: 27,
+    schemaVersion: 28,
     enabled: true,
     autoScan: true,
     fullScanEveryTurn: false,
@@ -372,6 +376,11 @@ function getSettings() {
 
     // Canonicalize every current setting. This also repairs malformed values from
     // hand-edited settings without requiring a future schema bump.
+    if (previousSchema < 28) {
+        // v0.2.22 restores low-band mundane progression only for untouched stock rubrics.
+        if (isLegacyStockRelationshipCriteriaV0221(settings.relationshipCriteria)) assign('relationshipCriteria', DEFAULT_RELATIONSHIP_CRITERIA);
+        if (isLegacyStockImpactCriteriaV0221(settings.relationshipImpactCriteria)) assign('relationshipImpactCriteria', DEFAULT_IMPACT_CRITERIA);
+    }
     assign('relationshipBaseline', normalizeRelationshipBaseline(settings.relationshipBaseline), sameJson);
     assign('relationshipCaps', normalizeRelationshipCaps(settings.relationshipCaps), sameJson);
     assign('relationshipCriteria', typeof settings.relationshipCriteria === 'string' ? settings.relationshipCriteria : DEFAULT_RELATIONSHIP_CRITERIA);
@@ -598,6 +607,7 @@ function normalizeChatState(raw = {}) {
         npcId: String(item?.npcId || '').slice(0, 100),
         label: String(item?.label || '').trim().slice(0, 120),
         requestedMessageId: Number.isInteger(item?.requestedMessageId) ? item.requestedMessageId : null,
+        preserveLiveState: item?.preserveLiveState === true,
         requestedAt: Number(item?.requestedAt || 0) || Date.now(),
         attempts: Math.max(0, Math.min(BACKFILL_MAX_ATTEMPTS, Math.round(Number(item?.attempts) || 0))),
         lastAttemptAt: Math.max(0, Number(item?.lastAttemptAt || 0) || 0),
@@ -1718,7 +1728,7 @@ function updateInjection() {
     );
 }
 
-function queueNpcBackfillInState(state, npcId, label, requestedMessageId = null) {
+function queueNpcBackfillInState(state, npcId, label, requestedMessageId = null, options = {}) {
     if (!state || !npcId || !String(label || '').trim()) return state;
     if (!Array.isArray(state.pendingBackfills)) state.pendingBackfills = [];
     const cleanLabel = String(label || '').trim().slice(0, 120);
@@ -1727,6 +1737,7 @@ function queueNpcBackfillInState(state, npcId, label, requestedMessageId = null)
         npcId: String(npcId).slice(0, 100),
         label: cleanLabel,
         requestedMessageId: Number.isInteger(requestedMessageId) ? requestedMessageId : null,
+        preserveLiveState: options?.preserveLiveState === true,
         requestedAt: Date.now(),
         attempts: 0,
         lastAttemptAt: 0,
@@ -2076,6 +2087,8 @@ async function refreshNpcFromChat(npcId) {
             admissionMode: settings.admissionMode,
             preservePresence: true,
             skipRelationshipUpdate: true,
+            memoryInputLimit: IMPORTANT_MEMORY_LIMIT,
+            allowTargetedDurableSeed: true,
             developmentContext: transcript,
         });
         // A targeted refresh may use social-edge machinery internally, but it must never
@@ -2157,9 +2170,10 @@ function compactRetryPrompt(prompt, label = 'scanner', reason = 'malformed') {
     const cause = reason === 'truncated'
         ? 'Your previous response ended before the JSON was complete.'
         : 'Your previous response was not valid JSON. Rebuild it from the beginning with correct commas, colons, quotes, arrays, and objects.';
+    const targetedMemoryLimit = /(?:backfill|chat refresh)/i.test(String(label || '')) ? IMPORTANT_MEMORY_LIMIT : 3;
     return `${prompt}
 
-CRITICAL COMPACT JSON RETRY (${label}): ${cause} Return the full JSON object again from the beginning. Use MINIFIED JSON only. Keep every value concise; shorten prose instead of risking truncation. Omit unsupported optional facts rather than explaining them. Compact rather than append: appearance under 500 characters, personality 280, speech 240, behaviorProfile at most 6 short point-form rules, background/relationship summary 280-320, mannerisms at most 4 DISTINCT short items, key relationships one entry per counterpart, memories at most 3 NEW distinct events, memoryRetention at most 5 distinct events. Close every quoted string, array, and object. No markdown, no commentary, no code fence.`;
+CRITICAL COMPACT JSON RETRY (${label}): ${cause} Return the full JSON object again from the beginning. Use MINIFIED JSON only. Keep every value concise; shorten prose instead of risking truncation. Omit unsupported optional facts rather than explaining them. Compact rather than append: appearance under 500 characters, personality 280, speech 240, behaviorProfile at most 6 short point-form rules, background/relationship summary 280-320, mannerisms at most 4 DISTINCT short items, key relationships one entry per counterpart, memories at most ${targetedMemoryLimit} distinct events, memoryRetention at most 5 distinct events. Close every quoted string, array, and object. No markdown, no commentary, no code fence.`;
 }
 
 async function generateParsedNpcJson(ctx, {
@@ -2247,11 +2261,22 @@ async function backfillNpcFromHistory(request, messageId = null) {
         // label (e.g. Toris -> Toris Vale) without repeating the alias, accept the sole result
         // when the requested target is actually present in the supplied history.
         if (!matches.length && returned.length === 1 && transcriptMentionsBackfillTarget(transcript, request.label)) matches = returned;
+        const liveBeforeBackfill = request.preserveLiveState === true
+            ? getChatState(chatKey).npcs.find(item => item.id === request.npcId)
+            : null;
         parsed.npcs = matches
             .slice(0, 1)
             .map(npc => ({
                 ...npc,
                 id: request.npcId,
+                ...(liveBeforeBackfill ? {
+                    present: Boolean(liveBeforeBackfill.present),
+                    worldActive: Boolean(liveBeforeBackfill.worldActive) && !Boolean(liveBeforeBackfill.present),
+                    mood: liveBeforeBackfill.mood || npc.mood || '',
+                    location: liveBeforeBackfill.location || npc.location || '',
+                    goal: liveBeforeBackfill.goal || npc.goal || '',
+                    status: liveBeforeBackfill.status || npc.status || '',
+                } : {}),
                 relationshipImpact: 'none',
                 relationshipDelta: { trust: 0, affection: 0, desire: 0, tension: 0 },
                 relationshipChangeReason: '',
@@ -2276,10 +2301,23 @@ async function backfillNpcFromHistory(request, messageId = null) {
             admissionMode: settings.admissionMode,
             preservePresence: true,
             skipRelationshipUpdate: true,
+            memoryInputLimit: IMPORTANT_MEMORY_LIMIT,
+            allowTargetedDurableSeed: true,
             developmentContext: transcript,
         });
         const nextState = merged.state;
         const finalNpc = nextState.npcs.find(npc => npc.id === request.npcId);
+        if (request.preserveLiveState === true && liveBeforeBackfill && finalNpc) {
+            finalNpc.present = Boolean(liveBeforeBackfill.present);
+            finalNpc.worldActive = Boolean(liveBeforeBackfill.worldActive) && !finalNpc.present;
+            finalNpc.mood = liveBeforeBackfill.mood || '';
+            finalNpc.location = liveBeforeBackfill.location || '';
+            finalNpc.goal = liveBeforeBackfill.goal || '';
+            finalNpc.status = liveBeforeBackfill.status || '';
+            finalNpc.seenCount = Number(liveBeforeBackfill.seenCount || 0);
+            finalNpc.lastSeenTurn = Number(liveBeforeBackfill.lastSeenTurn || 0);
+            finalNpc.lastWorldActiveTurn = Number(liveBeforeBackfill.lastWorldActiveTurn || 0);
+        }
         if (targetMessageId >= 0 && finalNpc) {
             if (!finalNpc.archived && finalNpc.present) recordInlineCardsInState(nextState, targetMessageId, [finalNpc.id], 'ooc-backfill');
             else removeNpcInlineCardAtMessage(nextState, targetMessageId, finalNpc.id);
@@ -2359,8 +2397,8 @@ function hasCompletePrimaryRelationshipDecision(raw, transcript = '') {
     if (hasNonZero && rawImpact === 'none') return false;
     if (!hasNonZero && rawImpact !== 'none') return false;
     if (hasNonZero) {
-        const reason = raw.relationshipChangeReason ?? raw.relationship_change_reason ?? raw.relationshipReason ?? '';
-        if (!relationshipChangeReasonGrounded(reason, transcript)) return false;
+        const reason = String(raw.relationshipChangeReason ?? raw.relationship_change_reason ?? raw.relationshipReason ?? '').trim();
+        if (!reason) return false;
         const evidenceSource = raw.relationshipEvidence ?? raw.relationship_evidence;
         if (!evidenceSource || typeof evidenceSource !== 'object') return false;
         const evidence = normalizeRelationshipEvidence(evidenceSource);
@@ -2412,22 +2450,26 @@ async function runFocusedRelationshipPass(ctx, parsed, existingNpcs, transcript,
                 && ['trust', 'affection', 'desire', 'tension'].every(key => Number.isFinite(Number(deltaSource[key])));
             if (!hasFullDelta) continue;
             const normalized = normalizeScanNpc(rawDecision);
-            const hasNonZeroNormalizedDelta = Object.values(normalized.relationshipDelta).some(value => value !== 0);
-            if (hasNonZeroNormalizedDelta && !relationshipChangeReasonGrounded(normalized.relationshipChangeReason, transcript)) continue;
-            if (hasNonZeroNormalizedDelta && !Object.entries(normalized.relationshipDelta).every(([key, value]) => value === 0 || relationshipAxisEvidenceGrounded(key, normalized.relationshipEvidence?.[key], transcript))) continue;
+            const requestedHasDelta = Object.values(normalized.relationshipDelta).some(value => value !== 0);
+            const reasonPresent = Boolean(String(normalized.relationshipChangeReason || '').trim());
+            const relationshipDelta = requestedHasDelta && reasonPresent
+                ? filterRelationshipDeltaByEvidence(normalized.relationshipDelta, normalized.relationshipEvidence, transcript)
+                : { trust: 0, affection: 0, desire: 0, tension: 0 };
+            const hasNonZeroNormalizedDelta = Object.values(relationshipDelta).some(value => value !== 0);
+            const relationshipImpact = hasNonZeroNormalizedDelta ? normalized.relationshipImpact : 'none';
             const rawSummary = rawDecision.relationshipSummary ?? rawDecision.relationship_summary;
             const explicitSummaryProvided = typeof rawSummary === 'string';
             const explicitSummary = explicitSummaryProvided ? String(rawSummary).trim().slice(0, 700) : '';
-            const hasNonZeroDelta = Object.values(normalized.relationshipDelta).some(value => value !== 0);
-            const needsTurningPointSummary = hasNonZeroDelta && ['major', 'extreme'].includes(normalized.relationshipImpact);
+            const hasNonZeroDelta = Object.values(relationshipDelta).some(value => value !== 0);
+            const needsTurningPointSummary = hasNonZeroDelta && ['major', 'extreme'].includes(relationshipImpact);
             const fallbackSummary = needsTurningPointSummary && !explicitSummary && normalized.relationshipChangeReason
                 ? `${target.name || 'This NPC'}'s relationship with the player changed ${normalized.relationshipImpact === 'extreme' ? 'fundamentally' : 'substantially'}: ${normalized.relationshipChangeReason}`.slice(0, 700)
                 : '';
             const relationshipSummary = explicitSummary || fallbackSummary;
             const relationshipSummaryDecisionProvided = explicitSummaryProvided || Boolean(fallbackSummary);
             decisions.set(target.id, {
-                relationshipDelta: normalized.relationshipDelta,
-                relationshipImpact: normalized.relationshipImpact,
+                relationshipDelta,
+                relationshipImpact,
                 relationshipEvidence: normalized.relationshipEvidence,
                 relationshipChangeReason: normalized.relationshipChangeReason,
                 relationshipSummary,
@@ -2448,36 +2490,7 @@ async function runFocusedRelationshipPass(ctx, parsed, existingNpcs, transcript,
 }
 
 function prepareFullWindowRelationshipEvaluation(parsed, existingNpcs) {
-    const evaluation = structuredClone(parsed || { npcs: [] });
-    const mergeSafe = structuredClone(parsed || { npcs: [] });
-    const existing = Array.isArray(existingNpcs) ? existingNpcs : [];
-    for (let i = 0; i < (mergeSafe.npcs || []).length; i += 1) {
-        const safeRaw = mergeSafe.npcs[i];
-        const evalRaw = evaluation.npcs?.[i];
-        const matched = existing.find(npc => rawScanMatchesExisting(safeRaw, npc));
-        if (!matched) continue;
-        // The rolling-history scanner may recover durable dossier facts, but numeric relationship
-        // changes are non-idempotent. Never trust them from the rolling window. Force the focused
-        // evaluator to score only the newest exchange; if that repair fails, zero is safer than replay.
-        if (evalRaw) {
-            delete evalRaw.relationship;
-            delete evalRaw.relationship_delta;
-            delete evalRaw.relationshipDelta;
-            delete evalRaw.relationshipImpact;
-            delete evalRaw.relationship_impact;
-            delete evalRaw.relationshipChangeReason;
-            delete evalRaw.relationship_change_reason;
-            delete evalRaw.relationshipEvidence;
-            delete evalRaw.relationship_evidence;
-        }
-        delete safeRaw.relationship;
-        delete safeRaw.relationship_delta;
-        safeRaw.relationshipImpact = 'none';
-        safeRaw.relationshipDelta = { trust: 0, affection: 0, desire: 0, tension: 0 };
-        safeRaw.relationshipEvidence = { trust: '', affection: '', desire: '', tension: '' };
-        safeRaw.relationshipChangeReason = '';
-    }
-    return { evaluation, mergeSafe };
+    return prepareFullWindowRelationshipPayload(parsed, existingNpcs);
 }
 
 function suppressPrimaryRelationshipForFocusedDecisions(parsed, decisions) {
@@ -2738,6 +2751,8 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
             relationshipTargets: relationshipPass.targetCount,
             relationshipResponseChars: relationshipPass.responseChars,
             relationshipRetried: relationshipPass.retried,
+            newNpcRelationshipTargets: 0,
+            newNpcRelationshipResponseChars: 0,
             relationshipEdges: relationshipEdgeCount,
             relationshipEdgeFallbacks,
             profileUpdates: profileUpdateCount,
@@ -2775,6 +2790,52 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
             preserveWorldActive: compactWorldStateTurn,
             developmentContext: transcript,
         });
+        const newlyAdmittedIds = [...new Set([...(merged.report?.created || []), ...(merged.report?.promoted || [])])];
+        let newNpcRelationshipPass = { decisions: new Map(), used: false, targetCount: 0, responseChars: 0, retried: false };
+        if (fullWindowScan && newlyAdmittedIds.length) {
+            const newTargets = merged.state.npcs.filter(npc => newlyAdmittedIds.includes(npc.id) && !npc.archived);
+            if (newTargets.length) {
+                const combinedDecisions = new Map();
+                let combinedTargetCount = 0;
+                let combinedResponseChars = 0;
+                let combinedRetried = false;
+                for (let offset = 0; offset < newTargets.length; offset += 4) {
+                    const batch = newTargets.slice(offset, offset + 4);
+                    const result = await runFocusedRelationshipPass(
+                        ctx,
+                        fullWindowRelationship.evaluation,
+                        batch,
+                        currentTranscript || transcript,
+                        settings,
+                    );
+                    for (const [id, decision] of result.decisions || []) combinedDecisions.set(id, decision);
+                    combinedTargetCount += Number(result.targetCount || 0);
+                    combinedResponseChars += Number(result.responseChars || 0);
+                    combinedRetried ||= Boolean(result.retried);
+                }
+                newNpcRelationshipPass = {
+                    decisions: combinedDecisions,
+                    used: combinedTargetCount > 0,
+                    targetCount: combinedTargetCount,
+                    responseChars: combinedResponseChars,
+                    retried: combinedRetried,
+                };
+                applyFocusedRelationshipDecisions(merged.state, combinedDecisions, settings.relationshipCaps, targetMessageId, merged.report);
+                if (lastScanMetrics) {
+                    lastScanMetrics.newNpcRelationshipTargets = combinedTargetCount;
+                    lastScanMetrics.newNpcRelationshipResponseChars = combinedResponseChars;
+                }
+            }
+        }
+        currentLineage = chatLineage(getContext().chat || []);
+        if (!scanOperationCurrent(scanChatKey, operation)
+            || getChatKey() !== scanChatKey
+            || firstLineageDivergence(scanLineage, currentLineage) !== -1
+            || Number(stateVersions.get(scanChatKey) || 0) !== scanStateVersion) {
+            console.info('[NPC State] discarded stale dossier scan after new-NPC relationship evaluation.');
+            if (manual) globalThis.toastr?.info?.('NPC State: chat changed during scan; stale result was discarded.');
+            return;
+        }
         if (lastScanMetrics) {
             lastScanMetrics.profileApplied = Number(merged.report?.profileUpdateStats?.applied || 0);
             lastScanMetrics.profileEvidenceAdded = Number(merged.report?.profileUpdateStats?.evidenceAdded || 0);
@@ -2801,6 +2862,12 @@ async function scanNow({ manual = false, messageId = null, allowDuringSwipe = fa
             lastScannedMessageId: Number.isInteger(messageId) ? messageId : ((ctx.chat || []).length - 1),
             scanCount: Number(state.scanCount || 0) + 1,
         };
+        if (!manual && newlyAdmittedIds.length) {
+            for (const id of newlyAdmittedIds) {
+                const npc = nextState.npcs.find(item => item.id === id && !item.archived);
+                if (npc) queueNpcBackfillInState(nextState, npc.id, npc.name, targetMessageId, { preserveLiveState: true });
+            }
+        }
         const inlineIds = scanInlineNpcIds(resolvedParsed, merged);
         if (targetMessageId >= 0) {
             clearInlineCardsAtMessage(nextState, targetMessageId);

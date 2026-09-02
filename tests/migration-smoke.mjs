@@ -95,7 +95,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 50));
     await globalThis.NPCState.flush();
     const settings = mock.extensionSettings.npc_state;
-    assert.equal(settings.schemaVersion, 27);
+    assert.equal(settings.schemaVersion, 28);
     assert.equal(settings.admissionMode, 'conservative', 'legacy settings should adopt conservative dossier admission');
     assert.equal(settings.maxNpcs, 40);
     assert.equal(settings.scanEvery, 1);
@@ -171,7 +171,7 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v028stock=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 27);
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 28);
     assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 1, meaningful: 2, major: 5, extreme: 10 }, 'untouched v0.2.8 caps should migrate through to v0.2.10 stock defaults');
 
     mock.extensionSettings.npc_state = {
@@ -183,7 +183,7 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v028custom=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 27);
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 28);
     assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 2, meaningful: 6, major: 12, extreme: 24 }, 'custom relationship caps must survive the v0.2.8→v0.2.10 migration');
 
 
@@ -196,7 +196,7 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v029stock=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 27);
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 28);
     assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 1, meaningful: 2, major: 5, extreme: 10 }, 'untouched v0.2.9 caps should migrate to v0.2.10 weights');
 
     const customV029Criteria = 'All relationship stats use a bipolar -100 to +100 scale with 0 as neutral. Positive and negative values are durable relationship states, not percentages or per-turn rewards. CUSTOM: my campaign deliberately changes progression.';
@@ -212,7 +212,7 @@ try {
     };
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?v029custom=${Date.now()}`);
     await new Promise(resolve => setTimeout(resolve, 30));
-    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 27);
+    assert.equal(mock.extensionSettings.npc_state.schemaVersion, 28);
     assert.deepEqual(mock.extensionSettings.npc_state.relationshipCaps, { ordinary: 2, meaningful: 4, major: 7, extreme: 9 }, 'custom v0.2.9 caps must survive schema23 migration');
     assert.equal(mock.extensionSettings.npc_state.relationshipCriteria, customV029Criteria, 'custom v0.2.9 relationship rubric must not be mistaken for stock by prefix');
     assert.equal(mock.extensionSettings.npc_state.relationshipImpactCriteria, 'CUSTOM IMPACT RUBRIC');

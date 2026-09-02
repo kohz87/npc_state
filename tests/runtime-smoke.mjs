@@ -377,7 +377,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.21');
+    assert.equal(globalThis.NPCState?.version, '0.2.22');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');
@@ -876,6 +876,87 @@ try {
     const lioraInline = state.inlineCards.find(entry => entry.messageId === autoRetryMessageId);
     assert.ok(lioraInline?.cards.some(card => card.name === 'Liora'), 'if merged state marks Liora present, the same scan must record her inline card');
     assert.equal(autoRetryAttempt, 2, 'automatic/manual scanner path should retry exactly once after truncation');
+
+    // v0.2.22: a new NPC admitted by automatic full-window scanning must be enriched
+    // automatically, while its numeric relationship is scored from CURRENT exchange only.
+    const savedMiraFullScan = mockState.extensionSettings.npc_state.fullScanEveryTurn;
+    const savedMiraBaseline = structuredClone(mockState.extensionSettings.npc_state.relationshipBaseline);
+    mockState.extensionSettings.npc_state.relationshipBaseline = { trust: 0, affection: 0, desire: 0, tension: 0 };
+    mockState.extensionSettings.npc_state.fullScanEveryTurn = true;
+    mockState.context.chat.push({ is_user: false, is_system: false, name: 'Megumin', swipe_id: 0, mes: 'Earlier, Mira returned Kazuma\'s dropped purse untouched after finding it on the guild floor.' });
+    mockState.context.chat.push({ is_user: true, is_system: false, name: 'Kazuma', mes: 'I invite Mira to share a bowl of stew with me and thank her for staying.' });
+    mockState.context.chat.push({ is_user: false, is_system: false, name: 'Megumin', swipe_id: 0, mes: 'Mira accepts and stays to eat with Kazuma, lingering through an easy conversation before the bowls are cleared.' });
+    const miraMessageId = mockState.context.chat.length - 1;
+    let miraFullScanCalls = 0;
+    let miraRelationshipCalls = 0;
+    let miraBackfillCalls = 0;
+    mockState.quietResponder = async (args = {}) => {
+        const prompt = String(args.prompt || '');
+        if (/private NPC dossier scanner/i.test(prompt) && /Mira/i.test(prompt)) {
+            miraFullScanCalls += 1;
+            return JSON.stringify({ npcs: [{
+                name: 'Mira', identityKind: 'proper_name', dossierSignal: 'meaningful', present: true, role: 'Guild porter',
+                relationshipImpact: 'major', relationshipDelta: { trust: 5, affection: 0, desire: 0, tension: 0 },
+                relationshipEvidence: { trust: 'Earlier she returned his purse untouched.', affection: '', desire: '', tension: '' },
+                relationshipChangeReason: 'Earlier Mira returned Kazuma\'s dropped purse untouched.',
+            }] });
+        }
+        if (/focused relationship evaluator/i.test(prompt) && /Mira/i.test(prompt)) {
+            miraRelationshipCalls += 1;
+            assert.match(prompt, /Mira accepts and stays to eat with Kazuma/i, 'focused evaluator must receive the current exchange');
+            const id = globalThis.NPCState.getState().npcs.find(n => n.name === 'Mira')?.id;
+            return JSON.stringify({ npcs: [{
+                id, name: 'Mira', relationshipImpact: 'ordinary',
+                relationshipDelta: { trust: 0, affection: 1, desire: 0, tension: 0 },
+                relationshipEvidence: { trust: '', affection: 'Mira accepts and stays to eat with Kazuma.', desire: '', tension: '' },
+                relationshipSummary: 'Mira is beginning to enjoy Kazuma\'s company.',
+                relationshipChangeReason: 'Mira accepts and stays to eat with Kazuma.',
+            }] });
+        }
+        if (/targeted dossier backfill extractor/i.test(prompt) && /Requested NPC: Mira/i.test(prompt)) {
+            miraBackfillCalls += 1;
+            return JSON.stringify({ npcs: [{
+                name: 'Mira', identityKind: 'proper_name', dossierSignal: 'meaningful', role: 'Guild porter',
+                personality: 'Patient, observant, and quietly considerate.',
+                speech: 'Brief, practical sentences with dry warmth.',
+                background: 'Works around the guild floor handling loads and errands.',
+                memories: [
+                    'Returned Kazuma\'s dropped purse untouched.',
+                    'Shared stew with Kazuma after he invited her to stay.',
+                    'Helped sort a jammed delivery cart at the guild entrance.',
+                    'Warned Kazuma that the north stair was slick after rain.',
+                    'Remembered Kazuma\'s preferred table near the hearth.',
+                ],
+                memoryRetention: [
+                    'Returned Kazuma\'s dropped purse untouched.',
+                    'Shared stew with Kazuma after he invited her to stay.',
+                    'Helped sort a jammed delivery cart at the guild entrance.',
+                    'Warned Kazuma that the north stair was slick after rain.',
+                    'Remembered Kazuma\'s preferred table near the hearth.',
+                ],
+                relationshipImpact: 'none', relationshipDelta: { trust: 0, affection: 0, desire: 0, tension: 0 },
+            }] });
+        }
+        return '{"npcs":[]}';
+    };
+    eventSource.emit('message_received', miraMessageId);
+    await sleep(320);
+    state = globalThis.NPCState.getState();
+    const mira = state.npcs.find(n => n.name === 'Mira');
+    assert.ok(mira, 'automatic full-window scan should admit Mira');
+    assert.equal(miraFullScanCalls, 1);
+    assert.equal(miraRelationshipCalls, 1, 'new full-window NPC should get one current-exchange relationship pass');
+    assert.equal(miraBackfillCalls, 1, 'new automatic dossier should get one targeted history backfill');
+    assert.equal(mira.relationship.trust, 0, 'rolling-history trust must not replay into the new record');
+    assert.equal(mira.relationship.affection, 1, 'fresh mundane low-band companionship should move affection');
+    assert.equal(mira.memories.length, 5, 'automatic enrichment should curate the full retained memory set');
+    assert.match(mira.personality, /Patient/i);
+    assert.match(mira.speech, /dry warmth/i, 'targeted history enrichment should seed a blank durable voice without requiring adjective echo');
+    assert.equal(mira.present, true, 'automatic historical enrichment must not erase the live presence established by the full scan');
+    assert.equal(mira.seenCount, 1, 'automatic historical enrichment must not count as a second sighting in the same turn');
+    assert.equal(state.pendingBackfills.some(item => item.npcId === mira.id), false);
+    mockState.extensionSettings.npc_state.relationshipBaseline = savedMiraBaseline;
+    mockState.extensionSettings.npc_state.fullScanEveryTurn = savedMiraFullScan;
 
     // Non-truncation structural JSON errors also get one clean correction retry. Local separator
     // repair handles missing commas without a second call; this invalid literal forces the fallback.
