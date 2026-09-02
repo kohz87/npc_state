@@ -251,8 +251,12 @@ export function createNpcStateUi(adapters = {}) {
     }
 
     function openLibrary(npcId = '') {
-        if (npcId) selectedNpcId = String(npcId);
         let overlay = libraryOverlay();
+        if (npcId) {
+            selectedNpcId = String(npcId);
+            const search = overlay?.querySelector('#npc_state_v3_library_search');
+            if (search) search.value = '';
+        }
         if (!overlay) {
             overlay = document.createElement('div');
             overlay.id = LIBRARY_ID;
