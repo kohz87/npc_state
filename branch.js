@@ -6,7 +6,7 @@ import { normalizeSocialGraph, removeNpcFromSocialGraph, purgeNpcStructuredRefer
 
 export * from './branch-v0218.js';
 
-export const BRANCH_LINEAGE_VERSION = 3;
+export const BRANCH_LINEAGE_VERSION = 4;
 export const BRANCH_SNAPSHOT_BUDGET_BYTES = 2_000_000;
 export const BRANCH_SNAPSHOT_BUDGET_CHARS = BRANCH_SNAPSHOT_BUDGET_BYTES;
 export const BRANCH_SNAPSHOT_MAX_BYTES = 750_000;
@@ -36,13 +36,33 @@ function branchHash(text) {
     return `${fnv1a32(input, 0x811c9dc5)}.${fnv1a32(input, 0x9e3779b9)}`;
 }
 
-export function fingerprintMessage(message = {}) {
-    // v3 deliberately excludes mutable display names and swipe indexes. SillyTavern can
-    // rewrite both during host-level rename/swipe maintenance without changing the story.
+function legacyV3FingerprintMessage(message = {}) {
     const payload = JSON.stringify({
         user: Boolean(message.is_user),
         system: Boolean(message.is_system),
         text: String(message.mes || ''),
+    });
+    return branchHash(payload);
+}
+
+export function legacyChatLineageV3(chat = []) {
+    return (Array.isArray(chat) ? chat : []).map(legacyV3FingerprintMessage);
+}
+
+function messageInstanceIdentity(message = {}) {
+    const sendDate = String(message.send_date ?? '').trim();
+    if (sendDate) return `date:${sendDate}`;
+    const generationId = String(message?.extra?.gen_id ?? '').trim();
+    if (generationId) return `gen:${generationId}`;
+    return '';
+}
+
+export function fingerprintMessage(message = {}) {
+    const payload = JSON.stringify({
+        user: Boolean(message.is_user),
+        system: Boolean(message.is_system),
+        text: String(message.mes || ''),
+        instance: messageInstanceIdentity(message),
     });
     return branchHash(payload);
 }
@@ -195,7 +215,9 @@ export function migrateLegacyBranchState(state, chat, limit = legacy.BRANCH_HIST
     const keys = lineageCheckpointKeys(lineage);
     const storedVersion = Number(state.branchLineageVersion || 0);
     const storedLineage = Array.isArray(state.lineage) ? [...state.lineage] : [];
-    const proofLineage = storedVersion <= 0 ? legacy.legacyChatLineageV0210(chat) : legacy.chatLineage(chat);
+    const proofLineage = storedVersion <= 0
+        ? legacy.legacyChatLineageV0210(chat)
+        : (storedVersion === 3 ? legacyChatLineageV3(chat) : legacy.chatLineage(chat));
     const hostRenameRebase = state.hostRenameRebaseAllowed === true;
     let provenPrefixLength = hostRenameRebase ? Math.min(storedLineage.length, proofLineage.length) : 0;
     if (!hostRenameRebase) {
@@ -446,6 +468,7 @@ function candidateMatchesExplicitParent(key) {
 
 export function bestAncestorState(chats = {}, currentKey = '', currentChat = []) {
     const lineage = chatLineage(currentChat);
+    const v3Lineage = legacyChatLineageV3(currentChat);
     const legacyLineage = legacy.chatLineage(currentChat);
     const currentKeys = lineageCheckpointKeys(lineage);
     const legacyCurrentKeys = legacy.lineageCheckpointKeys(legacyLineage);
@@ -455,51 +478,50 @@ export function bestAncestorState(chats = {}, currentKey = '', currentChat = [])
     for (const [key, state] of Object.entries(chats || {})) {
         if (key === currentKey || !state || !Array.isArray(state.lineage) || !Array.isArray(state.checkpoints)) continue;
         if (hasExplicitParent && !candidateMatchesExplicitParent(key)) continue;
-        const isV3 = Number(state.branchLineageVersion || 0) >= BRANCH_LINEAGE_VERSION;
+        const version = Number(state.branchLineageVersion || 0);
+        const isCurrent = version >= BRANCH_LINEAGE_VERSION;
+        const isV3 = version === 3;
         let prefixLength = 0;
         let sourceCheckpoints = [];
 
         if (hasExplicitParent) {
-            // SillyTavern writes chat_metadata.main_chat when it creates a branch. That host
-            // provenance is stronger than prose similarity and remains valid while v2 state is
-            // upgraded to the rename-stable v3 lineage format.
-            prefixLength = isV3
-                ? legacy.commonPrefixLength(state.lineage, lineage)
-                : legacy.commonPrefixLength(state.lineage, legacyLineage);
-            if (prefixLength < 1) continue;
-            sourceCheckpoints = isV3
-                ? normalizeBranchCheckpointsV3(state.checkpoints, lineage)
+            const comparisonLineage = isCurrent ? lineage : (isV3 ? v3Lineage : legacyLineage);
+            prefixLength = legacy.commonPrefixLength(state.lineage, comparisonLineage);
+            const hasRoot = Boolean(state.branchRootSnapshot && typeof state.branchRootSnapshot === 'object');
+            if (prefixLength < 1 && !hasRoot) continue;
+            sourceCheckpoints = (isCurrent || isV3)
+                ? normalizeBranchCheckpointsV3(state.checkpoints, state.lineage)
                 : legacy.normalizeBranchCheckpoints(state.checkpoints, state.lineage);
         } else {
             const canonical = Boolean(parseQualifiedChatKey(key));
-            // New v0.2.19 canonical state only crosses chat boundaries when SillyTavern
-            // explicitly identifies a parent via chat_metadata.main_chat. Text similarity is
-            // retained only as a migration fallback for older state and legacy unqualified tests.
-            if (canonical && isV3) continue;
-            const comparisonLineage = isV3 ? lineage : legacyLineage;
+            if (canonical && version >= 3) continue;
+            const comparisonLineage = isCurrent ? lineage : (isV3 ? v3Lineage : legacyLineage);
             prefixLength = legacy.commonPrefixLength(state.lineage, comparisonLineage);
             const minPrefix = canonical ? 8 : 4;
             const minUserTurns = canonical ? 3 : 2;
             if (prefixLength < minPrefix) continue;
             const sharedPrefix = (Array.isArray(currentChat) ? currentChat : []).slice(0, prefixLength);
             if (sharedPrefix.filter(message => message?.is_user).length < minUserTurns) continue;
-            sourceCheckpoints = isV3
+            sourceCheckpoints = (isCurrent || isV3)
                 ? normalizeBranchCheckpointsV3(state.checkpoints, state.lineage)
                 : legacy.normalizeBranchCheckpoints(state.checkpoints, state.lineage);
         }
 
-        const checkpoint = sourceCheckpoints
+        let checkpoint = sourceCheckpoints
             .filter(item => item.messageId < prefixLength)
             .filter(item => {
                 if (hasExplicitParent) return true;
-                const keys = isV3 ? currentKeys : legacyCurrentKeys;
+                const keys = isCurrent ? currentKeys : legacyCurrentKeys;
                 return item.lineageKey === keys[item.messageId];
             })
             .sort((a, b) => a.messageId - b.messageId || a.createdAt - b.createdAt)
             .at(-1);
+        if (!checkpoint && hasExplicitParent && state.branchRootSnapshot && typeof state.branchRootSnapshot === 'object') {
+            checkpoint = { messageId: -1, lineageKey: 'root', createdAt: 0, snapshot: state.branchRootSnapshot };
+        }
         if (!checkpoint) continue;
         if (!best || checkpoint.messageId > best.checkpoint.messageId) {
-            best = { key, state, checkpoint, prefixLength, sourceCheckpoints, isV3 };
+            best = { key, state, checkpoint, prefixLength, sourceCheckpoints, isCurrent };
         }
     }
 
@@ -507,13 +529,13 @@ export function bestAncestorState(chats = {}, currentKey = '', currentChat = [])
     const inherited = legacy.restoreSnapshotIntoState({}, best.checkpoint.snapshot);
     inherited.lineage = lineage;
     inherited.branchLineageVersion = BRANCH_LINEAGE_VERSION;
-    inherited.checkpoints = pruneBranchCheckpoints(
+    inherited.checkpoints = best.checkpoint.messageId < 0 ? [] : pruneBranchCheckpoints(
         best.sourceCheckpoints
             .filter(item => item.messageId <= best.checkpoint.messageId)
             .map(item => ({ ...item, lineageKey: '', parentLineageKey: '', fingerprint: '' })),
         lineage,
     );
-    inherited.inlineCards = structuredClone((best.state.inlineCards || []).filter(item => {
+    inherited.inlineCards = best.checkpoint.messageId < 0 ? [] : structuredClone((best.state.inlineCards || []).filter(item => {
         const messageId = Number(item?.messageId);
         return Number.isInteger(messageId) && messageId >= 0 && messageId <= best.checkpoint.messageId && messageId < lineage.length;
     }).map(item => ({ ...item, fingerprint: lineage[item.messageId], lineageKey: currentKeys[item.messageId] })));

@@ -9,7 +9,7 @@ const sourceRoot = path.resolve(here, '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'npc-state-runtime-'));
 const extRoot = path.join(tempRoot, 'public', 'scripts', 'extensions', 'third-party', 'npc_state');
 fs.mkdirSync(extRoot, { recursive: true });
-for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js', 'identity.js']) {
+for (const name of ['index.js', 'core.js', 'core-v0218.js', 'bundle.js', 'branch.js', 'branch-v0218.js', 'social.js', 'storage.js', 'identity.js']) {
     fs.copyFileSync(path.join(sourceRoot, name), path.join(extRoot, name));
 }
 fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ type: 'module' }));
@@ -29,6 +29,7 @@ const mockState = {
     uploadCalls: 0,
     uploadBarrier: null,
     readBarrier: null,
+    hostChatsByAvatar: new Map(),
 };
 
 fs.writeFileSync(path.join(tempRoot, 'public', 'scripts', 'extensions.js'), `
@@ -39,6 +40,7 @@ fs.writeFileSync(path.join(tempRoot, 'public', 'script.js'), `
 export const extension_prompt_types = { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 };
 export const extension_prompt_roles = { SYSTEM: 0, USER: 1, ASSISTANT: 2 };
 export function getRequestHeaders() { return { 'Content-Type': 'application/json', 'X-CSRF-Token': 'mock' }; }
+export async function saveSettings() {}
 `);
 
 const POPUP_TYPE = { TEXT: 1, DISPLAY: 4 };
@@ -134,6 +136,12 @@ globalThis.__npcMock = mockState;
 globalThis.window = globalThis;
 
 globalThis.fetch = async (url, options = {}) => {
+    if (url === '/api/characters/chats') {
+        const body = JSON.parse(options.body || '{}');
+        if (!mockState.hostChatsByAvatar.has(body.avatar_url)) return { ok: false, status: 404, json: async () => ({}) };
+        const chats = mockState.hostChatsByAvatar.get(body.avatar_url) || [];
+        return { ok: true, status: 200, json: async () => Object.fromEntries(chats.map((item, index) => [String(index), item])) };
+    }
     if (url === '/api/files/upload') {
         mockState.uploadCalls += 1;
         const barrier = mockState.uploadBarrier;
@@ -369,7 +377,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.18');
+    assert.equal(globalThis.NPCState?.version, '0.2.20');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');
@@ -1178,6 +1186,18 @@ try {
     assert.equal(ownerAKey, 'chat:megumin.png:shared-save');
     assert.equal(ownerBKey, 'chat:yunyun.png:shared-save');
     assert.notEqual(ownerAKey, ownerBKey);
+
+    mockState.extensionSettings.npc_state.dataFiles[ownerAKey] ||= { path: '/unused-owner-a' };
+    mockState.extensionSettings.npc_state.dataFiles[ownerBKey] ||= { path: '/unused-owner-b' };
+    mockState.hostChatsByAvatar.set('megumin.png', []);
+    mockState.hostChatsByAvatar.set('yunyun.png', [{ file_name: 'shared-save.jsonl' }]);
+    const resolvedDeletedOwner = await globalThis.__NPCStateLifecycle.resolveDeletedKey('shared-save', 'chat', '');
+    assert.equal(resolvedDeletedOwner, ownerAKey, 'host ownership should resolve exactly one removed same-filename owner');
+    mockState.hostChatsByAvatar.set('megumin.png', [{ file_name: 'shared-save.jsonl' }]);
+    const unresolvedWhenBothOwn = await globalThis.__NPCStateLifecycle.resolveDeletedKey('shared-save', 'chat', '');
+    assert.equal(unresolvedWhenBothOwn, '', 'destructive lookup must fail closed when both owners still claim the filename');
+    delete mockState.extensionSettings.npc_state.dataFiles[ownerAKey];
+    delete mockState.extensionSettings.npc_state.dataFiles[ownerBKey];
     await sleep(120);
 
     console.log('Runtime smoke: file persistence, branch safety, OOC removal, chat cleanup, group ownership, and same-filename character isolation passed.');

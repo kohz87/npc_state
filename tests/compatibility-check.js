@@ -35,7 +35,7 @@ for (const symbol of st118Contract.context) {
 for (const event of st118Contract.events) {
     assert.match(index, new RegExp(`events\\.${event}`), `missing/changed event ${event}`);
 }
-for (const event of ['CHARACTER_RENAMED', 'CHARACTER_RENAMED_IN_PAST_CHAT', 'CHARACTER_DELETED', 'GROUP_CHAT_DELETED']) {
+for (const event of ['CHARACTER_RENAMED', 'CHARACTER_RENAMED_IN_PAST_CHAT', 'CHARACTER_DELETED']) {
     assert.match(hardening, new RegExp(`events\\.${event}`), `missing lifecycle hardening event ${event}`);
 }
 assert.match(index, /generateRaw\(\s*\{/s, 'generateRaw should use the SillyTavern 1.18 object-parameter signature');
@@ -66,6 +66,6 @@ for (const file of ['bootstrap.js', 'index.js', 'hardening.js', 'hardening-core.
 }
 
 console.log('Compatibility contract: SillyTavern 1.18.0 API/import/event checks passed.');
-console.log('Lifecycle hardening contract: character/group rename-delete hooks passed.');
+console.log('Lifecycle hardening contract: owner-wide character rename/delete and historical rebase hooks passed.');
 console.log('Isolation check: optional Megumin DOM integration has no Megumin NPC Bank imports/settings dependency.');
 console.log('Manifest/layout check: passed.');

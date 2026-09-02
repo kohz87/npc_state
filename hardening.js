@@ -20,6 +20,7 @@ import {
     parseQualifiedChatKey,
 } from './identity.js';
 import {
+    deleteNpcStateDataFile,
     makeNpcStateRecoveryFileName,
     readNpcStateDataFile,
     retireNpcStateDataFile,
@@ -39,12 +40,14 @@ import {
 const EXTENSION_NAME = 'npc_state';
 const RECOVERY_HISTORY_LIMIT = 80;
 let installed = false;
+let historicalRenameIndexPromise = null;
+let historicalRenamePair = '';
 
 function settings() {
     const value = extension_settings[EXTENSION_NAME] && typeof extension_settings[EXTENSION_NAME] === 'object'
         ? extension_settings[EXTENSION_NAME]
         : (extension_settings[EXTENSION_NAME] = {});
-    for (const key of ['dataFiles', 'sidecarTombstones', 'recoveryFiles', 'branchIndex', 'legacyOwnershipClaims', 'recoveryHistory']) {
+    for (const key of ['dataFiles', 'sidecarTombstones', 'recoveryFiles', 'branchIndex', 'legacyOwnershipClaims', 'recoveryHistory', 'recoveryGarbage']) {
         if (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key])) value[key] = {};
     }
     return value;
@@ -59,23 +62,6 @@ async function saveSettingsNow() {
     await saveHostSettings();
 }
 
-async function retireAfterOwnershipSwitch(key, pointer, reason) {
-    if (!pointer?.path) return false;
-    try {
-        await retireNpcStateDataFile({
-            chatKey: key,
-            pointer,
-            reason,
-            appVersion: NPC_STATE_VERSION,
-            headers: headers(),
-        });
-        return true;
-    } catch (error) {
-        console.warn(`[NPC State] predecessor cleanup deferred for ${key}; durable ownership metadata already prevents resurrection.`, error);
-        return false;
-    }
-}
-
 function headers() {
     try { return getRequestHeaders?.() || {}; }
     catch { return {}; }
@@ -85,10 +71,30 @@ function archiveRecoveryRecord(config, key, reason = 'superseded') {
     const existing = config.recoveryFiles?.[key];
     if (!existing) return;
     const stamp = Date.now();
-    config.recoveryHistory[`${key}@${stamp}`] = { ...structuredClone(existing), archivedAt: stamp, archiveReason: reason };
+    const historyKey = `${key}@${stamp}:${Math.random().toString(36).slice(2, 8)}`;
+    config.recoveryHistory[historyKey] = { ...structuredClone(existing), archivedAt: stamp, archiveReason: reason };
     delete config.recoveryFiles[key];
     const entries = Object.entries(config.recoveryHistory).sort((a, b) => Number(b[1]?.archivedAt || 0) - Number(a[1]?.archivedAt || 0));
-    for (const [oldKey] of entries.slice(RECOVERY_HISTORY_LIMIT)) delete config.recoveryHistory[oldKey];
+    for (const [oldKey, record] of entries.slice(RECOVERY_HISTORY_LIMIT)) {
+        if (record?.path) config.recoveryGarbage[oldKey] = { name: record.name || '', path: record.path, queuedAt: Date.now() };
+        delete config.recoveryHistory[oldKey];
+    }
+}
+
+async function cleanupRecoveryGarbage(config = settings()) {
+    let changed = false;
+    for (const [key, pointer] of Object.entries(config.recoveryGarbage || {})) {
+        if (!pointer?.path) { delete config.recoveryGarbage[key]; changed = true; continue; }
+        try {
+            await deleteNpcStateDataFile(pointer, { headers: headers() });
+            delete config.recoveryGarbage[key];
+            changed = true;
+        } catch (error) {
+            console.debug(`[NPC State] recovery garbage cleanup deferred for ${pointer.path}.`, error);
+        }
+    }
+    if (changed) await saveHostSettings();
+    return changed;
 }
 
 async function stateFromPointer(key, pointer, inlineState = null) {
@@ -145,25 +151,32 @@ async function safeLegacyMigrationForCurrent() {
     if (!oldPointer?.path && !oldInline) return false;
     const claim = config.legacyOwnershipClaims?.[oldKey];
     if (claim?.canonicalKey && claim.canonicalKey !== identity.key) {
-        console.warn(`[NPC State] v0.2.19 preserved legacy namespace ${oldKey}; another canonical owner already claimed it.`);
+        console.warn(`[NPC State] v0.2.20 preserved legacy namespace ${oldKey}; another canonical owner already claimed it.`);
         return false;
     }
 
     const rawState = await stateFromPointer(oldKey, oldPointer, oldInline);
     if (!rawState) return false;
     if (!strongLegacyMigrationMatches(rawState, ctx.chat || [], { lineageV2Fn: legacyV2Lineage, lineageV0210Fn: legacyChatLineageV0210 })) {
-        console.warn(`[NPC State] v0.2.19 preserved ambiguous legacy namespace ${oldKey}; at least six matching messages and two user turns are required for destructive ownership migration.`);
+        console.warn(`[NPC State] v0.2.20 preserved ambiguous legacy namespace ${oldKey}; the entire stored lineage must prove ownership.`);
         return false;
     }
 
     const migrated = migrateLegacyBranchState(rawState, ctx.chat || []);
     const newPointer = await writeVerifiedState(identity.key, migrated);
     const recoveryPointer = await writeRecovery(oldKey, migrated, `qualified-namespace-migrated:${identity.key}`);
+    try {
+        if (oldPointer?.path) await retireNpcStateDataFile({ chatKey: oldKey, pointer: oldPointer, reason: `qualified-namespace-migrated:${identity.key}`, appVersion: NPC_STATE_VERSION, headers: headers() });
+    } catch (error) {
+        try { await deleteNpcStateDataFile(newPointer, { headers: headers() }); } catch { /* best effort */ }
+        console.warn(`[NPC State] v0.2.20 refused legacy ownership migration for ${oldKey}; the source changed during the transaction.`, error);
+        return false;
+    }
 
     archiveRecoveryRecord(config, identity.key, 'canonical-ownership-reestablished');
     config.recoveryFiles[oldKey] = recoveryPointer;
     config.sidecarTombstones[oldKey] = { reason: `qualified-namespace-migrated:${identity.key}`, at: Date.now() };
-    config.legacyOwnershipClaims[oldKey] = { canonicalKey: identity.key, ownerId: identity.ownerId, kind: identity.kind, at: Date.now(), proofVersion: 2 };
+    config.legacyOwnershipClaims[oldKey] = { canonicalKey: identity.key, ownerId: identity.ownerId, kind: identity.kind, at: Date.now(), proofVersion: 3 };
     config.dataFiles[identity.key] = newPointer;
     delete config.sidecarTombstones[identity.key];
     delete config.dataFiles[oldKey];
@@ -171,35 +184,11 @@ async function safeLegacyMigrationForCurrent() {
     if (config.chats?.[oldKey]) delete config.chats[oldKey];
     if (config.chats && Object.keys(config.chats).length === 0) delete config.chats;
     await saveSettingsNow();
-    await retireAfterOwnershipSwitch(oldKey, oldPointer, `qualified-namespace-migrated:${identity.key}`);
-    return true;
-}
-
-async function migrateSingleChatKey(oldKey, newKey, reason = 'chat-renamed') {
-    if (!oldKey || !newKey || oldKey === newKey) return false;
-    const config = settings();
-    const oldPointer = config.dataFiles?.[oldKey] || null;
-    const oldInline = config.chats?.[oldKey] || null;
-    const hasSource = Boolean(oldPointer?.path || oldInline || config.branchIndex?.[oldKey] || config.sidecarTombstones?.[oldKey]);
-    if (!hasSource) return false;
-    if (config.dataFiles?.[newKey]) throw new Error(`NPC State rename refused because ${newKey} already owns a live sidecar.`);
-
-    const state = await stateFromPointer(oldKey, oldPointer, oldInline);
-    let newPointer = null;
-    let recoveryPointer = null;
-    if (state) {
-        newPointer = await writeVerifiedState(newKey, state);
-        recoveryPointer = await writeRecovery(oldKey, state, `${reason}:${newKey}`);
+    if (oldPointer?.path) {
+        try { await deleteNpcStateDataFile(oldPointer, { headers: headers() }); }
+        catch (error) { console.warn(`[NPC State] retired legacy predecessor ${oldKey} could not be physically deleted.`, error); }
     }
-
-    archiveRecoveryRecord(config, newKey, 'canonical-ownership-reestablished');
-    applyCanonicalOwnershipMove(config, { oldKey, newKey, newPointer, recoveryPointer, reason });
-    if (config.chats?.[oldKey]) {
-        config.chats[newKey] = config.chats[oldKey];
-        delete config.chats[oldKey];
-    }
-    await saveSettingsNow();
-    if (state) await retireAfterOwnershipSwitch(oldKey, oldPointer, `${reason}:${newKey}`);
+    await cleanupRecoveryGarbage(config);
     return true;
 }
 
@@ -208,107 +197,127 @@ async function migrateCharacterOwner(oldAvatar, newAvatar) {
     const newOwner = String(newAvatar || '').trim();
     if (!oldOwner || !newOwner || oldOwner === newOwner) return false;
     const config = settings();
-
-    try {
-        const currentIdentity = getChatIdentityFromContext(getContext() || {});
-        if (currentIdentity.ownerId === oldOwner) await globalThis.NPCState?.flush?.();
-    } catch (error) {
-        console.debug('[NPC State] pre-rename flush skipped', error);
-    }
+    try { await globalThis.__NPCStateLifecycle?.flushOwner?.('chat', oldOwner); }
+    catch (error) { console.debug('[NPC State] owner pre-rename cache flush was incomplete.', error); }
 
     const sourceKeys = qualifiedKeysForOwner(config, 'chat', oldOwner);
     if (!sourceKeys.length) return false;
-    const plans = [];
+    const moved = new Map();
+    const retiredPredecessors = [];
+    let changed = false;
+
     for (const oldKey of sourceKeys) {
         const newKey = destinationKeyForOwnerRename(oldKey, newOwner);
         if (!newKey || newKey === oldKey) continue;
-        if (config.dataFiles?.[newKey]) throw new Error(`Character rename cannot migrate ${oldKey}: destination ${newKey} already has live state.`);
+        if (config.dataFiles?.[newKey]) {
+            console.warn(`[NPC State] character rename preserved ${oldKey}; destination ${newKey} already has live state.`);
+            continue;
+        }
         const oldPointer = config.dataFiles?.[oldKey] || null;
         const oldInline = config.chats?.[oldKey] || null;
-        const state = await stateFromPointer(oldKey, oldPointer, oldInline);
-        plans.push({ oldKey, newKey, oldPointer, oldInline, state, newPointer: null, recoveryPointer: null });
+        let state = null;
+        let newPointer = null;
+        let recoveryPointer = null;
+        let sourceRetired = !oldPointer?.path;
+
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+            state = await stateFromPointer(oldKey, oldPointer, oldInline);
+            if (!state) break;
+            newPointer = await writeVerifiedState(newKey, state, newPointer?.path ? newPointer : null);
+            if (recoveryPointer?.path) {
+                try { await deleteNpcStateDataFile(recoveryPointer, { headers: headers() }); } catch { /* best effort */ }
+            }
+            recoveryPointer = await writeRecovery(oldKey, state, `character-renamed:${newKey}`);
+            if (!oldPointer?.path) { sourceRetired = true; break; }
+            try {
+                await retireNpcStateDataFile({ chatKey: oldKey, pointer: oldPointer, reason: `character-renamed:${newKey}`, appVersion: NPC_STATE_VERSION, headers: headers() });
+                sourceRetired = true;
+                break;
+            } catch (error) {
+                if (error?.code !== 'NPC_STATE_WRITE_CONFLICT' || attempt >= 3) {
+                    console.warn(`[NPC State] character rename left ${oldKey} under its prior durable owner because it kept changing in another writer.`, error);
+                    break;
+                }
+            }
+        }
+        if (state && !sourceRetired) {
+            if (newPointer?.path) { try { await deleteNpcStateDataFile(newPointer, { headers: headers() }); } catch { /* best effort */ } }
+            if (recoveryPointer?.path) { try { await deleteNpcStateDataFile(recoveryPointer, { headers: headers() }); } catch { /* best effort */ } }
+            continue;
+        }
+
+        archiveRecoveryRecord(config, newKey, 'canonical-ownership-reestablished');
+        applyCanonicalOwnershipMove(config, { oldKey, newKey, newPointer, recoveryPointer, reason: 'character-renamed' });
+        if (config.chats?.[oldKey]) {
+            config.chats[newKey] = config.chats[oldKey];
+            delete config.chats[oldKey];
+        }
+        moved.set(oldKey, newKey);
+        if (sourceRetired && oldPointer?.path) retiredPredecessors.push({ key: oldKey, pointer: oldPointer });
+        changed = true;
     }
 
-    // Phase 1: stage and verify every destination plus recovery copy before retiring anything.
-    for (const plan of plans) {
-        if (!plan.state) continue;
-        plan.newPointer = await writeVerifiedState(plan.newKey, plan.state);
-        plan.recoveryPointer = await writeRecovery(plan.oldKey, plan.state, `character-renamed:${plan.newKey}`);
+    for (const claim of Object.values(config.legacyOwnershipClaims || {})) {
+        const replacement = moved.get(String(claim?.canonicalKey || ''));
+        if (replacement) claim.canonicalKey = replacement;
     }
-    // Phase 2: switch all ownership metadata and durably save it before predecessor cleanup.
-    // If SillyTavern exits before this save completes, every predecessor sidecar is still live.
-    for (const plan of plans) {
-        archiveRecoveryRecord(config, plan.newKey, 'canonical-ownership-reestablished');
-        applyCanonicalOwnershipMove(config, {
-            oldKey: plan.oldKey,
-            newKey: plan.newKey,
-            newPointer: plan.newPointer,
-            recoveryPointer: plan.recoveryPointer,
-            reason: 'character-renamed',
-        });
-        if (config.chats?.[plan.oldKey]) {
-            config.chats[plan.newKey] = config.chats[plan.oldKey];
-            delete config.chats[plan.oldKey];
+    if (changed) {
+        await saveSettingsNow();
+        for (const predecessor of retiredPredecessors) {
+            try { await deleteNpcStateDataFile(predecessor.pointer, { headers: headers() }); }
+            catch (error) { console.warn(`[NPC State] retired character-rename predecessor ${predecessor.key} could not be physically deleted.`, error); }
         }
     }
-    for (const claim of Object.values(config.legacyOwnershipClaims || {})) {
-        const parsed = parseQualifiedChatKey(claim?.canonicalKey);
-        if (parsed?.kind === 'chat' && parsed.ownerId === oldOwner) claim.canonicalKey = buildQualifiedChatKey('chat', newOwner, parsed.chatId);
-    }
-    await saveSettingsNow();
-    // Phase 3: physical retirement is cleanup only. A stale/live predecessor cannot be
-    // resurrected because the durable settings transaction already tombstoned/moved it.
-    for (const plan of plans) {
-        if (plan.state) await retireAfterOwnershipSwitch(plan.oldKey, plan.oldPointer, `character-renamed:${plan.newKey}`);
-    }
-    return plans.length > 0;
-}
-
-async function retireCanonicalKey(key, reason = 'deleted') {
-    if (!key) return false;
-    const config = settings();
-    const pointer = config.dataFiles?.[key] || null;
-    const inline = config.chats?.[key] || null;
-    const state = await stateFromPointer(key, pointer, inline);
-    // stateFromPointer can surface the newest queued dirty snapshot. Recovery uses a
-    // separate durability operation key, so the main dirty writer can remain alive until
-    // ownership metadata is durably tombstoned.
-    let recoveryPointer = null;
-    if (state) recoveryPointer = await writeRecovery(key, state, reason);
-    if (recoveryPointer) config.recoveryFiles[key] = recoveryPointer;
-    config.sidecarTombstones[key] = { reason, at: Date.now() };
-    delete config.dataFiles[key];
-    delete config.branchIndex[key];
-    if (config.chats?.[key]) delete config.chats[key];
-    await saveSettingsNow();
-    await retireAfterOwnershipSwitch(key, pointer, reason);
-    return Boolean(pointer?.path || inline || state);
+    globalThis.__NPCStateLifecycle?.invalidateOwner?.('chat', oldOwner);
+    globalThis.__NPCStateLifecycle?.invalidateOwner?.('chat', newOwner);
+    if (changed) await cleanupRecoveryGarbage(config);
+    return changed;
 }
 
 async function retireCharacterOwner(avatar, reason = 'character-deleted') {
     const owner = String(avatar || '').trim();
     if (!owner) return false;
     const config = settings();
+    try { await globalThis.__NPCStateLifecycle?.flushOwner?.('chat', owner); }
+    catch (error) { console.debug('[NPC State] owner pre-delete cache flush was incomplete.', error); }
     const keys = qualifiedKeysForOwner(config, 'chat', owner);
-    if (!keys.length) return false;
-    const plans = [];
+    if (!keys.length) {
+        globalThis.__NPCStateLifecycle?.invalidateOwner?.('chat', owner);
+        return false;
+    }
+    let changed = false;
+    const retiredPredecessors = [];
     for (const key of keys) {
         const pointer = config.dataFiles?.[key] || null;
         const inline = config.chats?.[key] || null;
         const state = await stateFromPointer(key, pointer, inline);
         const recoveryPointer = state ? await writeRecovery(key, state, reason) : null;
-        plans.push({ key, pointer, recoveryPointer });
+        try {
+            if (pointer?.path) await retireNpcStateDataFile({ chatKey: key, pointer, reason, appVersion: NPC_STATE_VERSION, headers: headers() });
+        } catch (error) {
+            if (recoveryPointer?.path) { try { await deleteNpcStateDataFile(recoveryPointer, { headers: headers() }); } catch { /* best effort */ } }
+            console.warn(`[NPC State] character deletion preserved changing sidecar ${key} rather than tombstoning a newer writer.`, error);
+            continue;
+        }
+        archiveRecoveryRecord(config, key, 'character-deleted-replaced');
+        if (recoveryPointer) config.recoveryFiles[key] = recoveryPointer;
+        config.sidecarTombstones[key] = { reason, at: Date.now() };
+        delete config.dataFiles[key];
+        delete config.branchIndex[key];
+        if (config.chats?.[key]) delete config.chats[key];
+        if (pointer?.path) retiredPredecessors.push({ key, pointer });
+        changed = true;
     }
-    for (const plan of plans) {
-        if (plan.recoveryPointer) config.recoveryFiles[plan.key] = plan.recoveryPointer;
-        config.sidecarTombstones[plan.key] = { reason, at: Date.now() };
-        delete config.dataFiles[plan.key];
-        delete config.branchIndex[plan.key];
-        if (config.chats?.[plan.key]) delete config.chats[plan.key];
+    if (changed) {
+        await saveSettingsNow();
+        for (const predecessor of retiredPredecessors) {
+            try { await deleteNpcStateDataFile(predecessor.pointer, { headers: headers() }); }
+            catch (error) { console.warn(`[NPC State] retired character-delete predecessor ${predecessor.key} could not be physically deleted.`, error); }
+        }
     }
-    await saveSettingsNow();
-    for (const plan of plans) await retireAfterOwnershipSwitch(plan.key, plan.pointer, reason);
-    return true;
+    globalThis.__NPCStateLifecycle?.invalidateOwner?.('chat', owner);
+    if (changed) await cleanupRecoveryGarbage(config);
+    return changed;
 }
 
 async function rebaseActiveStateAfterHostRename(messages) {
@@ -361,58 +370,85 @@ async function rebaseCanonicalStateForHostRename(key, renamedMessages) {
     return true;
 }
 
-async function rebaseHistoricalGroupState(messages, newAvatar = '') {
-    const context = getContext() || {};
-    const config = settings();
-    const integrity = hostChatIntegrity(messages);
-    const renamed = stripHostChatHeader(messages);
-    if (!renamed.length) return false;
-    const likelyGroups = (Array.isArray(context.groups) ? context.groups : []).filter(group => {
-        const members = Array.isArray(group?.members) ? group.members : [];
-        return !newAvatar || members.includes(newAvatar);
-    });
-    const candidateKeys = [];
-    for (const group of likelyGroups) {
-        const groupId = String(group?.id || '').trim();
-        if (!groupId) continue;
-        for (const chatId of Array.isArray(group?.chats) ? group.chats : []) {
-            const key = buildQualifiedChatKey('group', groupId, chatId);
-            if (config.dataFiles?.[key]?.path) candidateKeys.push(key);
-        }
-    }
-    const matches = [];
-    for (const key of [...new Set(candidateKeys)]) {
-        const parsed = parseQualifiedChatKey(key);
-        if (!parsed) continue;
-        const persisted = await loadPersistedGroupChat(parsed.chatId);
-        if (!persisted.length) continue;
-        if (integrity) {
-            if (hostChatIntegrity(persisted) === integrity) matches.push(key);
-        } else if (sameNarrativeContent(persisted, renamed)) {
-            matches.push(key);
-        }
-    }
-    if (matches.length !== 1) return false;
-    return rebaseCanonicalStateForHostRename(matches[0], renamed);
+function resetHistoricalRenameIndex() {
+    historicalRenameIndexPromise = null;
+    historicalRenamePair = '';
 }
 
-function installLegacyLifecycleRegistrationGuard(source, events) {
-    if (!source || source.__npcStateV0219LifecycleGuard) return source?.__npcStateV0219OriginalOn || source?.on?.bind(source);
-    const originalOn = source.on.bind(source);
-    const guarded = function (event, listener) {
-        const code = (() => { try { return Function.prototype.toString.call(listener); } catch { return ''; } })();
-        const legacyDelete = (event === events.CHAT_DELETED || event === events.GROUP_CHAT_DELETED) && code.includes('removeDeletedChatState');
-        const legacyRename = event === events.CHAT_RENAMED && code.includes('moveRenamedChatState');
-        if (legacyDelete || legacyRename) {
-            console.debug(`[NPC State] v0.2.19 replaced legacy lifecycle handler for ${event}.`);
-            return;
-        }
-        return originalOn(event, listener);
-    };
-    source.on = guarded;
-    source.__npcStateV0219LifecycleGuard = true;
-    source.__npcStateV0219OriginalOn = originalOn;
-    return originalOn;
+async function loadPersistedCharacterChat(chatId, avatar = '') {
+    const context = getContext() || {};
+    const character = (Array.isArray(context.characters) ? context.characters : []).find(item => String(item?.avatar || '') === String(avatar || ''));
+    const response = await globalThis.fetch?.('/api/chats/get', {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({ ch_name: String(character?.name || ''), file_name: String(chatId || ''), avatar_url: String(avatar || '') }),
+    });
+    if (!response?.ok) return [];
+    const data = typeof response.json === 'function' ? await response.json() : [];
+    return Array.isArray(data) ? data : [];
+}
+
+function historicalChatSignature(messages) {
+    const integrity = hostChatIntegrity(messages);
+    if (integrity) return `integrity:${integrity}`;
+    const lineage = chatLineage(stripHostChatHeader(messages));
+    return lineage.length ? `lineage:${lineage.join('|')}` : '';
+}
+
+async function buildHistoricalRenameIndex(oldAvatar = '', newAvatar = '') {
+    const oldOwner = String(oldAvatar || '').trim();
+    const newOwner = String(newAvatar || '').trim();
+    const pair = `${oldOwner}->${newOwner}`;
+    if (historicalRenameIndexPromise && historicalRenamePair === pair) return historicalRenameIndexPromise;
+    historicalRenamePair = pair;
+    historicalRenameIndexPromise = (async () => {
+        const context = getContext() || {};
+        const config = settings();
+        const relevantGroups = new Set((Array.isArray(context.groups) ? context.groups : [])
+            .filter(group => {
+                const members = Array.isArray(group?.members) ? group.members : [];
+                return members.includes(oldOwner) || members.includes(newOwner);
+            })
+            .map(group => String(group?.id || '').trim()).filter(Boolean));
+        const candidateKeys = Object.keys(config.dataFiles || {}).filter(key => {
+            const parsed = parseQualifiedChatKey(key);
+            if (!parsed) return false;
+            if (parsed.kind === 'chat') return parsed.ownerId === newOwner;
+            return parsed.kind === 'group' && relevantGroups.has(parsed.ownerId);
+        });
+        const index = new Map();
+        let cursor = 0;
+        const workers = Array.from({ length: Math.min(4, Math.max(1, candidateKeys.length)) }, async () => {
+            while (cursor < candidateKeys.length) {
+                const key = candidateKeys[cursor++];
+                const parsed = parseQualifiedChatKey(key);
+                if (!parsed) continue;
+                const persisted = parsed.kind === 'group'
+                    ? await loadPersistedGroupChat(parsed.chatId)
+                    : await loadPersistedCharacterChat(parsed.chatId, newOwner);
+                const signature = historicalChatSignature(persisted);
+                if (!signature) continue;
+                const list = index.get(signature) || [];
+                list.push(key);
+                index.set(signature, list);
+            }
+        });
+        await Promise.all(workers);
+        return index;
+    })().catch(error => {
+        resetHistoricalRenameIndex();
+        throw error;
+    });
+    return historicalRenameIndexPromise;
+}
+
+async function rebaseHistoricalState(messages, oldAvatar = '', newAvatar = '') {
+    const signature = historicalChatSignature(messages);
+    if (!signature) return false;
+    const index = await buildHistoricalRenameIndex(oldAvatar, newAvatar);
+    const matches = [...new Set(index.get(signature) || [])];
+    if (matches.length !== 1) return false;
+    return rebaseCanonicalStateForHostRename(matches[0], stripHostChatHeader(messages));
 }
 
 function reportLifecycleError(label, error) {
@@ -423,94 +459,52 @@ function reportLifecycleError(label, error) {
 function queueActiveCharacterCacheRefresh(newAvatar) {
     const expectedOwner = String(newAvatar || '').trim();
     if (!expectedOwner) return;
-    globalThis.setTimeout?.(() => {
-        void (async () => {
-            const ctx = getContext() || {};
-            if (ctx.groupId) return;
-            if (getCharacterOwnerId(ctx) !== expectedOwner) return;
-            const event = (ctx.eventTypes || ctx.event_types || {}).CHAT_CHANGED;
-            const source = ctx.eventSource;
-            if (!event || typeof source?.emit !== 'function') return;
-            // The retained v0.2.18 engine owns its private cache. A post-rename CHAT_CHANGED
-            // lets that engine hydrate the newly qualified key from the already migrated sidecar
-            // instead of leaving the active tab pinned to the predecessor cache entry.
-            await source.emit(event, ctx.chatId || ctx.getCurrentChatId?.() || '');
-        })().catch(error => reportLifecycleError('post-rename cache hydration', error));
-    }, 0);
+    const delays = [0, 60, 180, 400, 800];
+    let completed = false;
+    for (const delay of delays) {
+        globalThis.setTimeout?.(() => {
+            if (completed) return;
+            void (async () => {
+                const ctx = getContext() || {};
+                if (ctx.groupId) { completed = true; return; }
+                if (getCharacterOwnerId(ctx) !== expectedOwner) return;
+                const event = (ctx.eventTypes || ctx.event_types || {}).CHAT_CHANGED;
+                const source = ctx.eventSource;
+                if (!event || typeof source?.emit !== 'function') return;
+                completed = true;
+                await source.emit(event, ctx.chatId || ctx.getCurrentChatId?.() || '');
+            })().catch(error => reportLifecycleError('post-rename cache hydration', error));
+        }, delay);
+    }
 }
 
 export async function prepareNpcStateHardening() {
     if (installed) return;
     const ctx = getContext() || {};
     const source = ctx.eventSource;
-    const events = ctx.eventTypes || {};
+    const events = ctx.eventTypes || ctx.event_types || {};
     if (!source || typeof source.on !== 'function') return;
     installed = true;
-    const on = installLegacyLifecycleRegistrationGuard(source, events) || source.on.bind(source);
+    const on = source.on.bind(source);
 
-    // Register before the v0.2.18 engine so safe namespace/provenance work completes first.
     if (events.CHAT_CHANGED) on(events.CHAT_CHANGED, async () => {
         try {
             installBranchProvenanceHint();
             await safeLegacyMigrationForCurrent();
         } catch (error) { reportLifecycleError('legacy ownership migration', error); }
     });
-    if (events.CHAT_RENAMED) on(events.CHAT_RENAMED, async eventData => {
-        try {
-            const data = eventData || {};
-            const kind = data.groupId ? 'group' : 'chat';
-            let ownerId = String(data.groupId || data.avatarId || '').trim();
-            const oldId = String(data.oldFileName || '').replace(/\.jsonl$/i, '').trim();
-            const newId = String(data.newFileName || '').replace(/\.jsonl$/i, '').trim();
-            if (!oldId || !newId) return;
-            const config = settings();
-            let oldKey = ownerId ? buildQualifiedChatKey(kind, ownerId, oldId) : '';
-            if (!oldKey || !allSettingsKeys(config).includes(oldKey)) oldKey = uniqueQualifiedKeyForChat(config, kind, oldId, ownerId);
-            if (!oldKey) return;
-            ownerId ||= parseQualifiedChatKey(oldKey)?.ownerId || '';
-            const newKey = buildQualifiedChatKey(kind, ownerId, newId);
-            await migrateSingleChatKey(oldKey, newKey, 'chat-renamed');
-        } catch (error) { reportLifecycleError('chat rename migration', error); }
-    });
-    if (events.CHAT_DELETED) on(events.CHAT_DELETED, async chatId => {
-        try {
-            const config = settings();
-            const key = uniqueQualifiedKeyForChat(config, 'chat', chatId, getCharacterOwnerId(getContext() || {}));
-            if (!key) {
-                console.warn(`[NPC State] v0.2.19 did not retire ambiguous deleted chat ${String(chatId || '')}; ownership could not be proven.`);
-                return;
-            }
-            await retireCanonicalKey(key, 'chat-deleted');
-        } catch (error) { reportLifecycleError('chat deletion retirement', error); }
-    });
-    if (events.GROUP_CHAT_DELETED) on(events.GROUP_CHAT_DELETED, async chatId => {
-        try {
-            const context = getContext() || {};
-            const config = settings();
-            const ownerId = resolveGroupOwnerId(context.groups || [], chatId);
-            const key = ownerId
-                ? buildQualifiedChatKey('group', ownerId, chatId)
-                : uniqueQualifiedKeyForChat(config, 'group', chatId);
-            if (!key) {
-                console.warn(`[NPC State] v0.2.19 did not retire ambiguous group chat ${String(chatId || '')}; group ownership could not be proven from host data.`);
-                return;
-            }
-            await retireCanonicalKey(key, 'group-chat-deleted');
-        } catch (error) { reportLifecycleError('group chat deletion retirement', error); }
-    });
     if (events.CHARACTER_RENAMED) on(events.CHARACTER_RENAMED, async (oldAvatar, newAvatar) => {
         try {
+            resetHistoricalRenameIndex();
             await migrateCharacterOwner(oldAvatar, newAvatar);
             queueActiveCharacterCacheRefresh(newAvatar);
-        }
-        catch (error) { reportLifecycleError('character owner rename migration', error); }
+        } catch (error) { reportLifecycleError('character owner rename migration', error); }
     });
-    if (events.CHARACTER_RENAMED_IN_PAST_CHAT) on(events.CHARACTER_RENAMED_IN_PAST_CHAT, async (messages, _oldAvatar, newAvatar) => {
+    if (events.CHARACTER_RENAMED_IN_PAST_CHAT) on(events.CHARACTER_RENAMED_IN_PAST_CHAT, async (messages, oldAvatar, newAvatar) => {
         try {
             if (await rebaseActiveStateAfterHostRename(messages)) return;
-            await rebaseHistoricalGroupState(messages, String(newAvatar || '').trim());
-        }
-        catch (error) { reportLifecycleError('historical rename lineage rebase', error); }
+            await rebaseHistoricalState(messages, String(oldAvatar || '').trim(), String(newAvatar || '').trim());
+        } catch (error) { reportLifecycleError('historical rename lineage rebase', error); }
     });
     if (events.CHARACTER_DELETED) on(events.CHARACTER_DELETED, async data => {
         try {
@@ -519,9 +513,9 @@ export async function prepareNpcStateHardening() {
         } catch (error) { reportLifecycleError('character deletion retirement', error); }
     });
 
-    // Initial load happens before the legacy engine so a proven old namespace is canonicalized
-    // before v0.2.18 hydrates its in-memory cache.
     installBranchProvenanceHint();
     try { await safeLegacyMigrationForCurrent(); }
     catch (error) { reportLifecycleError('startup legacy ownership migration', error); }
+    try { await cleanupRecoveryGarbage(settings()); }
+    catch (error) { console.debug('[NPC State] startup recovery garbage cleanup deferred.', error); }
 }

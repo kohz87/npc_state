@@ -34,6 +34,7 @@ jobs:
           node --check storage.js
           node --check identity.js
           node --check tests/hardening-v0219.test.js
+          node --check tests/hardening-v0220.test.js
           git diff --check
       - name: Full verification
         run: npm test
@@ -48,7 +49,7 @@ jobs:
           const escaped = String(manifest.version).replaceAll('.', '\\.');
           if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
           if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
-          if (manifest.js !== 'bootstrap.js') throw new Error('v0.2.19 manifest must load bootstrap.js');
+          if (manifest.js !== 'bootstrap.js') throw new Error('manifest must load bootstrap.js');
           const prepareAt = bootstrap.indexOf('await prepareNpcStateHardening()');
           const engineAt = bootstrap.indexOf("await import('./index.js')");
           if (prepareAt < 0 || engineAt < 0 || prepareAt > engineAt) throw new Error('hardening must initialize before the retained engine');

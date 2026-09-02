@@ -11,9 +11,10 @@ test('runtime integration uses per-chat scan operations and no legacy global sca
   assert.doesNotMatch(source,/\bscanBusy\b/);
 });
 
-test('chat deletion handlers preserve chat/group namespace isolation',()=>{
-  assert.match(source,/removeDeletedChatState\(chatId, 'chat', getCharacterOwnerId\(getContext\(\)\)\)/);
-  assert.match(source,/removeDeletedChatState\(chatId, 'group', String\(getContext\(\)\.groupId \|\| ''\)\)/);
+test('filename-only chat deletion fails closed instead of borrowing an unrelated active owner',()=>{
+  assert.match(source,/removeDeletedChatState\(chatId, 'chat', ''\)/);
+  assert.match(source,/removeDeletedChatState\(chatId, 'group', ''\)/);
+  assert.doesNotMatch(source,/removeDeletedChatState\(chatId, 'chat', getCharacterOwnerId\(getContext\(\)\)\)/);
   assert.doesNotMatch(source,/for \(const key of \[`chat:\$\{id\}`, `group:\$\{id\}`\]\)/);
 });
 
@@ -23,11 +24,11 @@ test('bundle import reports skipped capacity and only clears deletion state for 
   assert.match(source,/existing active dossiers were preserved/);
 });
 
-test('manual trash removes narrative name suppression and branch inheritance requires user-authored provenance',()=>{
+test('manual trash removes narrative name suppression while explicit host provenance can bypass generic branch heuristics',()=>{
   assert.match(source,/const permanentLabels = new Set/);
   assert.match(source,/working\.dismissed = .*?working\.dismissed/s);
-  assert.match(source,/chat\.length < 4/);
-  assert.match(source,/chat\.filter\(message => message\?\.is_user\)\.length < 2/);
+  assert.match(source,/const mainChat = String\(metadata\?\.main_chat/);
+  assert.match(source,/if \(!hasExplicitParent && \(chat\.length < 4 \|\| userTurns < 2\)\) return false/);
 });
 
 
