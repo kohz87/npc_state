@@ -1,4 +1,6 @@
 export const PORTRAIT_PROMPT_MODES = Object.freeze(['natural', 'tags', 'hybrid']);
+export const PORTRAIT_PRESET_LIMIT = 32;
+export const DEFAULT_PORTRAIT_PRESET_ID = 'preset-default';
 
 export const DEFAULT_PORTRAIT_PRESET = Object.freeze({
     positive: 'solo character portrait, upper body, centered composition, face clearly visible',
@@ -22,7 +24,11 @@ function listText(value, maxItems = 12, itemMax = 500) {
     return input.map(item => inlineText(item, itemMax)).filter(Boolean).slice(0, maxItems);
 }
 
-function normalizePreset(input = {}) {
+function cleanPresetId(value) {
+    return inlineText(value, 96).toLocaleLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function normalizeLegacyPreset(input = {}) {
     const hasLegacyPreset = typeof input.portraitPreset === 'string';
     const legacyPreset = hasLegacyPreset ? input.portraitPreset : '';
     const objectPreset = input.portraitPreset && typeof input.portraitPreset === 'object' && !Array.isArray(input.portraitPreset)
@@ -46,7 +52,64 @@ function normalizePreset(input = {}) {
     };
 }
 
-export function normalizePortraitPromptSettings(input = {}) {
+export function makePortraitPresetId(name = 'Preset', existingIds = []) {
+    const used = new Set((Array.isArray(existingIds) ? existingIds : [...existingIds || []]).map(cleanPresetId).filter(Boolean));
+    const slug = inlineText(name, 60).normalize('NFKD').toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'custom';
+    const base = `preset-${slug}`.slice(0, 80).replace(/-+$/g, '') || 'preset-custom';
+    if (!used.has(base)) return base;
+    for (let index = 2; index <= 999; index += 1) {
+        const candidate = `${base}-${index}`.slice(0, 96);
+        if (!used.has(candidate)) return candidate;
+    }
+    return `${base}-${used.size + 1}`.slice(0, 96);
+}
+
+export function normalizePortraitPresetLibrary(input = {}) {
+    const source = Array.isArray(input.portraitPresets) ? input.portraitPresets : [];
+    const presets = [];
+    const used = new Set();
+    for (const raw of source) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        if (presets.length >= PORTRAIT_PRESET_LIMIT) break;
+        const name = inlineText(raw.name, 80) || `Preset ${presets.length + 1}`;
+        let id = cleanPresetId(raw.id);
+        if (!id || used.has(id)) id = makePortraitPresetId(name, used);
+        used.add(id);
+        presets.push({
+            id,
+            name,
+            positive: cleanText(raw.positive),
+            negative: cleanText(raw.negative),
+        });
+    }
+
+    if (!presets.length) {
+        const legacy = normalizeLegacyPreset(input);
+        presets.push({
+            id: DEFAULT_PORTRAIT_PRESET_ID,
+            name: inlineText(input.portraitPresetName, 80) || 'Default',
+            positive: legacy.positive,
+            negative: legacy.negative,
+        });
+    }
+
+    const requested = cleanPresetId(input.portraitActivePresetId);
+    const activeId = presets.some(preset => preset.id === requested) ? requested : presets[0].id;
+    return {
+        portraitPresets: presets,
+        portraitActivePresetId: activeId,
+    };
+}
+
+function activePresetFrom(input = {}, requestedId = '') {
+    const library = normalizePortraitPresetLibrary(input);
+    const requested = cleanPresetId(requestedId);
+    return library.portraitPresets.find(preset => preset.id === requested)
+        || library.portraitPresets.find(preset => preset.id === library.portraitActivePresetId)
+        || library.portraitPresets[0];
+}
+
+function normalizedPromptTemplates(input = {}) {
     const mode = PORTRAIT_PROMPT_MODES.includes(String(input.portraitPromptMode)) ? String(input.portraitPromptMode) : 'hybrid';
     const positivePrompt = cleanText(
         input.portraitPositivePrompt
@@ -55,10 +118,25 @@ export function normalizePortraitPromptSettings(input = {}) {
     ).replace(/\{\{\s*portraitPreset\s*\}\}/g, '{{positivePreset}}');
     return {
         portraitPromptMode: mode,
-        portraitPreset: normalizePreset(input),
         portraitPositivePrompt: positivePrompt,
         portraitNegativePrompt: cleanText(input.portraitNegativePrompt ?? DEFAULT_PORTRAIT_NEGATIVE_PROMPT),
     };
+}
+
+export function portraitPromptSettingsForPreset(input = {}, presetId = '') {
+    const templates = normalizedPromptTemplates(input);
+    const preset = activePresetFrom(input, presetId);
+    return {
+        ...templates,
+        portraitPreset: {
+            positive: preset?.positive || '',
+            negative: preset?.negative || '',
+        },
+    };
+}
+
+export function normalizePortraitPromptSettings(input = {}) {
+    return portraitPromptSettingsForPreset(input, normalizePortraitPresetLibrary(input).portraitActivePresetId);
 }
 
 function identityBits(npc = {}) {
