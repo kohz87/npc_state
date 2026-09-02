@@ -65,6 +65,16 @@ export function normalizeName(value) {
     return text(value, 160).normalize('NFKC').toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, ' ').trim();
 }
 
+export function normalizeApparentAge(value) {
+    const raw = text(value, 80);
+    if (!raw) return '';
+    // Apparent age is deliberately one approximate number, never a decade or range.
+    if (/\b\d{1,4}\s*['’]?\s*s\b/i.test(raw)) return '';
+    const matches = [...raw.matchAll(/(^|[^\d])(\d{1,4})(?!\d)/g)].map(match => Number(match[2]));
+    if (matches.length !== 1 || !Number.isInteger(matches[0]) || matches[0] < 0) return '';
+    return `~${matches[0]}`;
+}
+
 export function makeNpcId(name = 'npc', nonce = '') {
     const slug = text(name, 60).normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').toLocaleLowerCase().slice(0, 36) || 'npc';
     const seed = `${name}\0${nonce || `${Date.now()}-${Math.random()}`}`;
@@ -115,7 +125,7 @@ export function normalizeNpc(input = {}, options = {}) {
         role: text(input.role, 240),
         species: text(input.species, 160),
         age: text(input.age, 80),
-        apparentAge: text(input.apparentAge, 80),
+        apparentAge: normalizeApparentAge(input.apparentAge),
         appearance: text(input.appearance, 1800),
         personality: text(input.personality, 1200),
         behaviorProfile: list(input.behaviorProfile, BEHAVIOR_PROFILE_LIMIT, 360),
