@@ -163,3 +163,30 @@ test('owner-wide partial failures are surfaced to the retry scheduler after succ
     assert.match(hardening, /failedKeys\.push\(\{ key: oldKey, error \}\)/);
     assert.match(hardening, /failedKeys\.push\(\{ key, error \}\)/);
 });
+
+test('final review protects all rename destination representations and event instances are unique', () => {
+    const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+    const hardening = fs.readFileSync(new URL('../hardening.js', import.meta.url), 'utf8');
+    assert.match(index, /destinationRepresentations = \[destinationState, destinationCache, destinationInline\]/);
+    assert.match(index, /const eventId = \+\+lifecycleEventSequence/);
+    assert.match(index, /delete:chat:\$\{String\(chatId \|\| ''\)\}:\$\{eventId\}/);
+    assert.match(hardening, /historical-rename:[^\n]+\$\{eventId\}/);
+    assert.match(hardening, /finally \{ queueActiveCharacterCacheRefresh\(newAvatar\); \}/);
+});
+
+test('final review cleans failed legacy staging and retries operational migration failures', () => {
+    const hardening = fs.readFileSync(new URL('../hardening.js', import.meta.url), 'utf8');
+    const block = hardening.slice(hardening.indexOf('async function safeLegacyMigrationForCurrent'), hardening.indexOf('async function migrateCharacterOwner'));
+    assert.match(block, /legacy-destination-cleanup/);
+    assert.match(block, /legacy-recovery-cleanup/);
+    assert.match(block, /throw error/);
+});
+
+test('storage has a cross-tab lease fallback when Web Locks are unavailable', () => {
+    const storage = fs.readFileSync(new URL('../storage.js', import.meta.url), 'utf8');
+    assert.match(storage, /async function withLocalStorageWriterLock/);
+    assert.match(storage, /npc-state-writer-lock:/);
+    assert.match(storage, /CROSS_TAB_LOCK_LEASE_MS/);
+    assert.match(storage, /NPC_STATE_LOCK_TIMEOUT/);
+    assert.match(storage, /return withLocalStorageWriterLock\(chatKey, task\)/);
+});

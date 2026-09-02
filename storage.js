@@ -6,6 +6,8 @@ export const NPC_STATE_DURABILITY_RETRY_CAP_MS = 30000;
 const durabilityQueue = new Map();
 const writerLocks = new Map();
 const READ_CONCURRENCY_LIMIT = 4;
+const CROSS_TAB_LOCK_LEASE_MS = 15_000;
+const CROSS_TAB_LOCK_ACQUIRE_MS = 5_000;
 let activeReads = 0;
 const readWaiters = [];
 let recoveryGeneration = Date.now() * 1024;
@@ -40,18 +42,64 @@ async function withInProcessWriterLock(chatKey, task) {
     }
 }
 
+const writerId = (() => {
+    try { return globalThis.crypto?.randomUUID?.() || `npc-state-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
+    catch { return `npc-state-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
+})();
+
+function localStorageLockRecord(storage, key) {
+    try {
+        const value = JSON.parse(String(storage.getItem(key) || 'null'));
+        if (!value || typeof value !== 'object') return null;
+        return { token: String(value.token || ''), expiresAt: Number(value.expiresAt || 0) };
+    } catch { return null; }
+}
+
+async function withLocalStorageWriterLock(chatKey, task) {
+    const storage = globalThis.localStorage;
+    if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function' || typeof storage.removeItem !== 'function') {
+        return withInProcessWriterLock(chatKey, task);
+    }
+    const key = `npc-state-writer-lock:${fnv1a(String(chatKey || ''))}`;
+    const token = `${writerId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+    const deadline = Date.now() + CROSS_TAB_LOCK_ACQUIRE_MS;
+    while (Date.now() <= deadline) {
+        const now = Date.now();
+        const current = localStorageLockRecord(storage, key);
+        if (!current || !current.token || current.expiresAt <= now) {
+            try { storage.setItem(key, JSON.stringify({ token, expiresAt: now + CROSS_TAB_LOCK_LEASE_MS })); }
+            catch { return withInProcessWriterLock(chatKey, task); }
+            await wait(12 + Math.floor(Math.random() * 18));
+            const confirmed = localStorageLockRecord(storage, key);
+            if (confirmed?.token === token) {
+                const renew = globalThis.setInterval?.(() => {
+                    try {
+                        const owned = localStorageLockRecord(storage, key);
+                        if (owned?.token === token) storage.setItem(key, JSON.stringify({ token, expiresAt: Date.now() + CROSS_TAB_LOCK_LEASE_MS }));
+                    } catch { /* lease expiry remains the safety fallback */ }
+                }, Math.max(1000, Math.floor(CROSS_TAB_LOCK_LEASE_MS / 3)));
+                try { return await withInProcessWriterLock(chatKey, task); }
+                finally {
+                    if (renew) globalThis.clearInterval?.(renew);
+                    try { if (localStorageLockRecord(storage, key)?.token === token) storage.removeItem(key); } catch { /* lease expires */ }
+                }
+            }
+        }
+        await wait(18 + Math.floor(Math.random() * 24));
+    }
+    const error = new Error(`NPC State could not acquire the cross-tab sidecar lock for ${chatKey}.`);
+    error.code = 'NPC_STATE_LOCK_TIMEOUT';
+    throw error;
+}
+
 async function withWriterLock(chatKey, task) {
     const name = `npc-state-sidecar:${fnv1a(String(chatKey || ''))}`;
     const locks = globalThis.navigator?.locks;
     if (locks && typeof locks.request === 'function') {
         return locks.request(name, { mode: 'exclusive' }, () => withInProcessWriterLock(chatKey, task));
     }
-    return withInProcessWriterLock(chatKey, task);
+    return withLocalStorageWriterLock(chatKey, task);
 }
-const writerId = (() => {
-    try { return globalThis.crypto?.randomUUID?.() || `npc-state-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
-    catch { return `npc-state-${Date.now().toString(36)}`; }
-})();
 
 function fnv1a(text) {
     let hash = 0x811c9dc5;
@@ -71,7 +119,8 @@ export function makeNpcStateDataFileName(chatKey) {
 export function makeNpcStateRecoveryFileName(chatKey, generation = nextRecoveryGeneration()) {
     const key = String(chatKey || 'chat');
     const stamp = Math.max(0, Number(generation) || Date.now()).toString(36);
-    const writerToken = fnv1a(String(writerId || 'writer'));
+    const writerText = String(writerId || 'writer');
+    const writerToken = `${fnv1a(writerText)}${fnv1a([...writerText].reverse().join(''))}`;
     return `npc-state-recovery-${fnv1a(key)}${fnv1a(`npc-state-recovery\0${[...key].reverse().join('')}`)}-${stamp}-${writerToken}.json`;
 }
 
@@ -174,6 +223,7 @@ export function decodeStateFilePayload(text) {
 
 function retryableWriteError(error) {
     if (error?.code === 'NPC_STATE_WRITE_CONFLICT') return false;
+    if (error?.code === 'NPC_STATE_LOCK_TIMEOUT') return true;
     const status = Number(error?.status || 0);
     if ([408, 425, 429].includes(status) || status >= 500) return true;
     return !status || /network|fetch|timeout|temporar|unavailable|failed/i.test(String(error?.message || error));

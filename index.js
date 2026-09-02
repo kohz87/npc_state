@@ -177,6 +177,7 @@ const LIFECYCLE_EVENT_WAIT_MS = 12_000;
 const LIFECYCLE_RETRY_DELAY_MS = 30_000;
 const lifecycleEventOperations = new Map();
 const lifecycleRetryTimers = new Map();
+let lifecycleEventSequence = 0;
 const scanOperations = createScanOperationRegistry({
     timeoutMs: SCAN_OPERATION_TIMEOUT_MS,
     onExpire: operation => {
@@ -1409,7 +1410,9 @@ async function moveRenamedChatState(eventData = {}) {
         catch (error) { console.warn(`[NPC State] rename could not verify destination ${newKey}.`, error); return false; }
     }
     const destinationCache = chatStateCache.get(newKey) || null;
-    const destinationEphemeral = stateLooksEmptyForLifecycleRename(destinationState || destinationCache);
+    const destinationInline = settings.chats?.[newKey] || null;
+    const destinationRepresentations = [destinationState, destinationCache, destinationInline].filter(value => value && typeof value === 'object');
+    const destinationEphemeral = destinationRepresentations.every(stateLooksEmptyForLifecycleRename);
     if ((destinationPointer?.path || settings.chats?.[newKey] || chatStateCache.has(newKey)) && !destinationEphemeral) {
         console.warn(`[NPC State] refused to rename ${oldKey} onto existing non-empty state ${newKey}.`);
         return false;
@@ -5205,21 +5208,28 @@ function registerEvents() {
     // CHAT_DELETED carries only a filename in SillyTavern. Never borrow the currently active
     // owner as proof: bulk deletion can target a different character. Ambiguous equal filenames
     // fail closed and CHARACTER_DELETED later retires the exact owner-qualified states.
-    if (events.CHAT_DELETED) source.on(events.CHAT_DELETED, (chatId) => runBoundedLifecycleEvent(
-        `delete:chat:${String(chatId || '')}`,
-        'chat deletion retirement',
-        () => removeDeletedChatState(chatId, 'chat', ''),
-    ));
-    if (events.GROUP_CHAT_DELETED) source.on(events.GROUP_CHAT_DELETED, (chatId) => runBoundedLifecycleEvent(
-        `delete:group:${String(chatId || '')}`,
-        'group chat deletion retirement',
-        () => removeDeletedChatState(chatId, 'group', ''),
-    ));
+    if (events.CHAT_DELETED) source.on(events.CHAT_DELETED, (chatId) => {
+        const eventId = ++lifecycleEventSequence;
+        return runBoundedLifecycleEvent(
+            `delete:chat:${String(chatId || '')}:${eventId}`,
+            'chat deletion retirement',
+            () => removeDeletedChatState(chatId, 'chat', ''),
+        );
+    });
+    if (events.GROUP_CHAT_DELETED) source.on(events.GROUP_CHAT_DELETED, (chatId) => {
+        const eventId = ++lifecycleEventSequence;
+        return runBoundedLifecycleEvent(
+            `delete:group:${String(chatId || '')}:${eventId}`,
+            'group chat deletion retirement',
+            () => removeDeletedChatState(chatId, 'group', ''),
+        );
+    });
     if (events.CHAT_RENAMED) source.on(events.CHAT_RENAMED, (eventData) => {
         const data = eventData || {};
         const owner = String(data.groupId || data.avatarId || '');
+        const eventId = ++lifecycleEventSequence;
         return runBoundedLifecycleEvent(
-            `rename:${owner}:${String(data.oldFileName || '')}->${String(data.newFileName || '')}`,
+            `rename:${owner}:${String(data.oldFileName || '')}->${String(data.newFileName || '')}:${eventId}`,
             'chat rename migration',
             () => moveRenamedChatState(data),
         );

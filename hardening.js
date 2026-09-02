@@ -47,6 +47,7 @@ const lifecycleRetryTimers = new Map();
 let installed = false;
 let historicalRenameIndexPromise = null;
 let historicalRenamePair = '';
+let lifecycleEventSequence = 0;
 
 function settings() {
     const value = extension_settings[EXTENSION_NAME] && typeof extension_settings[EXTENSION_NAME] === 'object'
@@ -169,14 +170,23 @@ async function safeLegacyMigrationForCurrent() {
     }
 
     const migrated = migrateLegacyBranchState(rawState, ctx.chat || []);
-    const newPointer = await writeVerifiedState(identity.key, migrated);
-    const recoveryPointer = await writeRecovery(oldKey, migrated, `qualified-namespace-migrated:${identity.key}`);
+    let newPointer = null;
+    let recoveryPointer = null;
     try {
+        newPointer = await writeVerifiedState(identity.key, migrated);
+        recoveryPointer = await writeRecovery(oldKey, migrated, `qualified-namespace-migrated:${identity.key}`);
         if (oldPointer?.path) await retireNpcStateDataFile({ chatKey: oldKey, pointer: oldPointer, reason: `qualified-namespace-migrated:${identity.key}`, appVersion: NPC_STATE_VERSION, headers: headers() });
     } catch (error) {
-        try { await deleteNpcStateDataFile(newPointer, { headers: headers() }); } catch { /* best effort */ }
-        console.warn(`[NPC State] v0.2.21 refused legacy ownership migration for ${oldKey}; the source changed during the transaction.`, error);
-        return false;
+        if (newPointer?.path) {
+            try { await deleteNpcStateDataFile(newPointer, { headers: headers() }); }
+            catch { config.recoveryGarbage[`legacy-destination:${oldKey}:${Date.now()}`] = { ...newPointer, queuedAt: Date.now(), reason: 'legacy-destination-cleanup' }; }
+        }
+        if (recoveryPointer?.path) {
+            try { await deleteNpcStateDataFile(recoveryPointer, { headers: headers() }); }
+            catch { config.recoveryGarbage[`legacy-recovery:${oldKey}:${Date.now()}`] = { ...recoveryPointer, queuedAt: Date.now(), reason: 'legacy-recovery-cleanup' }; }
+        }
+        queueSettingsSave();
+        throw error;
     }
 
     archiveRecoveryRecord(config, identity.key, 'canonical-ownership-reestablished');
@@ -604,19 +614,23 @@ export async function prepareNpcStateHardening() {
             await safeLegacyMigrationForCurrent();
         });
     });
-    if (events.CHARACTER_RENAMED) on(events.CHARACTER_RENAMED, (oldAvatar, newAvatar) => runBoundedHardeningEvent(
-        `character-rename:${String(oldAvatar || '')}->${String(newAvatar || '')}`,
-        'character owner rename migration',
-        async () => {
-            resetHistoricalRenameIndex();
-            await migrateCharacterOwner(oldAvatar, newAvatar);
-            queueActiveCharacterCacheRefresh(newAvatar);
-        },
-    ));
+    if (events.CHARACTER_RENAMED) on(events.CHARACTER_RENAMED, (oldAvatar, newAvatar) => {
+        const eventId = ++lifecycleEventSequence;
+        return runBoundedHardeningEvent(
+            `character-rename:${String(oldAvatar || '')}->${String(newAvatar || '')}:${eventId}`,
+            'character owner rename migration',
+            async () => {
+                resetHistoricalRenameIndex();
+                try { await migrateCharacterOwner(oldAvatar, newAvatar); }
+                finally { queueActiveCharacterCacheRefresh(newAvatar); }
+            },
+        );
+    });
     if (events.CHARACTER_RENAMED_IN_PAST_CHAT) on(events.CHARACTER_RENAMED_IN_PAST_CHAT, (messages, oldAvatar, newAvatar) => {
         const signature = historicalChatSignature(messages) || `len:${Array.isArray(messages) ? messages.length : 0}`;
+        const eventId = ++lifecycleEventSequence;
         return runBoundedHardeningEvent(
-            `historical-rename:${String(oldAvatar || '')}->${String(newAvatar || '')}:${signature}`,
+            `historical-rename:${String(oldAvatar || '')}->${String(newAvatar || '')}:${signature}:${eventId}`,
             'historical rename lineage rebase',
             async () => {
                 if (await rebaseActiveStateAfterHostRename(messages)) return;
@@ -627,8 +641,9 @@ export async function prepareNpcStateHardening() {
     if (events.CHARACTER_DELETED) on(events.CHARACTER_DELETED, data => {
         const avatar = String(data?.character?.avatar || data?.avatar || '').trim();
         if (!avatar) return undefined;
+        const eventId = ++lifecycleEventSequence;
         return runBoundedHardeningEvent(
-            `character-delete:${avatar}`,
+            `character-delete:${avatar}:${eventId}` ,
             'character deletion retirement',
             () => retireCharacterOwner(avatar, 'character-deleted'),
         );
