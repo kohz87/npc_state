@@ -6,6 +6,12 @@ import { createNpcStateEngine } from './engine.js';
 import { getChatIdentity } from './identity.js';
 import { buildInjection } from './injection.js';
 import { createMeguminBlockIntegration } from './megumin.js';
+import {
+    DEFAULT_PORTRAIT_GENERATION_PROMPT,
+    DEFAULT_PORTRAIT_PRESET,
+    normalizePortraitPromptSettings,
+} from './portrait-prompt.js';
+import { createPortraitPromptUi } from './portrait-ui.js';
 import { DEFAULT_RELATIONSHIP_CAPS, NPC_STATE_VERSION } from './schema.js';
 import { createStaleManagementUi } from './stale-ui.js';
 import { createNpcStateUi } from './ui.js';
@@ -19,6 +25,7 @@ let activeChatKey = 'no-chat';
 let ui = null;
 let staleUi = null;
 let bundleUi = null;
+let portraitUi = null;
 
 const DEFAULT_RELATIONSHIP_CRITERIA = `Relationship deltas measure only changes caused by the current USER+ASSISTANT exchange.
 Trust: confidence in the player's reliability, honesty, competence, safety, or judgment.
@@ -42,6 +49,9 @@ const V3_DEFAULTS = Object.freeze({
     staleManagementEnabled: true,
     staleArchiveAfter: 30,
     staleDeleteAfter: 50,
+    portraitPromptMode: 'hybrid',
+    portraitPreset: DEFAULT_PORTRAIT_PRESET,
+    portraitGenerationPrompt: DEFAULT_PORTRAIT_GENERATION_PROMPT,
     relationshipCaps: { ...DEFAULT_RELATIONSHIP_CAPS },
     relationshipCriteria: DEFAULT_RELATIONSHIP_CRITERIA,
     memoryCriteria: DEFAULT_MEMORY_CRITERIA,
@@ -71,6 +81,10 @@ function getSettings() {
     settings.injectBudgetTokens = Math.max(256, Math.min(8000, Math.round(Number(settings.injectBudgetTokens) || 1800)));
     settings.staleArchiveAfter = Math.max(1, Math.min(9999, Math.round(Number(settings.staleArchiveAfter) || 30)));
     settings.staleDeleteAfter = Math.max(settings.staleArchiveAfter + 1, Math.min(10000, Math.round(Number(settings.staleDeleteAfter) || 50)));
+    const portrait = normalizePortraitPromptSettings(settings);
+    settings.portraitPromptMode = portrait.portraitPromptMode;
+    settings.portraitPreset = portrait.portraitPreset;
+    settings.portraitGenerationPrompt = portrait.portraitGenerationPrompt;
     settings.relationshipCaps = { ...DEFAULT_RELATIONSHIP_CAPS, ...(settings.relationshipCaps || {}) };
     if (!settings.dataFiles || typeof settings.dataFiles !== 'object' || Array.isArray(settings.dataFiles)) settings.dataFiles = {};
     return settings;
@@ -149,6 +163,7 @@ const engine = createNpcStateEngine({
         ui?.refresh();
         staleUi?.refresh();
         bundleUi?.refresh();
+        portraitUi?.refresh();
     },
 });
 
@@ -173,6 +188,12 @@ bundleUi = createBundleManagementUi({
     ui,
 });
 
+portraitUi = createPortraitPromptUi({
+    engine,
+    getSettings,
+    persistSettings,
+});
+
 const meguminBlockIntegration = createMeguminBlockIntegration({
     renderInline: () => ui?.renderInline(),
 });
@@ -182,6 +203,7 @@ function refreshSurfaces() {
     ui.refresh();
     staleUi.refresh();
     bundleUi.refresh();
+    portraitUi.refresh();
 }
 
 async function hydrateActiveChat({ reconcile = true } = {}) {
@@ -274,6 +296,7 @@ async function init() {
     ui.scheduleMount();
     staleUi.scheduleMount();
     bundleUi.scheduleMount();
+    portraitUi.scheduleMount();
     meguminBlockIntegration.start();
     registerEvents();
     await hydrateActiveChat({ reconcile: true });
@@ -323,6 +346,8 @@ globalThis.NPCState = Object.freeze({
     exportBundle: reference => engine.exportBundle(reference),
     previewBundleImport: (bundle, options) => engine.previewBundleImport(bundle, options),
     importBundle: (bundle, options) => engine.importBundle(bundle, options),
+    portraitPrompt: reference => portraitUi.buildFor(reference),
+    copyPortraitPrompt: reference => portraitUi.copyFor(reference),
     deleteNpc: reference => engine.deleteNpc(reference),
     reconcile: options => engine.reconcileBranch(options),
     openLibrary: reference => ui.openLibrary(reference),
