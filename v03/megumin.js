@@ -29,9 +29,17 @@ export function meguminIntegrationKey(messageId) {
     return id === null ? 'npc-state:current' : `npc-state:${id}`;
 }
 
+function compatibleBlockCard(message) {
+    const nativeCard = message?.querySelector?.('.meg-blocks') || null;
+    if (nativeCard?.querySelector?.('.meg-blocks-tabs') && nativeCard?.querySelector?.('.meg-blocks-panel')) return nativeCard;
+
+    const inventoryCard = message?.querySelector?.('.inventory-block-card') || null;
+    if (inventoryCard?.querySelector?.('.meg-blocks-tabs') && inventoryCard?.querySelector?.('.meg-blocks-panel')) return inventoryCard;
+    return null;
+}
+
 export function meguminBlockReady(message) {
-    const card = message?.querySelector?.('.meg-blocks');
-    return Boolean(card?.querySelector?.('.meg-blocks-tabs') && card?.querySelector?.('.meg-blocks-panel'));
+    return Boolean(compatibleBlockCard(message));
 }
 
 function setClassActive(node, active) {
@@ -77,7 +85,7 @@ function bindNativeDismissBridge(card, button) {
 function mountHolder(holder) {
     if (!holder?.closest) return false;
     const message = holder.closest('.mes');
-    const card = message?.querySelector?.('.meg-blocks');
+    const card = compatibleBlockCard(message);
     if (!card?.querySelector) return false;
     const tabs = card.querySelector('.meg-blocks-tabs');
     const panel = card.querySelector('.meg-blocks-panel');
@@ -154,22 +162,13 @@ function cleanupEmptyIntegrations(root) {
     let removed = 0;
     for (const pane of [...(root?.querySelectorAll?.(`.${PANE_CLASS}`) || [])]) {
         if (pane.querySelector?.(`#${INLINE_ID}`)) continue;
-        const card = pane.closest?.('.meg-blocks');
+        const card = pane.closest?.('.meg-blocks, .inventory-block-card');
         const key = pane.dataset?.key || '';
         if (card && key) removeIntegration(card, key);
         else pane.remove?.();
         removed += 1;
     }
     return removed;
-}
-
-function mutationContainsMegumin(mutations = []) {
-    for (const mutation of mutations) {
-        for (const node of [...(mutation?.addedNodes || [])]) {
-            if (node?.matches?.('.meg-blocks') || node?.querySelector?.('.meg-blocks')) return true;
-        }
-    }
-    return false;
 }
 
 export function createMeguminBlockIntegration(options = {}) {
@@ -185,12 +184,25 @@ export function createMeguminBlockIntegration(options = {}) {
 
     function repair() {
         const root = getRoot();
-        if (!root?.querySelectorAll) return { mounted: 0, removed: 0 };
+        if (!root?.querySelectorAll) return { mounted: 0, removed: 0, recovered: false };
+
+        let holders = [...(root.querySelectorAll(`#${INLINE_ID}`) || [])];
+        let recovered = false;
+        if (!holders.length && renderInline) {
+            try {
+                renderInline();
+                recovered = true;
+                holders = [...(root.querySelectorAll(`#${INLINE_ID}`) || [])];
+            } catch (error) {
+                console.debug('[NPC State v0.3] Megumin inline recovery skipped', error);
+            }
+        }
+
         let mounted = 0;
-        for (const holder of [...(root.querySelectorAll(`#${INLINE_ID}`) || [])]) {
+        for (const holder of holders) {
             if (mountHolder(holder)) mounted += 1;
         }
-        return { mounted, removed: cleanupEmptyIntegrations(root) };
+        return { mounted, removed: cleanupEmptyIntegrations(root), recovered };
     }
 
     function queueRepair(delay = 0) {
@@ -212,12 +224,7 @@ export function createMeguminBlockIntegration(options = {}) {
         const target = root?.querySelector?.('#chat') || root?.body || root;
         const MutationObserverCtor = globalThis.MutationObserver;
         if (typeof MutationObserverCtor === 'function' && target?.nodeType) {
-            observer = new MutationObserverCtor(mutations => {
-                if (mutationContainsMegumin(mutations) && !getRoot()?.querySelector?.(`#${INLINE_ID}`)) {
-                    try { renderInline?.(); } catch (error) { console.debug('[NPC State v0.3] Megumin inline repair skipped', error); }
-                }
-                queueRepair(25);
-            });
+            observer = new MutationObserverCtor(() => queueRepair(25));
             try { observer.observe(target, { childList: true, subtree: true }); }
             catch (error) {
                 console.debug('[NPC State v0.3] Megumin MutationObserver could not attach', error);
