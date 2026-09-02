@@ -1,38 +1,25 @@
-name: NPC State v0.2.17 Release Gate
+name: NPC State CI
 
 on:
   push:
-    branches: [v0.2.17-identity-storage-hardening]
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  verify-and-commit:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Apply v0.2.17 hardening in workspace
-        run: |
-          python3 .github/scripts/apply_v0217_hardening.py
-          python3 .github/scripts/apply_v0217_fix1.py
-          python3 .github/scripts/apply_v0217_fix2.py
-          python3 .github/scripts/apply_v0217_fix3.py
-          python3 .github/scripts/apply_v0217_fix4.py
-          python3 .github/scripts/apply_v0217_fix5.py
-          python3 .github/scripts/apply_v0217_fix6.py
-          python3 .github/scripts/apply_v0217_fix7.py
-          python3 .github/scripts/apply_v0217_fix8.py
-          python3 .github/scripts/apply_v0217_fix9.py
-      - name: Preflight syntax and diff
+      - name: Syntax and diff check
         run: |
           node --check index.js
           node --check core.js
@@ -42,39 +29,8 @@ jobs:
           node --check storage.js
           node --check identity.js
           git diff --check
-      - name: Ten complete hard-pass cycles
-        run: |
-          set -euo pipefail
-          for pass in $(seq 1 10); do
-            echo "========== HARD PASS ${pass}/10 =========="
-            npm test
-            node --check index.js
-            node --check core.js
-            node --check branch.js
-            node --check bundle.js
-            node --check social.js
-            node --check storage.js
-            node --check identity.js
-            git diff --check
-          done
-      - name: Dedicated v0.2.17 adversarial pass
-        run: |
-          node --test tests/identity.test.js tests/v0217-hardening.test.js
-          test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.17"
-      - name: Finalize verified test count
-        run: |
-          set -euo pipefail
-          COUNT=$(node --test --test-reporter=tap tests/*.test.js 2>&1 | tee /tmp/npc-state-tap.txt | awk '/^# tests [0-9]+$/{print $3}' | tail -1)
-          test -n "$COUNT"
-          python3 - "$COUNT" <<'PY'
-          import pathlib, re, sys
-          path = pathlib.Path('TEST-REPORT.md')
-          text = path.read_text()
-          count = sys.argv[1]
-          text = re.sub(r'\*\*\d+/\d+ Node tests passed\*\*', f'**{count}/{count} Node tests passed**', text, count=1)
-          path.write_text(text)
-          PY
-          git diff --check
+      - name: Full verification
+        run: npm test
       - name: Release consistency
         run: |
           node --input-type=module <<'NODE'
@@ -82,37 +38,7 @@ jobs:
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
           const core = fs.readFileSync('core.js', 'utf8');
           const readme = fs.readFileSync('README.md', 'utf8');
-          const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
-          const report = fs.readFileSync('TEST-REPORT.md', 'utf8');
-          if (manifest.version !== '0.2.17') throw new Error('manifest is not v0.2.17');
-          if (!core.includes("NPC_STATE_VERSION = '0.2.17'")) throw new Error('core is not v0.2.17');
-          if (!readme.startsWith('# NPC State v0.2.17')) throw new Error('README is not v0.2.17');
-          if (!readme.includes('identity.js')) throw new Error('README package layout lacks identity.js');
-          if (!changelog.includes('## 0.2.17')) throw new Error('CHANGELOG lacks v0.2.17');
-          if (!report.includes('Schema-v26 owner-qualified')) throw new Error('TEST-REPORT lacks schema v26 coverage');
+          const escaped = String(manifest.version).replaceAll('.', '\\.');
+          if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
+          if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
           NODE
-          test ! -e .github/scripts/apply_v0215_release.py
-          test ! -e .github/scripts/apply_v0217_hardening.py
-          test ! -e .github/scripts/apply_v0217_fix1.py
-          test ! -e .github/scripts/apply_v0217_fix2.py
-          test ! -e .github/scripts/apply_v0217_fix3.py
-          test ! -e .github/scripts/apply_v0217_fix4.py
-          test ! -e .github/scripts/apply_v0217_fix5.py
-          test ! -e .github/scripts/apply_v0217_fix6.py
-          test ! -e .github/scripts/apply_v0217_fix7.py
-          test ! -e .github/scripts/apply_v0217_fix8.py
-          test ! -e .github/scripts/apply_v0217_fix9.py
-          git diff --check
-      - name: Commit verified production changes only
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git restore --source=HEAD --worktree .github/workflows/ci.yml .github/scripts
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No verified production changes to commit"
-            exit 0
-          fi
-          git commit -m "release: materialize v0.2.17 identity and storage hardening"
-          git push origin HEAD:v0.2.17-identity-storage-hardening
