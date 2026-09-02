@@ -8,6 +8,8 @@ Branch lineage advances to v4. Mutable display names remain excluded, while stab
 
 Character-owner rename/delete now flushes and invalidates retained-engine caches through an explicit lifecycle bridge. Historical rename rebasing covers both solo and group chats, using one bounded integrity index per character rename instead of repeatedly scanning every group chat. Hydration self-heals stale revision tokens from the sidecar payload, and recovery-history eviction queues the corresponding physical files for deletion.
 
+Filename-only delete events now use authoritative negative host ownership when multiple owner-qualified states share the same filename: exactly one absent owner and all remaining owners still claiming the file is required before destructive cleanup. Owner-wide rename/delete and legacy migration physically remove retired canonical predecessors only after synchronous metadata durability. Recovery filenames use a monotonic generation so same-millisecond lifecycle operations cannot collide.
+
 Release verification executes the complete Node/compatibility/runtime/migration suite ten consecutive times on the exact candidate before main is updated.
 
 ## v0.2.18 verified release promotion

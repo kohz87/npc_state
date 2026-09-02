@@ -423,6 +423,84 @@ function resolveOwnedChatKey(rawId, kind = 'chat', ownerId = undefined) {
     return direct;
 }
 
+function lifecycleCandidateKeys(rawId, kind = 'chat') {
+    const id = String(rawId ?? '').replace(/\.jsonl$/i, '').trim();
+    if (!id) return [];
+    const suffix = `:${encodeChatKeyPart(id)}`;
+    const prefix = `${kind}:`;
+    const settings = getSettings();
+    const keys = new Set([
+        ...Object.keys(settings.dataFiles || {}),
+        ...Object.keys(settings.branchIndex || {}),
+        ...Object.keys(settings.sidecarTombstones || {}),
+        ...Object.keys(settings.recoveryFiles || {}),
+        ...chatStateCache.keys(),
+    ]);
+    return [...keys].filter(key => isCanonicalChatKey(key) && key.startsWith(prefix) && key.endsWith(suffix));
+}
+
+async function hostCharacterChatPresence(ownerId, rawId) {
+    const owner = String(ownerId || '').trim();
+    const id = String(rawId ?? '').replace(/\.jsonl$/i, '').trim();
+    if (!owner || !id) return null;
+    try {
+        const response = await globalThis.fetch?.('/api/characters/chats', {
+            method: 'POST',
+            headers: requestHeaders(),
+            body: JSON.stringify({ avatar_url: owner }),
+        });
+        if (!response?.ok) return null;
+        const data = typeof response.json === 'function' ? await response.json() : null;
+        if (!data || typeof data !== 'object') return null;
+        const chats = Array.isArray(data) ? data : Object.values(data);
+        return chats.some(item => String(item?.file_name ?? item?.fileName ?? item?.name ?? '').replace(/\.jsonl$/i, '').trim() === id);
+    } catch (error) {
+        console.debug(`[NPC State] host ownership probe failed for ${owner}/${id}.`, error);
+        return null;
+    }
+}
+
+function hostGroupChatPresence(ownerId, rawId) {
+    const owner = String(ownerId || '').trim();
+    const id = String(rawId ?? '').replace(/\.jsonl$/i, '').trim();
+    const groups = getContext()?.groups;
+    if (!owner || !id || !Array.isArray(groups)) return null;
+    const group = groups.find(item => String(item?.id ?? '').trim() === owner);
+    if (!group) return false;
+    const chats = [
+        ...(Array.isArray(group?.chats) ? group.chats : []),
+        group?.chat_id,
+    ].map(value => String(value ?? '').replace(/\.jsonl$/i, '').trim()).filter(Boolean);
+    return chats.includes(id);
+}
+
+async function resolveDeletedChatKey(rawId, kind = 'chat', ownerId = '') {
+    const id = String(rawId ?? '').replace(/\.jsonl$/i, '').trim();
+    if (!id) return '';
+    const hint = String(ownerId || '').trim();
+    if (hint) return resolveOwnedChatKey(id, kind, hint);
+    const candidates = lifecycleCandidateKeys(id, kind);
+    if (candidates.length <= 1) return candidates[0] || '';
+
+    const presence = [];
+    for (const key of candidates) {
+        const parsed = parseQualifiedChatKey(key);
+        if (!parsed) continue;
+        const value = kind === 'group'
+            ? hostGroupChatPresence(parsed.ownerId, id)
+            : await hostCharacterChatPresence(parsed.ownerId, id);
+        presence.push({ key, value });
+    }
+    const absent = presence.filter(item => item.value === false);
+    const present = presence.filter(item => item.value === true);
+    if (absent.length === 1 && present.length === candidates.length - 1) {
+        console.info(`[NPC State] resolved ambiguous deleted ${kind} ${id} from authoritative host ownership: ${absent[0].key}.`);
+        return absent[0].key;
+    }
+    console.warn(`[NPC State] preserved ambiguous deleted ${kind} ${id}; host ownership did not prove one unique removed owner.`);
+    return '';
+}
+
 function touchChatCache(key) {
     if (!isCanonicalChatKey(key)) return;
     chatCacheTouches.set(key, Date.now());
@@ -1236,7 +1314,7 @@ async function loadLatestLifecycleState(key, pointer = null, inlineState = null)
 }
 
 async function removeDeletedChatState(rawId, kind = 'chat', ownerId = '') {
-    const key = resolveOwnedChatKey(rawId, kind, ownerId);
+    const key = await resolveDeletedChatKey(rawId, kind, ownerId);
     if (!key) return false;
     const settings = getSettings();
     const canonical = { name: makeNpcStateDataFileName(key), path: `/user/files/${makeNpcStateDataFileName(key)}` };
@@ -5142,6 +5220,7 @@ globalThis.__NPCStateLifecycle = Object.freeze({
     flushOwner: flushLifecycleOwner,
     invalidateOwner: invalidateLifecycleOwner,
     invalidateKey: key => clearLifecycleCacheKey(key, 'external-lifecycle'),
+    resolveDeletedKey: resolveDeletedChatKey,
 });
 
 // Small debug surface for deployment tests.

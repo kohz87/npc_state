@@ -8,6 +8,7 @@
 - Fails closed on filename-only delete events instead of borrowing the active character as ownership proof; CHARACTER_DELETED performs exact owner-wide cleanup.
 - Caches historical rename integrity discovery, bounds recovery-history metadata, and physically garbage-collects evicted recovery files.
 - Repairs the v0.2.19 release gate and smoke fixtures so wrapper dependencies and branch-lineage v4 are actually exercised.
+- Resolves same-filename single-chat deletion from authoritative host ownership without reintroducing active-owner guessing, physically cleans owner-wide retired predecessors after durable metadata commits, and guarantees monotonic recovery filenames.
 
 # Changelog
 

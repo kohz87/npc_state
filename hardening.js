@@ -184,6 +184,10 @@ async function safeLegacyMigrationForCurrent() {
     if (config.chats?.[oldKey]) delete config.chats[oldKey];
     if (config.chats && Object.keys(config.chats).length === 0) delete config.chats;
     await saveSettingsNow();
+    if (oldPointer?.path) {
+        try { await deleteNpcStateDataFile(oldPointer, { headers: headers() }); }
+        catch (error) { console.warn(`[NPC State] retired legacy predecessor ${oldKey} could not be physically deleted.`, error); }
+    }
     await cleanupRecoveryGarbage(config);
     return true;
 }
@@ -199,6 +203,7 @@ async function migrateCharacterOwner(oldAvatar, newAvatar) {
     const sourceKeys = qualifiedKeysForOwner(config, 'chat', oldOwner);
     if (!sourceKeys.length) return false;
     const moved = new Map();
+    const retiredPredecessors = [];
     let changed = false;
 
     for (const oldKey of sourceKeys) {
@@ -248,6 +253,7 @@ async function migrateCharacterOwner(oldAvatar, newAvatar) {
             delete config.chats[oldKey];
         }
         moved.set(oldKey, newKey);
+        if (sourceRetired && oldPointer?.path) retiredPredecessors.push({ key: oldKey, pointer: oldPointer });
         changed = true;
     }
 
@@ -255,7 +261,13 @@ async function migrateCharacterOwner(oldAvatar, newAvatar) {
         const replacement = moved.get(String(claim?.canonicalKey || ''));
         if (replacement) claim.canonicalKey = replacement;
     }
-    if (changed) await saveSettingsNow();
+    if (changed) {
+        await saveSettingsNow();
+        for (const predecessor of retiredPredecessors) {
+            try { await deleteNpcStateDataFile(predecessor.pointer, { headers: headers() }); }
+            catch (error) { console.warn(`[NPC State] retired character-rename predecessor ${predecessor.key} could not be physically deleted.`, error); }
+        }
+    }
     globalThis.__NPCStateLifecycle?.invalidateOwner?.('chat', oldOwner);
     globalThis.__NPCStateLifecycle?.invalidateOwner?.('chat', newOwner);
     if (changed) await cleanupRecoveryGarbage(config);
@@ -274,6 +286,7 @@ async function retireCharacterOwner(avatar, reason = 'character-deleted') {
         return false;
     }
     let changed = false;
+    const retiredPredecessors = [];
     for (const key of keys) {
         const pointer = config.dataFiles?.[key] || null;
         const inline = config.chats?.[key] || null;
@@ -292,9 +305,16 @@ async function retireCharacterOwner(avatar, reason = 'character-deleted') {
         delete config.dataFiles[key];
         delete config.branchIndex[key];
         if (config.chats?.[key]) delete config.chats[key];
+        if (pointer?.path) retiredPredecessors.push({ key, pointer });
         changed = true;
     }
-    if (changed) await saveSettingsNow();
+    if (changed) {
+        await saveSettingsNow();
+        for (const predecessor of retiredPredecessors) {
+            try { await deleteNpcStateDataFile(predecessor.pointer, { headers: headers() }); }
+            catch (error) { console.warn(`[NPC State] retired character-delete predecessor ${predecessor.key} could not be physically deleted.`, error); }
+        }
+    }
     globalThis.__NPCStateLifecycle?.invalidateOwner?.('chat', owner);
     if (changed) await cleanupRecoveryGarbage(config);
     return changed;

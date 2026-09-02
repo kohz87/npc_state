@@ -12,7 +12,7 @@ import {
     setBranchProvenanceHint,
 } from '../branch.js';
 import { buildQualifiedChatKey } from '../identity.js';
-import { readNpcStateDataFile, writeNpcStateDataFile } from '../storage.js';
+import { makeNpcStateRecoveryFileName, readNpcStateDataFile, writeNpcStateDataFile } from '../storage.js';
 
 const user = (mes, send_date = '') => ({ is_user: true, is_system: false, name: 'User', mes, send_date });
 const bot = (name, mes, send_date = '') => ({ is_user: false, is_system: false, name, mes, send_date });
@@ -124,4 +124,37 @@ test('retained legacy migration consumes v0.2.19 legacyCandidateKey only with fo
   const block = index.slice(index.indexOf('function legacyMigrationMatchesActiveChat'), index.indexOf('function flushLifecycleOwner'));
   assert.match(block, /identity\.legacyCandidateKey \|\| identity\.legacyKey/);
   assert.match(block, /required >= 4 && prefix >= required && userTurns >= 2/);
+});
+
+
+test('ambiguous filename deletion uses host ownership proof and never falls back to the active owner', () => {
+  const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.match(index, /async function resolveDeletedChatKey/);
+  assert.match(index, /\/api\/characters\/chats/);
+  assert.match(index, /absent\.length === 1 && present\.length === candidates\.length - 1/);
+  assert.match(index, /removeDeletedChatState\(chatId, 'chat', ''\)/);
+});
+
+test('recovery filenames remain unique across same-millisecond calls', () => {
+  const originalNow = Date.now;
+  try {
+    Date.now = () => 1700000000000;
+    const names = new Set(Array.from({ length: 16 }, () => makeNpcStateRecoveryFileName('chat:a:x')));
+    assert.equal(names.size, 16);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('owner-wide retired canonical predecessors are deleted only after settings become durable', () => {
+  const hardening = fs.readFileSync(new URL('../hardening.js', import.meta.url), 'utf8');
+  const legacy = hardening.slice(hardening.indexOf('async function safeLegacyMigrationForCurrent'), hardening.indexOf('async function migrateCharacterOwner'));
+  assert.ok(legacy.indexOf('await saveSettingsNow()') >= 0);
+  assert.ok(legacy.indexOf('deleteNpcStateDataFile(oldPointer') > legacy.indexOf('await saveSettingsNow()'));
+  const rename = hardening.slice(hardening.indexOf('async function migrateCharacterOwner'), hardening.indexOf('async function retireCharacterOwner'));
+  assert.ok(rename.indexOf('await saveSettingsNow()') >= 0);
+  assert.ok(rename.indexOf('deleteNpcStateDataFile(predecessor.pointer') > rename.indexOf('await saveSettingsNow()'));
+  const deletion = hardening.slice(hardening.indexOf('async function retireCharacterOwner'), hardening.indexOf('async function rebaseActiveStateAfterHostRename'));
+  assert.ok(deletion.indexOf('await saveSettingsNow()') >= 0);
+  assert.ok(deletion.indexOf('deleteNpcStateDataFile(predecessor.pointer') > deletion.indexOf('await saveSettingsNow()'));
 });

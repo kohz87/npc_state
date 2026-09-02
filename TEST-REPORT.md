@@ -12,6 +12,7 @@ Target: SillyTavern 1.18.0 extension contract.
 - New adversarial coverage checks rename/delete cache convergence, revision-token crash repair, identical-text branch identity, v3 -> v4 migration, explicit root inheritance, and absence of shared event-emitter monkey-patching.
 - Runtime and migration smoke fixtures now include the retained core/branch implementation modules required by the wrapper files.
 - Historical character rename coverage includes solo and group state, while destructive lifecycle ordering is statically guarded so CAS retirement precedes tombstone/ownership publication.
+- Same-filename ambiguous deletion is exercised against mocked SillyTavern `/api/characters/chats` ownership, recovery filename uniqueness is stress-checked at fixed millisecond time, and owner-wide physical cleanup ordering is guarded.
 
 ## v0.2.18 retained release-gate coverage
 

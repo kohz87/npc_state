@@ -29,6 +29,7 @@ const mockState = {
     uploadCalls: 0,
     uploadBarrier: null,
     readBarrier: null,
+    hostChatsByAvatar: new Map(),
 };
 
 fs.writeFileSync(path.join(tempRoot, 'public', 'scripts', 'extensions.js'), `
@@ -135,6 +136,12 @@ globalThis.__npcMock = mockState;
 globalThis.window = globalThis;
 
 globalThis.fetch = async (url, options = {}) => {
+    if (url === '/api/characters/chats') {
+        const body = JSON.parse(options.body || '{}');
+        if (!mockState.hostChatsByAvatar.has(body.avatar_url)) return { ok: false, status: 404, json: async () => ({}) };
+        const chats = mockState.hostChatsByAvatar.get(body.avatar_url) || [];
+        return { ok: true, status: 200, json: async () => Object.fromEntries(chats.map((item, index) => [String(index), item])) };
+    }
     if (url === '/api/files/upload') {
         mockState.uploadCalls += 1;
         const barrier = mockState.uploadBarrier;
@@ -1179,6 +1186,18 @@ try {
     assert.equal(ownerAKey, 'chat:megumin.png:shared-save');
     assert.equal(ownerBKey, 'chat:yunyun.png:shared-save');
     assert.notEqual(ownerAKey, ownerBKey);
+
+    mockState.extensionSettings.npc_state.dataFiles[ownerAKey] ||= { path: '/unused-owner-a' };
+    mockState.extensionSettings.npc_state.dataFiles[ownerBKey] ||= { path: '/unused-owner-b' };
+    mockState.hostChatsByAvatar.set('megumin.png', []);
+    mockState.hostChatsByAvatar.set('yunyun.png', [{ file_name: 'shared-save.jsonl' }]);
+    const resolvedDeletedOwner = await globalThis.__NPCStateLifecycle.resolveDeletedKey('shared-save', 'chat', '');
+    assert.equal(resolvedDeletedOwner, ownerAKey, 'host ownership should resolve exactly one removed same-filename owner');
+    mockState.hostChatsByAvatar.set('megumin.png', [{ file_name: 'shared-save.jsonl' }]);
+    const unresolvedWhenBothOwn = await globalThis.__NPCStateLifecycle.resolveDeletedKey('shared-save', 'chat', '');
+    assert.equal(unresolvedWhenBothOwn, '', 'destructive lookup must fail closed when both owners still claim the filename');
+    delete mockState.extensionSettings.npc_state.dataFiles[ownerAKey];
+    delete mockState.extensionSettings.npc_state.dataFiles[ownerBKey];
     await sleep(120);
 
     console.log('Runtime smoke: file persistence, branch safety, OOC removal, chat cleanup, group ownership, and same-filename character isolation passed.');

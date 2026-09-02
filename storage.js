@@ -8,6 +8,12 @@ const writerLocks = new Map();
 const READ_CONCURRENCY_LIMIT = 4;
 let activeReads = 0;
 const readWaiters = [];
+let recoveryGeneration = Date.now() * 1024;
+
+function nextRecoveryGeneration() {
+    recoveryGeneration = Math.max(recoveryGeneration + 1, Date.now() * 1024);
+    return recoveryGeneration;
+}
 
 async function withReadSlot(task) {
     if (activeReads >= READ_CONCURRENCY_LIMIT) await new Promise(resolve => readWaiters.push(resolve));
@@ -62,7 +68,7 @@ export function makeNpcStateDataFileName(chatKey) {
     return `npc-state-${fnv1a(key)}${fnv1a(`npc-state\0${[...key].reverse().join('')}`)}.json`;
 }
 
-export function makeNpcStateRecoveryFileName(chatKey, generation = Date.now()) {
+export function makeNpcStateRecoveryFileName(chatKey, generation = nextRecoveryGeneration()) {
     const key = String(chatKey || 'chat');
     const stamp = Math.max(0, Number(generation) || Date.now()).toString(36);
     return `npc-state-recovery-${fnv1a(key)}${fnv1a(`npc-state-recovery\0${[...key].reverse().join('')}`)}-${stamp}.json`;
