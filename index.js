@@ -483,6 +483,11 @@ async function resolveDeletedChatKey(rawId, kind = 'chat', ownerId = '') {
             : await hostCharacterChatPresence(parsed.ownerId, id);
         presence.push({ key, value });
     }
+    if (presence.some(item => item.value === null)) {
+        const error = new Error(`NPC State could not prove deleted ${kind} ${id} ownership because the SillyTavern ownership probe was unavailable.`);
+        error.code = 'NPC_STATE_DELETE_OWNERSHIP_UNAVAILABLE';
+        throw error;
+    }
     const resolved = resolveDeletedLifecycleKeyFromPresence(candidates, presence);
     if (resolved) {
         console.info(`[NPC State] resolved deleted ${kind} ${id} from authoritative host ownership: ${resolved}.`);

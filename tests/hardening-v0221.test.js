@@ -190,3 +190,11 @@ test('storage has a cross-tab lease fallback when Web Locks are unavailable', ()
     assert.match(storage, /NPC_STATE_LOCK_TIMEOUT/);
     assert.match(storage, /return withLocalStorageWriterLock\(chatKey, task\)/);
 });
+
+test('transient host ownership probe failure is surfaced for bounded retry', () => {
+    const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+    const block = index.slice(index.indexOf('async function resolveDeletedChatKey'), index.indexOf('function touchChatCache'));
+    assert.match(block, /presence\.some\(item => item\.value === null\)/);
+    assert.match(block, /NPC_STATE_DELETE_OWNERSHIP_UNAVAILABLE/);
+    assert.match(index, /scheduleLifecycleRetry/);
+});
