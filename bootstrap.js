@@ -35,3 +35,5 @@ if (!document.getElementById('npc_state_v3_editor_flex_fix')) {
 await import('./v03/index.js');
 const { startEditorTopLayerBridge } = await import('./v03/editor-top-layer.js');
 startEditorTopLayerBridge();
+const { startPortraitAttachmentBridge } = await import('./v03/portrait-attachment.js');
+startPortraitAttachmentBridge();
