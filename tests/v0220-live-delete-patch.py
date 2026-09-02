@@ -9,18 +9,34 @@ def rewrite(path, old, new):
     p.write_text(src.replace(old, new, 1))
 
 
-rewrite('index.js', """    const keys = new Set([
+rewrite('index.js', """function lifecycleCandidateKeys(rawId, kind = 'chat') {
+    const id = String(rawId ?? '').replace(/\\.jsonl$/i, '').trim();
+    if (!id) return [];
+    const suffix = `:${encodeChatKeyPart(id)}`;
+    const prefix = `${kind}:`;
+    const settings = getSettings();
+    const keys = new Set([
         ...Object.keys(settings.dataFiles || {}),
         ...Object.keys(settings.branchIndex || {}),
         ...Object.keys(settings.sidecarTombstones || {}),
         ...Object.keys(settings.recoveryFiles || {}),
         ...chatStateCache.keys(),
-    ]);""", """    const keys = new Set([
+    ]);
+    return [...keys].filter(key => isCanonicalChatKey(key) && key.startsWith(prefix) && key.endsWith(suffix));
+}""", """function lifecycleCandidateKeys(rawId, kind = 'chat') {
+    const id = String(rawId ?? '').replace(/\\.jsonl$/i, '').trim();
+    if (!id) return [];
+    const suffix = `:${encodeChatKeyPart(id)}`;
+    const prefix = `${kind}:`;
+    const settings = getSettings();
+    const keys = new Set([
         ...Object.keys(settings.dataFiles || {}),
         ...Object.keys(settings.branchIndex || {}),
         ...Object.keys(settings.chats || {}),
         ...chatStateCache.keys(),
-    ]);""")
+    ]);
+    return [...keys].filter(key => isCanonicalChatKey(key) && key.startsWith(prefix) && key.endsWith(suffix));
+}""")
 
 p = Path('tests/hardening-v0220.test.js')
 src = p.read_text()
