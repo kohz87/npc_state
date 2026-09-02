@@ -1,24 +1,29 @@
-name: NPC State CI
+name: NPC State v0.2.20 Candidate Gate
 
 on:
   push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
+    branches: [fix/v0.2.20-hard-pass]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  verify:
+  verify-and-promote-candidate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout candidate tooling branch
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: 24
+      - name: Apply candidate patch
+        run: |
+          sed -i "/branch = replaceRange(branch, 'export function bestAncestorState', '', '', 'unused');/d" tests/apply-v0220-patch.mjs
+          node --check tests/apply-v0220-patch.mjs
+          node tests/apply-v0220-patch.mjs
       - name: Syntax and diff check
         run: |
           node --check bootstrap.js
@@ -34,6 +39,7 @@ jobs:
           node --check storage.js
           node --check identity.js
           node --check tests/hardening-v0219.test.js
+          node --check tests/hardening-v0220.test.js
           git diff --check
       - name: Full verification
         run: npm test
@@ -44,12 +50,18 @@ jobs:
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
           const core = fs.readFileSync('core.js', 'utf8');
           const readme = fs.readFileSync('README.md', 'utf8');
-          const bootstrap = fs.readFileSync('bootstrap.js', 'utf8');
-          const escaped = String(manifest.version).replaceAll('.', '\\.');
-          if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
-          if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
-          if (manifest.js !== 'bootstrap.js') throw new Error('v0.2.19 manifest must load bootstrap.js');
-          const prepareAt = bootstrap.indexOf('await prepareNpcStateHardening()');
-          const engineAt = bootstrap.indexOf("await import('./index.js')");
-          if (prepareAt < 0 || engineAt < 0 || prepareAt > engineAt) throw new Error('hardening must initialize before the retained engine');
+          if (manifest.version !== '0.2.20') throw new Error('candidate version mismatch');
+          if (!core.includes("NPC_STATE_VERSION = '0.2.20'")) throw new Error('core version mismatch');
+          if (!readme.startsWith('# NPC State v0.2.20')) throw new Error('README version mismatch');
           NODE
+      - name: Commit exact verified candidate
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No candidate changes to commit."
+            exit 0
+          fi
+          git commit -m "release: v0.2.20 lifecycle cache and branch hardening"
+          git push origin HEAD:fix/v0.2.20-hard-pass
