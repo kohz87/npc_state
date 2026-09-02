@@ -11,6 +11,7 @@ on:
       - .release/post_v023_pass2.py
       - .release/post_v023_pass3.py
       - .release/post_v023_pass4.py
+      - .release/post_v023_pass5.py
       - .github/workflows/v023-hard-pass.yml
   workflow_dispatch:
 
@@ -26,12 +27,10 @@ jobs:
         with:
           ref: fix/v0.2.23-cast-reconcile-portrait-save
           fetch-depth: 0
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - name: Apply candidate patch
         run: |
           python3 .release/fix_apply_v023_v2.py
@@ -40,7 +39,7 @@ jobs:
           python3 .release/post_v023_pass2.py
           python3 .release/post_v023_pass3.py
           python3 .release/post_v023_pass4.py
-
+          python3 .release/post_v023_pass5.py
       - name: Upload candidate snapshot
         uses: actions/upload-artifact@v4
         with:
@@ -58,7 +57,6 @@ jobs:
             tests/v0214-hardening.test.js
             tests/ui-layout.test.js
           retention-days: 2
-
       - name: Syntax and diff check
         run: |
           git diff --check
@@ -66,19 +64,14 @@ jobs:
           node --check core.js
           node --check tests/runtime-smoke.mjs
           node --check tests/hardening-v0223.test.js
-
       - name: Diagnostic unit suites
         run: node --test tests/*.test.js
-
       - name: Diagnostic compatibility
         run: node tests/compatibility-check.js
-
       - name: Diagnostic runtime smoke
         run: node tests/runtime-smoke.mjs
-
       - name: Diagnostic migration smoke
         run: node tests/migration-smoke.mjs
-
       - name: Ten consecutive hard passes
         run: |
           set -eu
@@ -86,7 +79,6 @@ jobs:
             echo "========== HARD PASS $i/10 =========="
             npm test
           done
-
       - name: Release invariants
         run: |
           node - <<'NODE'
@@ -99,7 +91,8 @@ jobs:
           if (!core.includes("NPC_STATE_VERSION = '0.2.23'")) throw new Error('core version mismatch');
           if (!index.includes('schemaVersion: 29')) throw new Error('schema 29 missing');
           if (!index.includes('currentExchangeRelationshipRelevant')) throw new Error('current-exchange target repair missing');
-          if (!index.includes('const relationshipPass = manual')) throw new Error('manual relationship suppression missing');
+          if (!index.includes('const fullWindowRelationship = (manual || fullWindowScan)')) throw new Error('rolling-history relationship scrub missing');
+          if (!index.includes('currentExchangeOnly: manual || fullWindowScan')) throw new Error('current-exchange relationship scope missing');
           if (!index.includes('for (let offset = 0; offset < targets.length; offset += 4)')) throw new Error('relationship batching missing');
           if (!index.includes('deepSweep: true')) throw new Error('deep cast sweep missing');
           if (!index.includes('touchedIds = new Set')) throw new Error('omitted participant continuity repair missing');
@@ -107,7 +100,6 @@ jobs:
           if (!index.includes('await saveHostSettings()')) throw new Error('portrait durable save missing');
           if (!readme.startsWith('# NPC State v0.2.23')) throw new Error('README version mismatch');
           NODE
-
       - name: Commit verified candidate
         run: |
           git config user.name "kohz87"
