@@ -51,6 +51,7 @@ jobs:
             README.md
             CHANGELOG.md
             tests/runtime-smoke.mjs
+            tests/migration-smoke.mjs
             tests/package.test.js
             tests/hardening-v0223.test.js
             tests/hardening-v0222.test.js
@@ -63,6 +64,7 @@ jobs:
           node --check index.js
           node --check core.js
           node --check tests/runtime-smoke.mjs
+          node --check tests/migration-smoke.mjs
           node --check tests/hardening-v0223.test.js
       - name: Diagnostic unit suites
         run: node --test tests/*.test.js
@@ -84,7 +86,20 @@ jobs:
           git push origin HEAD:fix/v0.2.23-cast-reconcile-portrait-save
           exit 1
       - name: Diagnostic migration smoke
-        run: node tests/migration-smoke.mjs
+        id: migration_smoke
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node tests/migration-smoke.mjs 2>&1 | tee .release/migration_failure.txt
+      - name: Capture migration failure
+        if: steps.migration_smoke.outcome == 'failure'
+        run: |
+          git config user.name "kohz87"
+          git config user.email "83744063+kohz87@users.noreply.github.com"
+          git add -f .release/migration_failure.txt
+          git commit -m "chore: capture v0.2.23 migration failure"
+          git push origin HEAD:fix/v0.2.23-cast-reconcile-portrait-save
+          exit 1
       - name: Ten consecutive hard passes
         run: |
           set -eu
