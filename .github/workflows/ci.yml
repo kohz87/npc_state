@@ -22,6 +22,7 @@ jobs:
       - name: Apply candidate patch
         run: |
           sed -i "/branch = replaceRange(branch, 'export function bestAncestorState', '', '', 'unused');/d" tests/apply-v0220-patch.mjs
+          sed -i 's#            const p = `/files/${body.name}`;#            const p = "/files/" + body.name;#' tests/apply-v0220-patch.mjs
           node --check tests/apply-v0220-patch.mjs
           node tests/apply-v0220-patch.mjs
       - name: Syntax and diff check
