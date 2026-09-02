@@ -1,7 +1,7 @@
 [NPC State] v0.2.23 loaded
 [NPC State] dossier scan metrics {
   label: 'automatic',
-  durationMs: 24,
+  durationMs: 22,
   promptChars: 6427,
   responseChars: 935,
   retried: false,
@@ -16,11 +16,11 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342259827
+  at: 1788342388530
 }
 [NPC State] dossier scan metrics {
   label: 'manual',
-  durationMs: 24,
+  durationMs: 23,
   promptChars: 7009,
   responseChars: 707,
   retried: false,
@@ -35,7 +35,7 @@
   profileUpdates: 1,
   profileApplied: 1,
   profileEvidenceAdded: 0,
-  at: 1788342260512
+  at: 1788342389285
 }
 [NPC State] dossier scan metrics {
   label: 'manual',
@@ -54,7 +54,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342260781
+  at: 1788342389554
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [ 'npc_yunyun' ] }
 [NPC State] dossier scan metrics {
@@ -74,7 +74,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342260870
+  at: 1788342389642
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [ 'npc_yunyun' ] }
 [NPC State] dossier scan metrics {
@@ -94,7 +94,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342260956
+  at: 1788342389730
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [] }
 [NPC State] dossier scan metrics {
@@ -114,7 +114,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342261045
+  at: 1788342389819
 }
 [NPC State] discarded stale dossier scan after chat or dossier state changed.
 [NPC State] discarded stale dossier scan after chat or dossier state changed.
@@ -145,7 +145,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342261917
+  at: 1788342390696
 }
 [NPC State] dossier scan metrics {
   label: 'automatic-full',
@@ -164,7 +164,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342261970
+  at: 1788342390750
 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Myla', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Toris Vale', literalMention: false, returnedCount: 0 }
@@ -173,33 +173,42 @@
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_neri' ], decided: [] }
 [NPC State] dossier scan metrics {
   label: 'automatic-full',
-  durationMs: 22,
-  promptChars: 8235,
+  durationMs: 23,
+  promptChars: 8227,
   responseChars: 222,
   retried: false,
-  relationshipPass: false,
-  relationshipTargets: 0,
-  relationshipResponseChars: 0,
+  relationshipPass: true,
+  relationshipTargets: 1,
+  relationshipResponseChars: 426,
   relationshipRetried: false,
   newNpcRelationshipTargets: 1,
-  newNpcRelationshipResponseChars: 11,
+  newNpcRelationshipResponseChars: 426,
   relationshipEdges: 0,
   relationshipEdgeFallbacks: 0,
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342262274
+  at: 1788342391054
 }
-[NPC State] targeted backfill returned no accepted NPC { target: 'Mira', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Myla', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Toris Vale', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Neris', literalMention: false, returnedCount: 1 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Liora', literalMention: false, returnedCount: 0 }
-file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1061
-    assert.equal(yunyunAfterCast.relationship.trust, yunyunBeforeCast.relationship.trust + 1, 'Yunyun should gain the current-exchange trust point despite appearing before the scene transition');
-                                 ^
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
 
-TypeError: Cannot read properties of undefined (reading 'relationship')
-    at file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1061:34
+AssertionError [ERR_ASSERTION]: new NPC should receive one targeted deep reconciliation
+
+2 !== 1
+
+    at file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1064:12 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 2,
+  expected: 1,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
 
 Node.js v22.23.2
