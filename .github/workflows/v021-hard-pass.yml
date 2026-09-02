@@ -32,6 +32,7 @@ jobs:
             python3 .release/v021_partialretry.py
           fi
           python3 .release/v021_finalreview.py
+          python3 .release/v021_finalreview_post.py
       - name: Ten consecutive hard passes
         run: |
           set -euo pipefail
