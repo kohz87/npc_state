@@ -1,4 +1,4 @@
-# NPC State v0.2.16
+# NPC State v0.2.17
 
 NPC State is a standalone SillyTavern extension that maintains persistent, branch-aware NPC dossiers for roleplay. It tracks identity, durable characterization, live state, player relationships, important memories, portraits, and present-scene visibility without depending on Megumin Suite's NPC Bank.
 
@@ -13,7 +13,9 @@ npc_state/
   core.js
   branch.js
   bundle.js
+  social.js
   storage.js
+  identity.js
   style.css
   CHANGELOG.md
   CODE-REVIEW.md
@@ -338,6 +340,10 @@ data/<user-handle>/user/files/npc-state-<hash>.json
 ```
 
 The sidecar stores dossiers, candidates, portraits, inline snapshots, branch checkpoints, and lifecycle state. Writes are versioned and serialized so edits made while an upload is in flight receive a follow-up snapshot rather than being falsely marked saved.
+
+From v0.2.17 onward, durable chat identity includes both the SillyTavern owner and the chat filename. Character chats are scoped by character avatar identity and group chats by group id, so two different cards/groups may safely use the same chat filename. Older unqualified sidecars are claimed lazily only when their stored narrative lineage proves they belong to the active owner; ambiguous legacy data is preserved rather than guessed.
+
+Long-session storage is bounded in two additional ways: dormant hydrated chats are evicted from the in-memory cache after active work settles, and branch checkpoint snapshots are adaptively compacted under a serialized-size budget while retaining safe rollback anchors and recent sibling state. Unreachable portrait assets are garbage-collected during sidecar compaction.
 
 Branch behavior:
 

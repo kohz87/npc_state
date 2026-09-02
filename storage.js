@@ -37,11 +37,33 @@ function bytesToBase64(bytes) {
     return globalThis.btoa(binary);
 }
 
+export function retainedPortraitAssetIds(state = {}) {
+    const retained = new Set();
+    const addNpcs = value => {
+        for (const npc of Array.isArray(value) ? value : []) {
+            const id = String(npc?.id || '').trim();
+            if (id) retained.add(id);
+        }
+    };
+    addNpcs(state.npcs);
+    for (const checkpoint of Array.isArray(state.checkpoints) ? state.checkpoints : []) addNpcs(checkpoint?.snapshot?.npcs);
+    addNpcs(state.branchRootSnapshot?.npcs);
+    const blocked = new Set((Array.isArray(state.userDismissedGroups) ? state.userDismissedGroups : [])
+        .flatMap(group => [...(Array.isArray(group?.ids) ? group.ids : []), group?.npcId])
+        .map(value => String(value || '').trim()).filter(Boolean));
+    for (const id of blocked) retained.delete(id);
+    return retained;
+}
+
+export function prunePortraitAssetsForState(state = {}) {
+    const assets = state?.portraitAssets && typeof state.portraitAssets === 'object' ? state.portraitAssets : {};
+    const retained = retainedPortraitAssetIds(state);
+    return Object.fromEntries(Object.entries(assets).filter(([id, portrait]) => retained.has(String(id)) && portrait?.dataUrl));
+}
+
 function compactStateForFile(state) {
     const snapshot = structuredClone(state || {});
-    snapshot.portraitAssets = snapshot.portraitAssets && typeof snapshot.portraitAssets === 'object'
-        ? snapshot.portraitAssets
-        : {};
+    snapshot.portraitAssets = prunePortraitAssetsForState(snapshot);
     for (const npc of Array.isArray(snapshot.npcs) ? snapshot.npcs : []) {
         if (!npc?.id) continue;
         if (npc.portrait?.dataUrl) {

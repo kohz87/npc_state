@@ -1,4 +1,4 @@
-# NPC State v0.2.16 Test Report
+# NPC State v0.2.17 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
@@ -12,11 +12,26 @@ The reviewed working tree completed:
 - SillyTavern 1.18 compatibility/import/event contract passed
 - Megumin Suite isolation and master-block integration checks passed
 - Mocked browser/runtime smoke passed
-- Schema-v24 settings/sidecar migration smoke passed
+- Schema-v26 owner-qualified settings/sidecar migration smoke passed
 - One-level extension package-layout check passed
+- Owner-qualified same-filename character/group isolation passed
+- Legacy current-lineage and pre-v0.2.11 ownership migration safety passed
+- Portrait garbage collection, branch snapshot size budgeting, tombstone authority, and dormant-cache eviction checks passed
+- Ten consecutive full release-gate passes are required before commit
 
 The bounded routine scanner fixture measured **7,115 non-story prompt characters**, below the existing 7,200-character ceiling.
 
+
+## v0.2.17 identity / persistence coverage
+
+- Character chat storage keys include character avatar ownership; group chat keys include group ownership. Equal chat filenames under different owners remain independent.
+- Branch ancestor discovery and inheritance never cross owner scopes.
+- Legacy unqualified sidecars are migrated only with narrative-lineage proof, including compatibility with pre-v0.2.11 fingerprints. Ambiguous state is preserved instead of assigned optimistically.
+- Successful unchanged hydration is marked clean; destructive tombstones override stale live pointers after interrupted cleanup.
+- Manual high-value changes begin persistence immediately while versioned in-flight writes still drain to the newest state.
+- Branch checkpoints are bounded by both count and serialized snapshot budget; portrait assets are garbage-collected against live/branch-restorable ids.
+- Dormant hydrated chats are evicted only after pending loads, writes, timers, and scans are settled.
+- Package and compatibility checks include the new `identity.js` module and SillyTavern character/group identity context.
 
 ## v0.2.12 Social Graph / identity-resolution coverage
 

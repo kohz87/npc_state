@@ -9,7 +9,7 @@ const sourceRoot = path.resolve(here, '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'npc-state-runtime-'));
 const extRoot = path.join(tempRoot, 'public', 'scripts', 'extensions', 'third-party', 'npc_state');
 fs.mkdirSync(extRoot, { recursive: true });
-for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js']) {
+for (const name of ['index.js', 'core.js', 'bundle.js', 'branch.js', 'social.js', 'storage.js', 'identity.js']) {
     fs.copyFileSync(path.join(sourceRoot, name), path.join(extRoot, name));
 }
 fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ type: 'module' }));
@@ -369,7 +369,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.16');
+    assert.equal(globalThis.NPCState?.version, '0.2.17');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');
@@ -1109,7 +1109,6 @@ try {
     // flight must trigger a second snapshot instead of being falsely marked saved.
     const persistenceTarget = globalThis.NPCState.getState().npcs.find(n => !n.archived);
     assert.ok(persistenceTarget, 'runtime should retain an NPC for persistence race validation');
-    globalThis.NPCState.archive(persistenceTarget.id);
     let releaseUpload;
     let markUploadEntered;
     const uploadEntered = new Promise(resolve => { markUploadEntered = resolve; });
@@ -1118,20 +1117,23 @@ try {
         promise: new Promise(resolve => { releaseUpload = resolve; }),
     };
     const uploadsBeforeRace = mockState.uploadCalls;
-    const racingFlush = globalThis.NPCState.flush();
+    // v0.2.17 starts high-value user mutations immediately. Install the barrier before
+    // the archive so the test blocks that first critical write, then mutates again while
+    // it is in flight and verifies the writer loops to a newer snapshot.
+    globalThis.NPCState.archive(persistenceTarget.id);
     await uploadEntered;
+    const racingFlush = globalThis.NPCState.flush();
     globalThis.NPCState.restore(persistenceTarget.id);
     releaseUpload();
     await racingFlush;
     await globalThis.NPCState.flush();
-    assert.ok(mockState.uploadCalls >= uploadsBeforeRace + 2, 'an in-flight mutation should produce a follow-up sidecar write');
+    assert.ok(mockState.uploadCalls >= uploadsBeforeRace + 2, 'an in-flight critical mutation should produce a follow-up sidecar write');
     const racePointer = globalThis.NPCState.dataFile();
     const persistedAfterRace = JSON.parse(mockState.files.get(racePointer.path));
     assert.equal(persistedAfterRace.state.npcs.find(n => n.id === persistenceTarget.id).archived, false, 'latest in-memory state must win the write race');
 
     // Whole-chat deletion waits for an in-flight write before removing the pointer,
     // so the completed upload cannot resurrect a deleted chat sidecar.
-    globalThis.NPCState.archive(persistenceTarget.id);
     let releaseDeleteUpload;
     let markDeleteUploadEntered;
     const deleteUploadEntered = new Promise(resolve => { markDeleteUploadEntered = resolve; });
@@ -1139,6 +1141,7 @@ try {
         entered: markDeleteUploadEntered,
         promise: new Promise(resolve => { releaseDeleteUpload = resolve; }),
     };
+    globalThis.NPCState.archive(persistenceTarget.id);
     const pendingDeleteWrite = globalThis.NPCState.flush();
     await deleteUploadEntered;
     const deletedPointer = globalThis.NPCState.dataFile();
@@ -1146,7 +1149,7 @@ try {
     releaseDeleteUpload();
     await pendingDeleteWrite;
     await sleep(100);
-    assert.equal(mockState.extensionSettings.npc_state.dataFiles['chat:smoke-chat'], undefined);
+    assert.equal(mockState.extensionSettings.npc_state.dataFiles['chat:megumin.png:smoke-chat'], undefined);
     assert.equal(mockState.files.has(deletedPointer.path), false);
 
     // SillyTavern exposes both groupId and the active group chat_id as chatId. Group identity must win.
@@ -1156,9 +1159,28 @@ try {
     mockState.context.chat = [{ is_user: false, is_system: false, name: 'Megumin', mes: 'Group opening.' }, { is_user: true, is_system: false, name: 'Kazuma', mes: 'We enter together.' }];
     eventSource.emit('chat_changed');
     await sleep(80);
-    assert.equal(globalThis.NPCState.uiStatus().chatKey, 'group:group-chat-1', 'groupId must force the group namespace even when chatId is present');
+    assert.equal(globalThis.NPCState.uiStatus().chatKey, 'group:party-1:group-chat-1', 'group identity must include both group owner and active group chat id');
 
-    console.log('Runtime smoke: file persistence, strict presence cards, off-screen World State activity, reversible archive, desire metric, branching, OOC removal, chat cleanup, and group identity passed.');
+    // Two character cards may legitimately use the same chat filename. Their durable namespaces must never collide.
+    mockState.context.groupId = null;
+    mockState.context.characters = [{ name: 'Megumin', avatar: 'megumin.png' }, { name: 'Yunyun', avatar: 'yunyun.png' }];
+    mockState.context.characterId = 0;
+    mockState.context.chatId = 'shared-save';
+    mockState.context.getCurrentChatId = () => 'shared-save';
+    mockState.context.chat = [{ is_user: false, is_system: false, name: 'Megumin', mes: 'Same opening.' }, { is_user: true, is_system: false, name: 'Kazuma', mes: 'Same reply.' }];
+    eventSource.emit('chat_changed');
+    await sleep(80);
+    const ownerAKey = globalThis.NPCState.uiStatus().chatKey;
+    mockState.context.characterId = 1;
+    eventSource.emit('chat_changed');
+    await sleep(80);
+    const ownerBKey = globalThis.NPCState.uiStatus().chatKey;
+    assert.equal(ownerAKey, 'chat:megumin.png:shared-save');
+    assert.equal(ownerBKey, 'chat:yunyun.png:shared-save');
+    assert.notEqual(ownerAKey, ownerBKey);
+    await sleep(120);
+
+    console.log('Runtime smoke: file persistence, branch safety, OOC removal, chat cleanup, group ownership, and same-filename character isolation passed.');
 } finally {
     delete globalThis.__npcMock;
     fs.rmSync(tempRoot, { recursive: true, force: true });
