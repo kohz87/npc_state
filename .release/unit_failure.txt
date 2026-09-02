@@ -1,0 +1,243 @@
+run=33614283922
+head=894e98448f7d6322406506a95289852bb94f0ed7
+
+  ---
+  duration_ms: 0.948209
+  type: 'test'
+  ...
+# Subtest: hydration errors render an explicit read-only retry surface
+ok 376 - hydration errors render an explicit read-only retry surface
+  ---
+  duration_ms: 0.521233
+  type: 'test'
+  ...
+# Subtest: rename verifies new storage before switching ownership
+ok 377 - rename verifies new storage before switching ownership
+  ---
+  duration_ms: 0.258222
+  type: 'test'
+  ...
+# Subtest: scan timeout drains coalesced automatic work
+ok 378 - scan timeout drains coalesced automatic work
+  ---
+  duration_ms: 1.054416
+  type: 'test'
+  ...
+# Subtest: automatic backfill retries are durable cooled down and bounded
+ok 379 - automatic backfill retries are durable cooled down and bounded
+  ---
+  duration_ms: 0.251609
+  type: 'test'
+  ...
+# Subtest: editor and portrait workflows are chat-affine
+ok 380 - editor and portrait workflows are chat-affine
+  ---
+  duration_ms: 0.527404
+  type: 'test'
+  ...
+# Subtest: release metadata is v0.2.22
+not ok 381 - release metadata is v0.2.22
+  ---
+  duration_ms: 0.780646
+  type: 'test'
+  location: '/home/runner/work/npc_state/npc_state/tests/v0214-hardening.test.js:57:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /NPC_STATE_VERSION = '0\.2\.22'/. Input:
+    
+    "export * from './core-v0218.js';\nexport const NPC_STATE_VERSION = '0.2.23';\n"
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    export * from './core-v0218.js';
+    export const NPC_STATE_VERSION = '0.2.23';
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/npc_state/npc_state/tests/v0214-hardening.test.js:58:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: same stock greeting alone never proves cross-chat ancestry
+ok 382 - same stock greeting alone never proves cross-chat ancestry
+  ---
+  duration_ms: 2.896854
+  type: 'test'
+  ...
+# Subtest: shared greeting plus two user-authored turns can prove branch ancestry
+ok 383 - shared greeting plus two user-authored turns can prove branch ancestry
+  ---
+  duration_ms: 1.395032
+  type: 'test'
+  ...
+# Subtest: persistence and branch async work are explicitly chat-bound
+ok 384 - persistence and branch async work are explicitly chat-bound
+  ---
+  duration_ms: 0.285061
+  type: 'test'
+  ...
+# Subtest: queued scans carry branch identity and validate before drain
+ok 385 - queued scans carry branch identity and validate before drain
+  ---
+  duration_ms: 0.190666
+  type: 'test'
+  ...
+# Subtest: startup mounts recovery UI machinery before hydration
+ok 386 - startup mounts recovery UI machinery before hydration
+  ---
+  duration_ms: 0.390318
+  type: 'test'
+  ...
+# Subtest: character fallback cannot become a durable mutation namespace
+ok 387 - character fallback cannot become a durable mutation namespace
+  ---
+  duration_ms: 0.142445
+  type: 'test'
+  ...
+# Subtest: rename backs up then retires predecessor and deterministic recovery rejects retired files
+ok 388 - rename backs up then retires predecessor and deterministic recovery rejects retired files
+  ---
+  duration_ms: 0.192008
+  type: 'test'
+  ...
+# Subtest: chat changes cancel global delayed branch and swipe work
+ok 389 - chat changes cancel global delayed branch and swipe work
+  ---
+  duration_ms: 0.290462
+  type: 'test'
+  ...
+# Subtest: group identity takes precedence over host chatId and pending identities are noncanonical
+ok 390 - group identity takes precedence over host chatId and pending identities are noncanonical
+  ---
+  duration_ms: 1.861301
+  type: 'test'
+  ...
+# Subtest: delete and hydration use ownership epochs and stale loader cannot clear a newer promise
+ok 391 - delete and hydration use ownership epochs and stale loader cannot clear a newer promise
+  ---
+  duration_ms: 0.500253
+  type: 'test'
+  ...
+# Subtest: retired sidecars are explicit durable tombstones
+ok 392 - retired sidecars are explicit durable tombstones
+  ---
+  duration_ms: 0.958227
+  type: 'test'
+  ...
+# Subtest: rename uses event groupId and writes a recovery backup before retiring predecessor
+ok 393 - rename uses event groupId and writes a recovery backup before retiring predecessor
+  ---
+  duration_ms: 0.357526
+  type: 'test'
+  ...
+# Subtest: broken sidecar recovery is explicit rather than silently destructive
+ok 394 - broken sidecar recovery is explicit rather than silently destructive
+  ---
+  duration_ms: 0.416476
+  type: 'test'
+  ...
+# Subtest: independent chats need two shared user turns before cross-chat inheritance
+ok 395 - independent chats need two shared user turns before cross-chat inheritance
+  ---
+  duration_ms: 7.50551
+  type: 'test'
+  ...
+# Subtest: ancestor discovery is bounded by a settings branch index
+ok 396 - ancestor discovery is bounded by a settings branch index
+  ---
+  duration_ms: 0.444649
+  type: 'test'
+  ...
+# Subtest: CI is version-neutral and uses Node 24 actions
+ok 397 - CI is version-neutral and uses Node 24 actions
+  ---
+  duration_ms: 0.28432
+  type: 'test'
+  ...
+# Subtest: branch snapshots obey a bounded character budget while retaining useful anchors
+ok 398 - branch snapshots obey a bounded character budget while retaining useful anchors
+  ---
+  duration_ms: 64.795837
+  type: 'test'
+  ...
+# Subtest: portrait GC removes unreachable and manually deleted assets but keeps branch-restorable assets
+ok 399 - portrait GC removes unreachable and manually deleted assets but keeps branch-restorable assets
+  ---
+  duration_ms: 1.427653
+  type: 'test'
+  ...
+# Subtest: branch discovery and inheritance are owner scoped
+ok 400 - branch discovery and inheritance are owner scoped
+  ---
+  duration_ms: 0.334233
+  type: 'test'
+  ...
+# Subtest: tombstones override stale live pointers before hydration
+ok 401 - tombstones override stale live pointers before hydration
+  ---
+  duration_ms: 0.282818
+  type: 'test'
+  ...
+# Subtest: successful hydration starts clean instead of forcing an unload rewrite
+ok 402 - successful hydration starts clean instead of forcing an unload rewrite
+  ---
+  duration_ms: 0.21433
+  type: 'test'
+  ...
+# Subtest: chat cache has bounded eviction and refuses to evict active work
+ok 403 - chat cache has bounded eviction and refuses to evict active work
+  ---
+  duration_ms: 0.263812
+  type: 'test'
+  ...
+# Subtest: lifecycle lookup prefers known owner state and fails closed on ambiguous suffixes
+ok 404 - lifecycle lookup prefers known owner state and fails closed on ambiguous suffixes
+  ---
+  duration_ms: 0.28981
+  type: 'test'
+  ...
+# Subtest: legacy ownership proof accepts both content lineage and pre-v0.2.11 lineage
+ok 405 - legacy ownership proof accepts both content lineage and pre-v0.2.11 lineage
+  ---
+  duration_ms: 0.168534
+  type: 'test'
+  ...
+# Subtest: high-value manual mutations use immediate persistence
+ok 406 - high-value manual mutations use immediate persistence
+  ---
+  duration_ms: 0.627651
+  type: 'test'
+  ...
+# Subtest: legacy ownership migration is lineage-gated and owner-qualified
+ok 407 - legacy ownership migration is lineage-gated and owner-qualified
+  ---
+  duration_ms: 0.43949
+  type: 'test'
+  ...
+# Subtest: same chat filename for two owners produces distinct canonical keys
+ok 408 - same chat filename for two owners produces distinct canonical keys
+  ---
+  duration_ms: 0.334454
+  type: 'test'
+  ...
+# Subtest: production CI is read-only and version-neutral
+ok 409 - production CI is read-only and version-neutral
+  ---
+  duration_ms: 0.155149
+  type: 'test'
+  ...
+1..409
+# tests 409
+# suites 0
+# pass 406
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1243.890336
