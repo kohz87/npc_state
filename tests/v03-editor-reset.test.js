@@ -12,7 +12,18 @@ test('editor uses the original direct ui.js open path without an interception co
     assert.match(ui, /document\.body\.appendChild\(overlay\);/);
 });
 
-test('editor flex child gets only the shrink fix needed for internal scrolling', () => {
+test('desktop editor keeps only the flex shrink correction', () => {
     assert.match(bootstrap, /\.npc-state-v3-editor-grid\{min-height:0\}/);
     assert.doesNotMatch(bootstrap, /100dvh|100vw|MutationObserver|capture/);
+});
+
+test('tablet and mobile editor is top anchored and whole-panel scrollable', () => {
+    assert.match(bootstrap, /@media\(max-width:1180px\),\(hover:none\) and \(pointer:coarse\)/);
+    assert.match(bootstrap, /\.npc-state-v3-editor-overlay\{[^}]*align-items:flex-start!important;[^}]*overflow-y:auto!important;/s);
+    assert.match(bootstrap, /\.npc-state-v3-editor-shell\{[^}]*height:auto!important;[^}]*max-height:none!important;/s);
+    assert.match(bootstrap, /\.npc-state-v3-editor-grid\{[^}]*flex:0 0 auto!important;[^}]*overflow:visible!important;/s);
+});
+
+test('mobile geometry does not reintroduce forced fullscreen positioning', () => {
+    assert.doesNotMatch(bootstrap, /position:absolute!important|inset:0!important|visibility:visible!important|pointer-events:auto!important/);
 });
