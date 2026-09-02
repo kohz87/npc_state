@@ -87,4 +87,15 @@ for fixture in ['tests/runtime-smoke.mjs', 'tests/migration-smoke.mjs']:
     )
     p.write_text(t, encoding='utf-8')
 
+# CHAT_DELETED is emitted after SillyTavern has removed the host chat. Model that
+# authoritative absence so the new owner-proof path can safely retire the sidecar.
+p = Path('tests/runtime-smoke.mjs')
+t = p.read_text(encoding='utf-8')
+old = """    const deletedPointer = globalThis.NPCState.dataFile();\n    eventSource.emit('chat_deleted', 'smoke-chat');"""
+new = """    const deletedPointer = globalThis.NPCState.dataFile();\n    mockState.hostChatsByAvatar.set('megumin.png', []);\n    eventSource.emit('chat_deleted', 'smoke-chat');"""
+if old not in t:
+    raise SystemExit('runtime delete fixture shape changed unexpectedly')
+t = t.replace(old, new, 1)
+p.write_text(t, encoding='utf-8')
+
 print('v0.2.21 transform postfix applied')
