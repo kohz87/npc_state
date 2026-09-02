@@ -10,7 +10,13 @@
 - Added serialized per-chat operations, stale-result invalidation, atomic state commits, branch-safe v0.3 checkpoints, and stable-ID deletion tombstones.
 - Added independent revisioned v0.3 sidecars with cross-tab write protection and fail-closed missing-file handling.
 - Added a one-way v0.2 importer that preserves durable dossier data while leaving the original v0.2 sidecar untouched.
-- Added one searchable canonical Dossier Library for present, off-screen, and archived NPCs.
+- Added one searchable canonical Dossier Library for present, world-active, off-screen, and archived NPCs.
+- Redesigned the canonical Dossier Library around a dominant portrait hero instead of a permanent cast sidebar.
+- Added a searchable horizontal portrait cast rail fixed at the bottom of the dossier viewer, with selected-card centering, previous/next controls, touch scrolling, and lifecycle status on each card.
+- Reorganized dossier content into distinct Current, Relationship, Personality, Appearance, Behavioral profile, Speech, Mannerisms, Key relationships, Important memories, Background, and relationship-history blocks.
+- Restored the portrait-heavy split-view grammar on desktop and landscape tablet so the portrait remains visible while the dossier document scrolls independently.
+- Added responsive portrait-tablet and phone layouts that stack the portrait hero over one readable document column while retaining the bottom cast rail.
+- Preserved the selected dossier's reading position across background refreshes, and explicit opens from other NPC State surfaces clear stale cast-search filters so the requested stable ID remains visible.
 - Bound editor saves to an exact NPC ID and optimistic dossier version so cross-NPC and stale same-NPC overwrites are rejected.
 - Added a UI-only Megumin master-block adapter that mounts the existing present-NPC roster as an `NPC State` tab when Megumin's tab/panel hosts are present, with standalone inline fallback when they are not.
 - Kept Megumin outside the state architecture: the adapter owns no scanning, persistence, dossier import, or World State parsing.
@@ -27,8 +33,9 @@
 - Added full-chat Replace durable state as a separate restore mode that replaces portable durable domains while retaining destination branch/runtime machinery and clearing imported live presence.
 - Cross-chat imports now clear chat-local message references, rebase stale inactivity age, and safely drop social edges whose counterpart stable ID does not exist in the destination.
 - Bundle preview/export are read-only; a successful bundle import is serialized into one sidecar commit and destination branch checkpoint, while rejected conflicts commit nothing.
-- Added lightweight portrait prompt support with saved portrait preset, saved generation-template text, and Natural/Tags/Hybrid formatting for the auto-built dossier character block.
-- Added local placeholder resolution and live selected-NPC preview/copy for portrait prompts without adding any image API, automatic portrait generation, regeneration queue, or portrait workflow state.
+- Added lightweight portrait prompt support with one saved portrait preset containing positive and negative channels, separate positive and negative prompt templates, and Natural/Tags/Hybrid formatting for the auto-built dossier character block.
+- Added local placeholder resolution and live selected-NPC positive/negative preview with Copy Positive, Copy Negative, and Copy Both controls without adding any image API, automatic portrait generation, regeneration queue, or portrait workflow state.
+- Preserved first-pass single portrait-preset/generation-prompt settings by migrating them into the new positive channel, while intentionally blank presets/templates remain blank.
 - Added focused v0.3 behavioral tests as the supported release gate.
 - Moved the complete v0.2.23 repository snapshot, including its source, tests, reports, changelog, and documentation, under `legacy/v0.2.x/`.
 - Made the repository root and default `main` branch the supported v0.3 install surface for SillyTavern.
