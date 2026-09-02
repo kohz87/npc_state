@@ -69,7 +69,20 @@ jobs:
       - name: Diagnostic compatibility
         run: node tests/compatibility-check.js
       - name: Diagnostic runtime smoke
-        run: node tests/runtime-smoke.mjs
+        id: runtime_smoke
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node tests/runtime-smoke.mjs 2>&1 | tee .release/runtime_failure.txt
+      - name: Capture runtime failure
+        if: steps.runtime_smoke.outcome == 'failure'
+        run: |
+          git config user.name "kohz87"
+          git config user.email "83744063+kohz87@users.noreply.github.com"
+          git add -f .release/runtime_failure.txt
+          git commit -m "chore: capture v0.2.23 runtime failure"
+          git push origin HEAD:fix/v0.2.23-cast-reconcile-portrait-save
+          exit 1
       - name: Diagnostic migration smoke
         run: node tests/migration-smoke.mjs
       - name: Ten consecutive hard passes
