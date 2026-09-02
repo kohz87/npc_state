@@ -1,4 +1,4 @@
-/* NPC State v0.2.17 - standalone SillyTavern extension */
+/* NPC State v0.2.18 - standalone SillyTavern extension */
 import { extension_settings, getContext } from '../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';
 import {

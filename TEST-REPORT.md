@@ -1,10 +1,19 @@
-# NPC State v0.2.17 Test Report
+# NPC State v0.2.18 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
 ## Result
 
 **PASS**
+
+## v0.2.18 release-gate coverage
+
+- **360/360 Node tests passed per hard pass**
+- Ten consecutive `npm test` passes are required on the exact v0.2.18 candidate.
+- Every pass also runs syntax checks for all runtime modules plus `git diff --check`.
+- Dedicated owner-qualified identity/storage adversarial tests run after the ten-pass loop.
+- Release consistency verifies manifest, core runtime version, README title, changelog entry, and schema-v26 coverage.
+- The release gate never stages `.github/workflows/**`; production CI remains read-only and version-neutral.
 
 The reviewed working tree completed:
 

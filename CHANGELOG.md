@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.18
+
+- Promotes the fully verified owner-qualified identity and storage hardening as the actual production release.
+- Corrects release metadata so manifest, runtime constant, README, tests, and reports all agree on v0.2.18.
+- Keeps permanent CI read-only and version-neutral while moving the ten-pass release gate into a separate temporary workflow.
+- Avoids GitHub App workflow-permission failures by never asking CI-authored commits to modify `.github/workflows/**`.
+
 ## 0.2.17
 
 - Owner-qualified chat identity prevents same-filename character and group conversations from sharing state.

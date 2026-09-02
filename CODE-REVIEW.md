@@ -1,4 +1,10 @@
-# NPC State v0.2.17 Code Review
+# NPC State v0.2.18 Code Review
+
+## v0.2.18 verified release promotion
+
+The v0.2.17 identity/storage hardening candidate is promoted as v0.2.18 after the release pipeline itself was corrected. Runtime behavior is unchanged from the fully hardened candidate: owner-qualified chat identity, owner-scoped ancestry, lineage-gated legacy migration, destructive tombstone authority, bounded branch snapshots, portrait garbage collection, bounded dormant-chat caching, clean hydration revisions, and immediate persistence for high-value manual mutations remain intact.
+
+**Release-process fix:** production `ci.yml` is read-only and version-neutral. The temporary v0.2.18 gate is a separate workflow and never attempts to commit or modify workflow files, avoiding GitHub App workflow-permission rejection. The exact v0.2.18 candidate must complete ten consecutive full passes before promotion to `main`.
 
 ## v0.2.17 identity and storage hardening
 
