@@ -1,7 +1,7 @@
 [NPC State] v0.2.23 loaded
 [NPC State] dossier scan metrics {
   label: 'automatic',
-  durationMs: 22,
+  durationMs: 25,
   promptChars: 6427,
   responseChars: 935,
   retried: false,
@@ -16,11 +16,11 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342388530
+  at: 1788342617850
 }
 [NPC State] dossier scan metrics {
   label: 'manual',
-  durationMs: 23,
+  durationMs: 24,
   promptChars: 7009,
   responseChars: 707,
   retried: false,
@@ -35,7 +35,7 @@
   profileUpdates: 1,
   profileApplied: 1,
   profileEvidenceAdded: 0,
-  at: 1788342389285
+  at: 1788342618208
 }
 [NPC State] dossier scan metrics {
   label: 'manual',
@@ -54,7 +54,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342389554
+  at: 1788342618477
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [ 'npc_yunyun' ] }
 [NPC State] dossier scan metrics {
@@ -74,7 +74,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342389642
+  at: 1788342618566
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [ 'npc_yunyun' ] }
 [NPC State] dossier scan metrics {
@@ -94,7 +94,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342389730
+  at: 1788342618653
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [] }
 [NPC State] dossier scan metrics {
@@ -114,7 +114,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342389819
+  at: 1788342618742
 }
 [NPC State] discarded stale dossier scan after chat or dossier state changed.
 [NPC State] discarded stale dossier scan after chat or dossier state changed.
@@ -130,7 +130,7 @@
 }
 [NPC State] dossier scan metrics {
   label: 'manual',
-  durationMs: 92,
+  durationMs: 96,
   promptChars: 7525,
   responseChars: 276,
   retried: true,
@@ -145,11 +145,11 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342390696
+  at: 1788342619630
 }
 [NPC State] dossier scan metrics {
   label: 'automatic-full',
-  durationMs: 41,
+  durationMs: 43,
   promptChars: 8092,
   responseChars: 421,
   retried: false,
@@ -164,7 +164,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342390750
+  at: 1788342619686
 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Myla', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Toris Vale', literalMention: false, returnedCount: 0 }
@@ -173,7 +173,7 @@
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_neri' ], decided: [] }
 [NPC State] dossier scan metrics {
   label: 'automatic-full',
-  durationMs: 23,
+  durationMs: 24,
   promptChars: 8227,
   responseChars: 222,
   retried: false,
@@ -188,25 +188,25 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342391054
+  at: 1788342619989
 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Myla', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Toris Vale', literalMention: false, returnedCount: 0 }
-[NPC State] targeted backfill returned no accepted NPC { target: 'Neris', literalMention: false, returnedCount: 1 }
+[NPC State] targeted backfill returned no accepted NPC { target: 'Neris', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Liora', literalMention: false, returnedCount: 0 }
 node:internal/modules/run_main:123
     triggerUncaughtException(
     ^
 
-AssertionError [ERR_ASSERTION]: new NPC should receive one targeted deep reconciliation
+AssertionError [ERR_ASSERTION]: successful cast sweep should drain its queue
 
-2 !== 1
+4 !== 0
 
-    at file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1064:12 {
+    at file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1065:12 {
   generatedMessage: false,
   code: 'ERR_ASSERTION',
-  actual: 2,
-  expected: 1,
+  actual: 4,
+  expected: 0,
   operator: 'strictEqual',
   diff: 'simple'
 }
