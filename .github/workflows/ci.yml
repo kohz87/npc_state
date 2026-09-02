@@ -25,60 +25,53 @@ jobs:
           sed -i 's#            const p = `/files/${body.name}`;#            const p = "/files/" + body.name;#' tests/apply-v0220-patch.mjs
           node --check tests/apply-v0220-patch.mjs
           node tests/apply-v0220-patch.mjs
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          function rewrite(path, from, to) {
-            let source = fs.readFileSync(path, 'utf8');
-            if (!source.includes(from)) throw new Error(`missing test patch anchor in ${path}`);
-            source = source.replace(from, to);
-            fs.writeFileSync(path, source);
-          }
+          python3 - <<'PY'
+          from pathlib import Path
 
-          rewrite('tests/index-hardening.test.js',
-          `test('chat deletion handlers preserve chat/group namespace isolation',()=>{
-            assert.match(source,/removeDeletedChatState\\(chatId, 'chat', getCharacterOwnerId\\(getContext\\(\\)\\)\\)/);
-            assert.match(source,/removeDeletedChatState\\(chatId, 'group', String\\(getContext\\(\\)\\.groupId \\|\\| ''\\)\\)/);
-            assert.doesNotMatch(source,/for \\(const key of \\[`chat:\\$\\{id\\}`, `group:\\$\\{id\\}`\\]\\)/);
-          });`,
-          `test('filename-only chat deletion fails closed instead of borrowing an unrelated active owner',()=>{
-            assert.match(source,/removeDeletedChatState\\(chatId, 'chat', ''\\)/);
-            assert.match(source,/removeDeletedChatState\\(chatId, 'group', ''\\)/);
-            assert.doesNotMatch(source,/removeDeletedChatState\\(chatId, 'chat', getCharacterOwnerId\\(getContext\\(\\)\\)\\)/);
-            assert.doesNotMatch(source,/for \\(const key of \\[`chat:\\$\\{id\\}`, `group:\\$\\{id\\}`\\]\\)/);
-          });`);
+          def rewrite(path, old, new):
+              p = Path(path)
+              source = p.read_text()
+              if old not in source:
+                  raise RuntimeError(f'missing test patch anchor in {path}')
+              p.write_text(source.replace(old, new, 1))
 
-          rewrite('tests/index-hardening.test.js',
-          `test('manual trash removes narrative name suppression and branch inheritance requires user-authored provenance',()=>{
+          rewrite('tests/index-hardening.test.js', """test('chat deletion handlers preserve chat/group namespace isolation',()=>{
+            assert.match(source,/removeDeletedChatState\(chatId, 'chat', getCharacterOwnerId\(getContext\(\)\)\)/);
+            assert.match(source,/removeDeletedChatState\(chatId, 'group', String\(getContext\(\)\.groupId \|\| ''\)\)/);
+            assert.doesNotMatch(source,/for \(const key of \[`chat:\$\{id\}`, `group:\$\{id\}`\]\)/);
+          });""", """test('filename-only chat deletion fails closed instead of borrowing an unrelated active owner',()=>{
+            assert.match(source,/removeDeletedChatState\(chatId, 'chat', ''\)/);
+            assert.match(source,/removeDeletedChatState\(chatId, 'group', ''\)/);
+            assert.doesNotMatch(source,/removeDeletedChatState\(chatId, 'chat', getCharacterOwnerId\(getContext\(\)\)\)/);
+            assert.doesNotMatch(source,/for \(const key of \[`chat:\$\{id\}`, `group:\$\{id\}`\]\)/);
+          });""")
+
+          rewrite('tests/index-hardening.test.js', """test('manual trash removes narrative name suppression and branch inheritance requires user-authored provenance',()=>{
             assert.match(source,/const permanentLabels = new Set/);
-            assert.match(source,/working\\.dismissed = .*?working\\.dismissed/s);
-            assert.match(source,/chat\\.length < 4/);
-            assert.match(source,/chat\\.filter\\(message => message\\?\\.is_user\\)\\.length < 2/);
-          });`,
-          `test('manual trash removes narrative name suppression while explicit host provenance can bypass generic branch heuristics',()=>{
+            assert.match(source,/working\.dismissed = .*?working\.dismissed/s);
+            assert.match(source,/chat\.length < 4/);
+            assert.match(source,/chat\.filter\(message => message\?\.is_user\)\.length < 2/);
+          });""", """test('manual trash removes narrative name suppression while explicit host provenance can bypass generic branch heuristics',()=>{
             assert.match(source,/const permanentLabels = new Set/);
-            assert.match(source,/working\\.dismissed = .*?working\\.dismissed/s);
-            assert.match(source,/const mainChat = String\\(metadata\\?\\.main_chat/);
-            assert.match(source,/if \\(!hasExplicitParent && \\(chat\\.length < 4 \\|\\| userTurns < 2\\)\\) return false/);
-          });`);
+            assert.match(source,/working\.dismissed = .*?working\.dismissed/s);
+            assert.match(source,/const mainChat = String\(metadata\?\.main_chat/);
+            assert.match(source,/if \(!hasExplicitParent && \(chat\.length < 4 \|\| userTurns < 2\)\) return false/);
+          });""")
 
-          rewrite('tests/v0214-hardening.test.js',
-          `    const switchPointer = fn.indexOf('settings.dataFiles[newKey] = newPointer');
+          rewrite('tests/v0214-hardening.test.js', """    const switchPointer = fn.indexOf('settings.dataFiles[newKey] = newPointer');
               assert.ok(write >= 0 && verify > write && switchPointer > verify);
               assert.match(fn, /original mapping was preserved/);
-              assert.match(fn, /makeNpcStateDataFileName\\(newKey\\)/);`,
-          `    const retire = fn.indexOf('retireNpcStateDataFile');
+              assert.match(fn, /makeNpcStateDataFileName\(newKey\)/);""", """    const retire = fn.indexOf('retireNpcStateDataFile');
               const switchPointer = fn.indexOf('settings.dataFiles[newKey] = newPointer');
               assert.ok(write >= 0 && verify > write && retire > verify && switchPointer > retire);
               assert.match(fn, /original durable ownership remains recoverable/);
-              assert.match(fn, /makeNpcStateDataFileName\\(newKey\\)/);`);
+              assert.match(fn, /makeNpcStateDataFileName\(newKey\)/);""")
 
-          rewrite('tests/v0215-identity-hardening.test.js',
-          `    assert.match(index, /bumpOwnershipEpoch\\(key\\);[\\s\\S]*scanOperations\\.cancel\\(key, 'chat-deleted'\\)/);`,
-          `    const lifecycleCache = index.slice(index.indexOf('function clearLifecycleCacheKey'), index.indexOf('async function loadLatestLifecycleState'));
-              assert.match(lifecycleCache, /bumpOwnershipEpoch\\(key\\)/);
-              assert.match(lifecycleCache, /scanOperations\\.cancel\\(key, reason\\)/);
-              assert.match(index, /clearLifecycleCacheKey\\(key, 'chat-deleted'\\)/);`);
-          NODE
+          rewrite('tests/v0215-identity-hardening.test.js', """    assert.match(index, /bumpOwnershipEpoch\(key\);[\s\S]*scanOperations\.cancel\(key, 'chat-deleted'\)/);""", """    const lifecycleCache = index.slice(index.indexOf('function clearLifecycleCacheKey'), index.indexOf('async function loadLatestLifecycleState'));
+              assert.match(lifecycleCache, /bumpOwnershipEpoch\(key\)/);
+              assert.match(lifecycleCache, /scanOperations\.cancel\(key, reason\)/);
+              assert.match(index, /clearLifecycleCacheKey\(key, 'chat-deleted'\)/);""")
+          PY
       - name: Syntax and diff check
         run: |
           node --check bootstrap.js
