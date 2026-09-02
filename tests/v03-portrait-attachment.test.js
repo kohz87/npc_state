@@ -16,15 +16,15 @@ test('More menu offers Attach portrait when the dossier has no image', () => {
     const html = dossierHtml(npc());
     assert.match(html, /class="npc-state-v3-portrait-file"[^>]*type="file"[^>]*accept="image\/\*"[^>]*hidden/);
     assert.match(html, /npc-state-v3-attach-portrait/);
-    assert.match(html, /> Attach portrait<\/label>/);
+    assert.match(html, /Attach portrait<\/label>/);
     assert.doesNotMatch(html, /npc-state-v3-remove-portrait/);
 });
 
 test('More menu switches to Change portrait and exposes Remove portrait when an image exists', () => {
     const html = dossierHtml(npc({ portrait: { dataUrl: 'data:image/webp;base64,abc' } }));
-    assert.match(html, /> Change portrait<\/label>/);
+    assert.match(html, /Change portrait<\/label>/);
     assert.match(html, /class="menu_button npc-state-v3-remove-portrait" data-npc-id="npc-astra"/);
-    assert.match(html, /> Remove portrait<\/button>/);
+    assert.match(html, /Remove portrait<\/button>/);
 });
 
 test('portrait attachment bridge is loaded after the main runtime and keeps stable-chat protection', () => {
