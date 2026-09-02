@@ -17,12 +17,11 @@ jobs:
           node-version: 22
       - name: Apply audited fixes
         run: python3 .github/scripts/apply_v0215_hardening.py
-      - name: Ten hard passes
+      - name: Ten hard review passes
         run: |
           set -euo pipefail
           for pass in $(seq 1 10); do
             echo "===== HARD PASS ${pass}/10 ====="
-            python3 .github/scripts/apply_v0215_hardening.py
             node --check index.js
             node --check core.js
             node --check branch.js
@@ -31,6 +30,14 @@ jobs:
             node --check storage.js
             npm test
             node tests/compatibility-check.js
+            # Adversarial source invariants. These fail the pass immediately if a later
+            # edit re-opens any of the audited race/durability paths.
+            grep -q "function persist(key = getChatKey())" index.js
+            grep -q "pending.fingerprint !== currentFingerprint" index.js
+            grep -q "pending.lineageKey !== currentLineageKey" index.js
+            grep -q "startup hydration failed; extension remains mounted in read-only recovery mode" index.js
+            grep -q "retains the predecessor sidecar as a recovery copy" index.js
+            grep -q "if (prefixLength < 2) continue" branch.js
             echo "PASS ${pass}/10 GREEN"
           done
       - name: Commit verified production files to staging
