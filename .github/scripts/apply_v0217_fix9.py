@@ -30,3 +30,5 @@ if 'assert.match(contextSource,' not in block:
 path.write_text(text)
 Path(__file__).unlink()
 print('v0.2.17 compatibility contract now checks index + identity runtime sources')
+
+# Trigger materialization of the verified release candidate; this file deletes itself during the gate.
