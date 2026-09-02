@@ -1,7 +1,7 @@
 [NPC State] v0.2.23 loaded
 [NPC State] dossier scan metrics {
   label: 'automatic',
-  durationMs: 25,
+  durationMs: 24,
   promptChars: 6427,
   responseChars: 935,
   retried: false,
@@ -16,7 +16,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342617850
+  at: 1788342680921
 }
 [NPC State] dossier scan metrics {
   label: 'manual',
@@ -35,7 +35,7 @@
   profileUpdates: 1,
   profileApplied: 1,
   profileEvidenceAdded: 0,
-  at: 1788342618208
+  at: 1788342681276
 }
 [NPC State] dossier scan metrics {
   label: 'manual',
@@ -54,7 +54,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342618477
+  at: 1788342681543
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [ 'npc_yunyun' ] }
 [NPC State] dossier scan metrics {
@@ -74,12 +74,12 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342618566
+  at: 1788342681632
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [ 'npc_yunyun' ] }
 [NPC State] dossier scan metrics {
   label: 'manual',
-  durationMs: 1,
+  durationMs: 2,
   promptChars: 7412,
   responseChars: 213,
   retried: false,
@@ -94,7 +94,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342618653
+  at: 1788342681720
 }
 [NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [] }
 [NPC State] dossier scan metrics {
@@ -114,7 +114,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342618742
+  at: 1788342681810
 }
 [NPC State] discarded stale dossier scan after chat or dossier state changed.
 [NPC State] discarded stale dossier scan after chat or dossier state changed.
@@ -130,7 +130,7 @@
 }
 [NPC State] dossier scan metrics {
   label: 'manual',
-  durationMs: 96,
+  durationMs: 95,
   promptChars: 7525,
   responseChars: 276,
   retried: true,
@@ -145,7 +145,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342619630
+  at: 1788342682685
 }
 [NPC State] dossier scan metrics {
   label: 'automatic-full',
@@ -164,7 +164,7 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342619686
+  at: 1788342682739
 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Myla', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Toris Vale', literalMention: false, returnedCount: 0 }
@@ -188,25 +188,89 @@
   profileUpdates: 0,
   profileApplied: 0,
   profileEvidenceAdded: 0,
-  at: 1788342619989
+  at: 1788342683043
 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Myla', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Toris Vale', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Neris', literalMention: false, returnedCount: 0 }
 [NPC State] targeted backfill returned no accepted NPC { target: 'Liora', literalMention: false, returnedCount: 0 }
+[NPC State] manual dossier scan returned invalid JSON; retrying once with a compact correction prompt. {
+  responseChars: 69,
+  truncated: false,
+  error: `Scanner returned malformed JSON: Unexpected token '}', ..."esent":tru}]}" is not valid JSON`
+}
+[NPC State] dossier scan metrics {
+  label: 'manual',
+  durationMs: 24,
+  promptChars: 7808,
+  responseChars: 173,
+  retried: true,
+  relationshipPass: false,
+  relationshipTargets: 0,
+  relationshipResponseChars: 0,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342683564
+}
+[NPC State] dossier scan metrics {
+  label: 'manual',
+  durationMs: 26,
+  promptChars: 8199,
+  responseChars: 231,
+  retried: false,
+  relationshipPass: true,
+  relationshipTargets: 1,
+  relationshipResponseChars: 231,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342683605
+}
+[NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_liora' ], decided: [] }
+[NPC State] dossier scan metrics {
+  label: 'automatic',
+  durationMs: 8,
+  promptChars: 6696,
+  responseChars: 11,
+  retried: false,
+  relationshipPass: true,
+  relationshipTargets: 1,
+  relationshipResponseChars: 11,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342684291
+}
+[NPC State] targeted backfill returned no accepted NPC { target: 'Liora', literalMention: true, returnedCount: 0 }
 node:internal/modules/run_main:123
     triggerUncaughtException(
     ^
 
-AssertionError [ERR_ASSERTION]: successful cast sweep should drain its queue
+AssertionError [ERR_ASSERTION]: settled replacement should receive exactly one deferred dossier scan
 
-4 !== 0
+44 !== 42
 
-    at file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1065:12 {
+    at file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1151:12 {
   generatedMessage: false,
   code: 'ERR_ASSERTION',
-  actual: 4,
-  expected: 0,
+  actual: 44,
+  expected: 42,
   operator: 'strictEqual',
   diff: 'simple'
 }
