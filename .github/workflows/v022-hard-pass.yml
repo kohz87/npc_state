@@ -7,6 +7,7 @@ on:
     paths:
       - .release/run_v022_patch.py
       - .release/post_v022_pass2.py
+      - .release/post_v022_pass3.py
       - .github/workflows/v022-hard-pass.yml
   workflow_dispatch:
 
@@ -32,6 +33,7 @@ jobs:
         run: |
           python3 .release/run_v022_patch.py
           python3 .release/post_v022_pass2.py
+          python3 .release/post_v022_pass3.py
 
       - name: Syntax and diff check
         run: |
