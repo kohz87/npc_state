@@ -87,6 +87,7 @@ cast_block = runtime[cast_start:cast_end]
 if 'Yunyun' not in cast_block or 'yunyunBeforeCast' not in cast_block:
     raise SystemExit('stale Yunyun cast regression fixture not found')
 cast_block = cast_block.replace('Yunyun', 'Mira').replace('yunyun', 'mira')
+cast_block = cast_block.replace('/Requested NPC: Neri/i', '/^Requested NPC: Neri$/im')
 runtime = runtime[:cast_start] + cast_block + runtime[cast_end:]
 runtime_path.write_text(runtime, encoding='utf-8')
 
