@@ -8,3 +8,4 @@ if (!document.querySelector('link[data-npc-state-editor-responsive]')) {
     document.head.appendChild(link);
 }
 await import('./v03/index.js');
+await import('./v03/editor-surface.js');
