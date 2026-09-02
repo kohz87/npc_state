@@ -30,6 +30,7 @@ jobs:
           python3 .github/scripts/apply_v0217_fix5.py
           python3 .github/scripts/apply_v0217_fix6.py
           python3 .github/scripts/apply_v0217_fix7.py
+          python3 .github/scripts/apply_v0217_fix8.py
       - name: Preflight syntax and diff
         run: |
           node --check index.js
@@ -62,7 +63,7 @@ jobs:
       - name: Finalize verified test count
         run: |
           set -euo pipefail
-          COUNT=$(node --test tests/*.test.js 2>&1 | tee /tmp/npc-state-tap.txt | awk '/^# tests /{print $3}' | tail -1)
+          COUNT=$(node --test --test-reporter=tap tests/*.test.js 2>&1 | tee /tmp/npc-state-tap.txt | awk '/^# tests [0-9]+$/{print $3}' | tail -1)
           test -n "$COUNT"
           python3 - "$COUNT" <<'PY'
           import pathlib, re, sys
@@ -81,10 +82,13 @@ jobs:
           const core = fs.readFileSync('core.js', 'utf8');
           const readme = fs.readFileSync('README.md', 'utf8');
           const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+          const report = fs.readFileSync('TEST-REPORT.md', 'utf8');
           if (manifest.version !== '0.2.17') throw new Error('manifest is not v0.2.17');
           if (!core.includes("NPC_STATE_VERSION = '0.2.17'")) throw new Error('core is not v0.2.17');
           if (!readme.startsWith('# NPC State v0.2.17')) throw new Error('README is not v0.2.17');
+          if (!readme.includes('identity.js')) throw new Error('README package layout lacks identity.js');
           if (!changelog.includes('## 0.2.17')) throw new Error('CHANGELOG lacks v0.2.17');
+          if (!report.includes('Schema-v26 owner-qualified')) throw new Error('TEST-REPORT lacks schema v26 coverage');
           NODE
           test ! -e .github/scripts/apply_v0215_release.py
           test ! -e .github/scripts/apply_v0217_hardening.py
@@ -95,6 +99,7 @@ jobs:
           test ! -e .github/scripts/apply_v0217_fix5.py
           test ! -e .github/scripts/apply_v0217_fix6.py
           test ! -e .github/scripts/apply_v0217_fix7.py
+          test ! -e .github/scripts/apply_v0217_fix8.py
           git diff --check
       - name: Commit only after all ten passes succeed
         run: |
