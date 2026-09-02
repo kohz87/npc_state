@@ -84,6 +84,11 @@ function liveNpc(api, id) {
     return api?.getState?.()?.npcs?.find?.(npc => npc?.id === id) || null;
 }
 
+function hasPortrait(npc) {
+    const portrait = npc?.portrait && typeof npc.portrait === 'object' ? npc.portrait : {};
+    return Boolean(String(portrait.dataUrl || portrait.url || portrait.src || '').trim());
+}
+
 async function attachPortrait(input) {
     const api = npcStateApi();
     const id = String(input?.dataset?.npcId || '');
@@ -93,7 +98,9 @@ async function attachPortrait(input) {
 
     const originState = api.getState?.();
     const originChatKey = String(originState?.chatKey || '');
-    if (!originChatKey || !originState?.npcs?.some?.(npc => npc?.id === id)) return false;
+    const originNpc = originState?.npcs?.find?.(npc => npc?.id === id) || null;
+    if (!originChatKey || !originNpc) return false;
+    const changing = hasPortrait(originNpc);
 
     try {
         input.disabled = true;
@@ -105,7 +112,7 @@ async function attachPortrait(input) {
         }
         const result = await api.updateNpc(id, { portrait });
         if (!result?.ok) throw new Error(`portrait update was rejected (${result?.reason || 'unknown reason'}).`);
-        notify('success', `portrait ${liveNpc(api, id)?.portrait?.dataUrl ? 'attached' : 'updated'}.`);
+        notify('success', changing ? 'portrait changed.' : 'portrait attached.');
         return true;
     } catch (error) {
         console.error('[NPC State v0.3] portrait attachment failed safely', error);
