@@ -49,16 +49,56 @@ Off-screen world-active NPCs may receive grounded live-state updates such as loc
 - Safe merge defaults to keeping current data for matching stable IDs and aborting on hard stable-ID/name or tombstone conflicts. The UI can instead use imported data for matching IDs or skip conflicting imported identities.
 - Full-chat **Replace durable state** is a separate explicit restore mode. It replaces portable dossier/social/tombstone domains but keeps the destination chat's branch/runtime machinery local and clears imported live presence.
 - Cross-chat bundle imports clear source-chat message IDs, preserve relative stale age by rebasing `lastActivityTurn`, and never import source live presence.
-- Portrait prompt support is settings-only and local. It stores a reusable portrait preset, a generation template, and Natural/Tags/Hybrid formatting for the dossier-derived `{{character}}` placeholder.
+- Portrait prompt support is settings-only and local. One portrait preset carries independent positive and negative channels, with separate positive and negative prompt templates and Natural/Tags/Hybrid formatting for the dossier-derived `{{character}}` placeholder.
 - Portrait prompt preview/copy does not call an image API, generate images, create queues, or add portrait lifecycle state.
-- Dossier Library searches every stored NPC, including off-screen and archived dossiers.
-- One canonical dossier detail surface is used by the library, roster, and inline present cards.
+- The canonical Dossier Library is portrait-first: the selected NPC receives the dominant portrait hero while the full cast remains accessible through a searchable horizontal portrait rail at the bottom of the viewer.
+- The Dossier Library has no permanent cast sidebar. Present, world-active, ordinary off-screen, and archived dossiers remain in the same library and are visually distinguished in the cast rail.
+- Desktop and landscape tablet keep the portrait pane visible while the dossier document scrolls independently. Portrait tablet and phone layouts stack the portrait hero over a single readable document column while retaining the bottom cast rail.
+- Current state, player relationship, personality, appearance, behavior, speech, mannerisms, memories, key relationships, background, and relationship history are rendered as distinct visual blocks rather than one continuous text document.
+- One canonical dossier detail surface is used by the library, settings roster, stale review, and inline present cards.
 - Background/model operations never save editor DOM state. Editor saves are identity-bound and use an optimistic `updatedAt` guard so a stale form cannot overwrite newer scan data.
 - Manual deletion creates a stable-ID tombstone. Branch rollback cannot resurrect that deleted identity.
 - Scanner output cannot recreate a tombstoned stable ID or retarget an existing same-name dossier with an invented ID.
 - Per-chat model operations are serialized. A new user message invalidates an in-flight scan, and a late result is discarded before state commit.
 - Automatic scanning honors the global Enable setting. Manual dossier tools remain available while disabled.
 - v0.3 sidecars use revision checks, a cross-tab writer lock, and a local pointer hint so a stale tab cannot overwrite the first v0.3 write.
+
+## Dossier Library UI
+
+The canonical Dossier Library is built around the selected character rather than a permanent navigation column.
+
+On desktop, the viewer uses a portrait-heavy split layout:
+
+```text
+┌─────────────────────────────┬──────────────────────────────────────┐
+│                             │ CURRENT                              │
+│                             │                                      │
+│                             │ RELATIONSHIP WITH PLAYER             │
+│        LARGE PORTRAIT       │                                      │
+│                             │ PROFILE BLOCKS                       │
+│                             │ Personality     Appearance           │
+│                             │ Behavior        Speech               │
+│                             │ Memories        Relationships        │
+│ Name / identity / state     │ Background      History              │
+│ Edit / Refresh / More       │                                      │
+├─────────────────────────────┴──────────────────────────────────────┤
+│ DOSSIER LIBRARY  [Search]                                           │
+│ ◀ [portrait] [portrait] [SELECTED] [portrait] [portrait] [portrait] ▶│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+The bottom cast rail:
+
+- contains every stored dossier, including off-screen and archived NPCs;
+- prioritizes present NPCs, then world-active NPCs, then ordinary active dossiers, with archived dossiers after them;
+- supports name, alias, role, species, and lifecycle-state search;
+- supports touch swiping, native horizontal scrolling, and previous/next controls;
+- automatically centers the selected stable ID when switching dossiers;
+- uses portrait cards with lifecycle status instead of a permanent text sidebar.
+
+An explicit open from Present NPCs, stale review, or another NPC State surface clears a stale library search so the requested dossier cannot be hidden by an old filter. Background refreshes of the same selected NPC preserve the dossier document's scroll position.
+
+Tablet and mobile use the same canonical markup. Landscape tablets retain the split portrait/document view. Portrait tablets and phones turn the dossier into one vertical reading surface with a large portrait hero at the top, while the cast rail remains available at the bottom of the modal.
 
 ## Bundle import / export
 
@@ -77,30 +117,49 @@ Safe merge treats local manual-deletion tombstones as authoritative and will not
 
 ## Portrait prompt
 
-The **Portrait prompt** section in NPC State settings is intentionally small. It stores three global v0.3 settings:
+The **Portrait prompt** section in NPC State settings remains intentionally small. It stores:
 
 - **Character formatting**: `Natural`, `Tags`, or `Hybrid`.
-- **Portrait preset**: reusable style/composition text.
-- **Generation prompt**: the final template resolved for a selected NPC.
+- **Portrait preset** with a reusable **positive** channel and **negative** channel.
+- **Positive prompt template**.
+- **Negative prompt template**.
 
-The default template is:
+Conceptually the saved settings are:
 
 ```text
-{{portraitPreset}}
+portraitPreset
+├─ positive
+└─ negative
+
+portraitPositivePrompt
+portraitNegativePrompt
+```
+
+The default templates are:
+
+```text
+POSITIVE
+{{positivePreset}}
 {{character}}
+
+NEGATIVE
+{{negativePreset}}
 ```
 
-`{{character}}` is built from the selected dossier according to the formatting mode. The rest of the template is left exactly under user control. Available placeholders include:
+`{{character}}` is built from the selected dossier according to the formatting mode. The rest of either template remains under user control. Available placeholders include:
 
 ```text
-{{portraitPreset}} {{character}} {{name}} {{aliases}} {{role}} {{species}}
-{{age}} {{apparentAge}} {{appearance}} {{personality}} {{behaviorProfile}}
-{{speech}} {{mannerisms}} {{background}} {{mood}} {{location}} {{goal}} {{status}}
+{{positivePreset}} {{negativePreset}} {{character}} {{name}} {{aliases}}
+{{role}} {{species}} {{age}} {{apparentAge}} {{appearance}} {{personality}}
+{{behaviorProfile}} {{speech}} {{mannerisms}} {{background}} {{mood}}
+{{location}} {{goal}} {{status}}
 ```
 
-Unknown placeholders remain visible instead of silently disappearing, making template typos easy to spot. Missing dossier fields resolve empty; NPC State does not invent portrait facts.
+The legacy `{{portraitPreset}}` placeholder remains accepted as an alias for the positive preset so prompts saved during the first lightweight portrait-prompt pass continue to resolve safely.
 
-Edits are kept as a local draft until **Save portrait prompt settings** is pressed. The same panel provides a dossier selector, live resolved preview, and **Copy resolved prompt** button for use with any external image generator.
+Unknown placeholders remain visible instead of silently disappearing, making template typos easy to spot. Missing dossier fields resolve empty; NPC State does not invent portrait facts. An intentionally blank preset or template remains blank rather than being repopulated with a default.
+
+Edits are kept as a local draft until **Save portrait prompt settings** is pressed. The panel provides a dossier selector, live positive and negative previews, and controls to copy the positive prompt, negative prompt, or both for use with any external image generator.
 
 There is deliberately no automatic portrait generation, provider/API integration, regeneration workflow, request queue, image polling, or portrait-generation state machine in v0.3.
 
@@ -138,13 +197,14 @@ v03/                 supported runtime
   storage.js
   migrate-v02.js
   injection.js
-  ui.js
+  ui.js              canonical UI orchestration and dossier actions
+  dossier-view.js     portrait-first dossier, cast rail, search/sort rendering
   megumin.js          UI-only Megumin master-block tab adapter
   stale.js            narrative-turn stale lifecycle and reporting
   stale-ui.js         settings and manual stale-review surface
   bundle.js           portable v0.3 bundle validation/export/import logic
   bundle-ui.js        full-chat/selected-NPC bundle management surface
-  portrait-prompt.js  local portrait prompt composition and placeholders
+  portrait-prompt.js  local positive/negative portrait prompt composition
   portrait-ui.js      settings, preview, save, and copy surface
   identity.js
   style.css
@@ -159,7 +219,7 @@ Nothing under `legacy/` is imported by the supported extension runtime.
 
 ## Current rewrite scope
 
-The v0.3.0 rewrite now covers the durable core and planned management surfaces: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, validated portable bundle import/export for full-chat and selected-NPC workflows, and lightweight portrait preset/generation-prompt composition with local preview/copy.
+The v0.3.0 rewrite now covers the durable core and planned management surfaces: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, the portrait-first responsive canonical dossier library and bottom cast rail, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, validated portable bundle import/export for full-chat and selected-NPC workflows, and lightweight paired positive/negative portrait-prompt composition with local preview/copy.
 
 Automatic portrait generation and image-provider integration remain intentionally outside the v0.3 scope.
 
