@@ -1,0 +1,107 @@
+name: NPC State v0.2.18 Release Gate
+
+on:
+  push:
+    branches: [v0.2.18-release]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Prepare v0.2.18 release surfaces
+        run: python3 .github/scripts/apply_v0218_release.py
+      - name: Preflight syntax and diff
+        run: |
+          node --check index.js
+          node --check core.js
+          node --check branch.js
+          node --check bundle.js
+          node --check social.js
+          node --check storage.js
+          node --check identity.js
+          git diff --check
+      - name: Ten complete hard-pass cycles
+        run: |
+          set -euo pipefail
+          for pass in $(seq 1 10); do
+            echo "========== HARD PASS ${pass}/10 =========="
+            npm test
+            node --check index.js
+            node --check core.js
+            node --check branch.js
+            node --check bundle.js
+            node --check social.js
+            node --check storage.js
+            node --check identity.js
+            git diff --check
+          done
+      - name: Dedicated identity and storage adversarial pass
+        run: |
+          node --test tests/identity.test.js tests/v0217-hardening.test.js
+          test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.18"
+      - name: Finalize verified test count
+        run: |
+          set -euo pipefail
+          COUNT=$(node --test --test-reporter=tap tests/*.test.js 2>&1 | tee /tmp/npc-state-tap.txt | awk '/^# tests [0-9]+$/{print $3}' | tail -1)
+          test -n "$COUNT"
+          python3 - "$COUNT" <<'PY'
+          import pathlib, sys
+          path = pathlib.Path('TEST-REPORT.md')
+          text = path.read_text()
+          line = f'- **{sys.argv[1]}/{sys.argv[1]} Node tests passed per hard pass**'
+          text = text.replace('- **Node test count pending release gate**', line, 1)
+          path.write_text(text)
+          PY
+          git diff --check
+      - name: Release consistency
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          const index = fs.readFileSync('index.js', 'utf8');
+          const core = fs.readFileSync('core.js', 'utf8');
+          const readme = fs.readFileSync('README.md', 'utf8');
+          const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+          const review = fs.readFileSync('CODE-REVIEW.md', 'utf8');
+          const report = fs.readFileSync('TEST-REPORT.md', 'utf8');
+          const ci = fs.readFileSync('.github/workflows/ci.yml', 'utf8');
+          if (manifest.version !== '0.2.18') throw new Error('manifest is not v0.2.18');
+          if (!index.startsWith('/* NPC State v0.2.18')) throw new Error('index banner is not v0.2.18');
+          if (!core.includes("NPC_STATE_VERSION = '0.2.18'")) throw new Error('core is not v0.2.18');
+          if (!readme.startsWith('# NPC State v0.2.18')) throw new Error('README is not v0.2.18');
+          if (!changelog.includes('## 0.2.18')) throw new Error('CHANGELOG lacks v0.2.18');
+          if (!review.startsWith('# NPC State v0.2.18 Code Review')) throw new Error('CODE-REVIEW is not v0.2.18');
+          if (!report.startsWith('# NPC State v0.2.18 Test Report')) throw new Error('TEST-REPORT is not v0.2.18');
+          if (!report.includes('Schema-v26 owner-qualified')) throw new Error('TEST-REPORT lacks schema-v26 coverage');
+          if (!/contents:\s*read/.test(ci)) throw new Error('production CI is not read-only');
+          if (/contents:\s*write/.test(ci)) throw new Error('production CI unexpectedly has write permission');
+          NODE
+          git diff --check
+      - name: Commit only after all ten passes succeed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- . ':(exclude).github/workflows/**' ':(exclude).github/scripts/apply_v0218_release.py'
+          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
+            echo 'Refusing to stage workflow changes'
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo 'No verified v0.2.18 changes to commit'
+            exit 0
+          fi
+          git commit -m "release: v0.2.18 verified identity and storage hardening"
+          git push origin HEAD:v0.2.18-release
