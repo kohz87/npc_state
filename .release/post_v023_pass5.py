@@ -88,6 +88,10 @@ if 'Yunyun' not in cast_block or 'yunyunBeforeCast' not in cast_block:
     raise SystemExit('stale Yunyun cast regression fixture not found')
 cast_block = cast_block.replace('Yunyun', 'Mira').replace('yunyun', 'mira')
 cast_block = cast_block.replace('/Requested NPC: Neri/i', '/^Requested NPC: Neri$/im')
+cast_block = cast_block.replace(
+    "    assert.equal(state.pendingBackfills.length, 0, 'successful cast sweep should drain its queue');",
+    "    assert.equal(state.pendingBackfills.some(item => item.npcId === miraAfterCast.id || item.npcId === neri.id), false, 'successful cast reconciliation should drain the current Mira/Neri requests without deleting unrelated retry backlog');",
+)
 runtime = runtime[:cast_start] + cast_block + runtime[cast_end:]
 runtime_path.write_text(runtime, encoding='utf-8')
 
