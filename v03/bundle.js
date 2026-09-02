@@ -13,6 +13,8 @@ export const BUNDLE_IMPORT_MODES = Object.freeze(['merge', 'replace']);
 export const BUNDLE_MATCH_POLICIES = Object.freeze(['keep', 'replace']);
 export const BUNDLE_CONFLICT_POLICIES = Object.freeze(['abort', 'skip']);
 
+const REQUIRED_DATA_ARRAYS = Object.freeze(['npcs', 'socialGraph', 'suppressedNames', 'deletedNpcIds']);
+
 function text(value, max = 500) {
     return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
@@ -69,15 +71,22 @@ function validateIdentitySet(npcs = []) {
     }
 }
 
+function requireDataArrays(raw) {
+    for (const key of REQUIRED_DATA_ARRAYS) {
+        if (!Array.isArray(raw?.[key])) throw new Error(`NPC State bundle data.${key} must be an array.`);
+    }
+}
+
 function normalizeBundleData(raw = {}, type = 'full-chat') {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('NPC State bundle data must be an object.');
-    const npcs = (Array.isArray(raw.npcs) ? raw.npcs : []).slice(0, 500).map(normalizeBundleNpc);
+    requireDataArrays(raw);
+    const npcs = raw.npcs.map(normalizeBundleNpc);
     if (type === 'npc' && npcs.length !== 1) throw new Error('A selected-NPC bundle must contain exactly one dossier.');
     validateIdentitySet(npcs);
 
     const normalized = normalizeState({
         npcs,
-        socialGraph: Array.isArray(raw.socialGraph) ? raw.socialGraph : [],
+        socialGraph: raw.socialGraph,
         suppressedNames: raw.suppressedNames,
         deletedNpcIds: raw.deletedNpcIds,
     }, 'bundle');
@@ -209,9 +218,10 @@ export function previewNpcStateBundleImport(stateInput = {}, bundleInput, option
         }
     }
 
+    const shouldAbort = normalizedOptions.mode === 'merge' && normalizedOptions.conflictPolicy === 'abort' && conflicts.length > 0;
     return {
-        ok: !(normalizedOptions.mode === 'merge' && normalizedOptions.conflictPolicy === 'abort' && conflicts.length),
-        reason: normalizedOptions.mode === 'merge' && normalizedOptions.conflictPolicy === 'abort' && conflicts.length ? 'identity-conflict' : '',
+        ok: !shouldAbort,
+        reason: shouldAbort ? 'identity-conflict' : '',
         bundle,
         options: normalizedOptions,
         conflicts,
@@ -223,18 +233,21 @@ export function previewNpcStateBundleImport(stateInput = {}, bundleInput, option
     };
 }
 
-function clearChatLocalReferences(npc) {
+function clearCrossChatReferences(npc) {
     const next = structuredClone(npc);
     next.firstSeenMessageId = null;
     next.lastSeenMessageId = null;
     next.lastInteractionMessageId = null;
     next.lastActivityMessageId = null;
-    if (next.lastRelationshipChange) next.lastRelationshipChange.sourceMessageId = null;
-    next.relationshipHistory = (next.relationshipHistory || []).map(event => ({ ...event, sourceMessageId: null }));
+    if (next.lastRelationshipChange) {
+        next.lastRelationshipChange.sourceMessageId = null;
+        next.lastRelationshipChange.turn = null;
+    }
+    next.relationshipHistory = (next.relationshipHistory || []).map(event => ({ ...event, sourceMessageId: null, turn: null }));
     return next;
 }
 
-function rebaseActivity(npc, sourceTurn, currentTurn) {
+function rebaseActivityForCrossChat(npc, sourceTurn, currentTurn) {
     const next = structuredClone(npc);
     if (Number.isInteger(next.lastActivityTurn)) {
         const inactiveAge = Math.max(0, sourceTurn - next.lastActivityTurn);
@@ -248,17 +261,19 @@ function rebaseActivity(npc, sourceTurn, currentTurn) {
 }
 
 function prepareImportedNpc(npc, bundle, targetState, currentTurn) {
-    let next = normalizeNpc(npc);
-    next = rebaseActivity(next, bundle.source.narrativeTurn, currentTurn);
     const sameChat = Boolean(bundle.source.chatKey && targetState.chatKey && bundle.source.chatKey === targetState.chatKey);
-    if (!sameChat) next = clearChatLocalReferences(next);
+    let next = normalizeNpc(npc);
+    if (!sameChat) {
+        next = rebaseActivityForCrossChat(next, bundle.source.narrativeTurn, currentTurn);
+        next = clearCrossChatReferences(next);
+    }
     next.present = false;
     next.worldActive = false;
     next.updatedAt = Math.max(Date.now(), Number(next.updatedAt || 0));
     return normalizeNpc(next);
 }
 
-function clearEdgeMessageId(edge, sameChat) {
+function prepareEdge(edge, sameChat) {
     const next = structuredClone(edge);
     if (!sameChat) next.sourceMessageId = null;
     return next;
@@ -268,18 +283,33 @@ function edgeKey(edge) {
     return `${String(edge.fromId || '')}\0${String(edge.toId || '')}\0${normalizeName(edge.relation)}`;
 }
 
+function importedEdgeAllowed(edge, validIds, tombstones, blockedImportedIds) {
+    return validIds.has(edge.fromId)
+        && validIds.has(edge.toId)
+        && !tombstones.has(edge.fromId)
+        && !tombstones.has(edge.toId)
+        && !blockedImportedIds.has(edge.fromId)
+        && !blockedImportedIds.has(edge.toId);
+}
+
 function mergedEdges(baseEdges, importedEdges, validIds, tombstones, sameChat, blockedImportedIds = new Set()) {
     const map = new Map();
-    const add = (raw, imported = false) => {
-        const edge = clearEdgeMessageId(raw, sameChat);
-        if (!validIds.has(edge.fromId) || !validIds.has(edge.toId)) return;
-        if (tombstones.has(edge.fromId) || tombstones.has(edge.toId)) return;
-        if (imported && (blockedImportedIds.has(edge.fromId) || blockedImportedIds.has(edge.toId))) return;
+    for (const raw of baseEdges) {
+        const edge = prepareEdge(raw, true);
+        if (!validIds.has(edge.fromId) || !validIds.has(edge.toId)) continue;
+        if (tombstones.has(edge.fromId) || tombstones.has(edge.toId)) continue;
         map.set(edgeKey(edge), edge);
-    };
-    for (const raw of baseEdges) add(raw, false);
-    for (const raw of importedEdges) add(raw, true);
+    }
+    for (const raw of importedEdges) {
+        const edge = prepareEdge(raw, sameChat);
+        if (!importedEdgeAllowed(edge, validIds, tombstones, blockedImportedIds)) continue;
+        map.set(edgeKey(edge), edge);
+    }
     return [...map.values()].slice(-200);
+}
+
+function countDroppedImportedEdges(importedEdges, validIds, tombstones, blockedImportedIds) {
+    return importedEdges.reduce((count, edge) => count + (importedEdgeAllowed(edge, validIds, tombstones, blockedImportedIds) ? 0 : 1), 0);
 }
 
 function emptyObservation() {
@@ -296,15 +326,16 @@ export function applyNpcStateBundleImport(stateInput = {}, bundleInput, options 
     const sameChat = Boolean(bundle.source.chatKey && state.chatKey && bundle.source.chatKey === state.chatKey);
 
     if (preview.options.mode === 'replace') {
-        const tombstones = new Set(bundle.data.deletedNpcIds || []);
+        const tombstones = new Set(bundle.data.deletedNpcIds);
         const npcs = bundle.data.npcs
             .filter(npc => !tombstones.has(npc.id))
             .map(npc => prepareImportedNpc(npc, bundle, state, currentTurn));
         const validIds = new Set(npcs.map(npc => npc.id));
+        const socialGraph = mergedEdges([], bundle.data.socialGraph, validIds, tombstones, sameChat);
         const next = normalizeState({
             ...state,
             npcs,
-            socialGraph: mergedEdges([], bundle.data.socialGraph, validIds, tombstones, sameChat),
+            socialGraph,
             suppressedNames: bundle.data.suppressedNames,
             deletedNpcIds: [...tombstones],
             lastObservation: emptyObservation(),
@@ -315,7 +346,13 @@ export function applyNpcStateBundleImport(stateInput = {}, bundleInput, options 
             mode: 'replace',
             preview,
             state: next,
-            result: { importedNpcIds: npcs.map(npc => npc.id), replacedNpcIds: [], skippedNpcIds: [], importedTombstones: [...tombstones], droppedSocialEdges: bundle.data.socialGraph.length - next.socialGraph.length },
+            result: {
+                importedNpcIds: npcs.map(npc => npc.id),
+                replacedNpcIds: [],
+                skippedNpcIds: [],
+                importedTombstones: [...tombstones],
+                droppedSocialEdges: countDroppedImportedEdges(bundle.data.socialGraph, validIds, tombstones, new Set()),
+            },
         };
     }
 
@@ -327,7 +364,9 @@ export function applyNpcStateBundleImport(stateInput = {}, bundleInput, options 
     const importedTombstones = new Set(bundle.data.deletedNpcIds || []);
     const ignoredImportedTombstones = new Set();
     if (preview.options.conflictPolicy === 'skip') {
-        for (const item of preview.conflicts) if (item.type === 'imported-tombstone-live') ignoredImportedTombstones.add(item.npcId);
+        for (const item of preview.conflicts) {
+            if (item.type === 'imported-tombstone-live') ignoredImportedTombstones.add(item.npcId);
+        }
     }
 
     const nextNpcs = [];
@@ -356,11 +395,12 @@ export function applyNpcStateBundleImport(stateInput = {}, bundleInput, options 
     }
 
     const tombstones = new Set(localTombstones);
-    for (const id of importedTombstones) if (!ignoredImportedTombstones.has(id) && !currentById.has(id)) tombstones.add(id);
+    for (const id of importedTombstones) {
+        if (!ignoredImportedTombstones.has(id) && !currentById.has(id)) tombstones.add(id);
+    }
     const validIds = new Set(nextNpcs.map(npc => npc.id));
-    const socialGraph = mergedEdges(state.socialGraph || [], bundle.data.socialGraph || [], validIds, tombstones, sameChat, skippedNpcIds);
-    const retainedEdgeKeys = new Set(socialGraph.map(edgeKey));
-    const suppressedNames = [...new Set([...(state.suppressedNames || []), ...(bundle.data.suppressedNames || [])])].slice(0, 300);
+    const socialGraph = mergedEdges(state.socialGraph || [], bundle.data.socialGraph, validIds, tombstones, sameChat, skippedNpcIds);
+    const suppressedNames = [...new Set([...(state.suppressedNames || []), ...bundle.data.suppressedNames])].slice(0, 300);
     const next = normalizeState({
         ...state,
         npcs: nextNpcs,
@@ -378,7 +418,7 @@ export function applyNpcStateBundleImport(stateInput = {}, bundleInput, options 
             replacedNpcIds,
             skippedNpcIds: [...skippedNpcIds],
             importedTombstones: [...importedTombstones].filter(id => !ignoredImportedTombstones.has(id) && !currentById.has(id)),
-            droppedSocialEdges: (bundle.data.socialGraph || []).filter(edge => !retainedEdgeKeys.has(edgeKey(edge))).length,
+            droppedSocialEdges: countDroppedImportedEdges(bundle.data.socialGraph, validIds, tombstones, skippedNpcIds),
         },
     };
 }
