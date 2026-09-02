@@ -35,6 +35,13 @@ Off-screen world-active NPCs may receive grounded live-state updates such as loc
 - Strict final-scene physical presence controls inline cards and generation injection.
 - When the latest assistant message contains a Megumin master block, the same present-NPC roster mounts as an **NPC State** tab inside that block. If Megumin is absent or its tab hosts are unavailable, NPC State keeps its normal standalone inline roster.
 - The Megumin bridge is UI-only. NPC State does not depend on Megumin-owned state, persistence, scanning, or dossier logic; generated World State text remains ordinary chat context for the normal v0.3 scanner.
+- Stale NPC lifecycle is based on **narrative assistant turns**, not scan count. Re-running a scan on the same assistant message cannot age a dossier.
+- Default stale thresholds are 30 inactive narrative turns to archive and 50 total inactive narrative turns to remove a stale archive. These values are configurable in NPC State settings.
+- Being off-screen is not itself a stale event. Current interaction, final physical presence, explicit off-screen world activity, or a canonical-name/alias reference in the current exchange resets the inactivity timer.
+- A stale-archived NPC that becomes narratively active again is restored automatically. Manual archives and deceased archives are never auto-deleted by stale management.
+- `Retention protected` dossiers and dossiers with manual stable-profile locks are hard-shielded from automatic stale archive/delete.
+- Automatic stale cleanup is intentionally softer than explicit manual Delete: it removes the dossier and its structured social edges but does not create a permanent deletion tombstone, allowing genuine later re-admission or branch recovery.
+- A dedicated **Review stale NPCs** surface keeps manual Open dossier, Reset activity, Protect, Archive/Restore, and explicit Delete controls available.
 - Dossier Library searches every stored NPC, including off-screen and archived dossiers.
 - One canonical dossier detail surface is used by the library, roster, and inline present cards.
 - Background/model operations never save editor DOM state. Editor saves are identity-bound and use an optimistic `updatedAt` guard so a stale form cannot overwrite newer scan data.
@@ -80,6 +87,8 @@ v03/                 supported runtime
   injection.js
   ui.js
   megumin.js          UI-only Megumin master-block tab adapter
+  stale.js            narrative-turn stale lifecycle and reporting
+  stale-ui.js         settings and manual stale-review surface
   identity.js
   style.css
 tests/               v0.3 behavioral release gate
@@ -93,9 +102,9 @@ Nothing under `legacy/` is imported by the supported extension runtime.
 
 ## Current rewrite scope
 
-The v0.3.0 rewrite focuses on the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, inline present cards, and a UI-only Megumin master-block/tab mount for those same present cards.
+The v0.3.0 rewrite focuses on the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, and narrative-turn stale NPC lifecycle management with manual review controls.
 
-Feature areas intentionally staged for later v0.3 work rather than copied wholesale include stale NPC lifecycle management, bundle import/export, and portrait prompt/preset support. Existing portrait data still migrates and displays.
+Feature areas intentionally staged for later v0.3 work rather than copied wholesale are bundle import/export and portrait prompt/preset support. Existing portrait data still migrates and displays.
 
 ## Development
 
