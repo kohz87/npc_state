@@ -1,10 +1,10 @@
-import { DEFAULT_RELATIONSHIP_CAPS, findNpcByReference } from './schema.js';
+import { castRailHtml, dossierHtml, filterDossierNpcs } from './dossier-view.js';
+import { findNpcByReference } from './schema.js';
 
 const SETTINGS_ID = 'npc_state_settings';
 const LIBRARY_ID = 'npc_state_v3_library_overlay';
 const EDITOR_ID = 'npc_state_v3_editor_overlay';
 const INLINE_ID = 'npc_state_v3_inline';
-
 
 export function chooseLibrarySelection(rows = [], selectedId = '') {
     const id = String(selectedId || '');
@@ -50,40 +50,6 @@ function messageElement(messageId) {
         if (found) return found;
     }
     return null;
-}
-
-function statusLabel(npc) {
-    if (npc.archived) return npc.archiveReason === 'deceased' ? 'Archived · deceased' : 'Archived';
-    if (npc.present) return 'Present';
-    if (npc.worldActive) return 'Active off-screen';
-    return 'Off-screen';
-}
-
-function listHtml(items, empty = 'None established.') {
-    return items?.length ? `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : `<span class="npc-state-muted">${escapeHtml(empty)}</span>`;
-}
-
-function dossierHtml(npc) {
-    if (!npc) return '<div class="npc-state-v3-empty">Select a dossier.</div>';
-    const rel = npc.relationship || {};
-    const portrait = npc.portrait?.dataUrl
-        ? `<img class="npc-state-v3-portrait" src="${escapeHtml(npc.portrait.dataUrl)}" alt="${escapeHtml(npc.name)} portrait">`
-        : `<div class="npc-state-v3-portrait npc-state-v3-portrait-placeholder">${escapeHtml(String(npc.name || '?').charAt(0).toUpperCase())}</div>`;
-    const identity = [npc.species, npc.role, npc.age ? `Age ${npc.age}` : '', npc.apparentAge ? `Looks ${npc.apparentAge}` : ''].filter(Boolean).join(' · ');
-    const history = npc.relationshipHistory?.length ? listHtml(npc.relationshipHistory.slice(-6).reverse().map(event => {
-        const delta = Object.entries(event.delta || {}).filter(([, value]) => Number(value)).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`).join(', ');
-        return `${event.impact}: ${delta || 'no score change'}${event.reason ? ` | ${event.reason}` : ''}`;
-    })) : '<span class="npc-state-muted">No relationship change history yet.</span>';
-    return `
-      <article class="npc-state-v3-dossier" data-npc-id="${escapeHtml(npc.id)}">
-        <header class="npc-state-v3-dossier-head">${portrait}<div><span class="npc-state-kicker">NPC DOSSIER</span><h2>${escapeHtml(npc.name)}</h2><p>${escapeHtml(identity || 'Identity not fully established')}</p><small>${escapeHtml(statusLabel(npc))}</small></div></header>
-        <div class="npc-state-v3-facts"><div><b>Mood</b><span>${escapeHtml(npc.mood || 'Unknown')}</span></div><div><b>Location</b><span>${escapeHtml(npc.location || 'Unknown')}</span></div><div><b>Goal</b><span>${escapeHtml(npc.goal || 'Unknown')}</span></div><div><b>Status</b><span>${escapeHtml(npc.status || 'Unknown')}</span></div></div>
-        <section><h3>Profile</h3><b>Personality</b><p>${escapeHtml(npc.personality || 'Unknown')}</p><b>Behavioral profile</b>${listHtml(npc.behaviorProfile)}<b>Speech</b><p>${escapeHtml(npc.speech || 'Unknown')}</p><b>Appearance</b><p>${escapeHtml(npc.appearance || 'Unknown')}</p><b>Mannerisms</b>${listHtml(npc.mannerisms)}</section>
-        <section><h3>Relationship with player</h3><div class="npc-state-v3-rel"><span>Trust <b>${Number(rel.trust) || 0}</b></span><span>Affection <b>${Number(rel.affection) || 0}</b></span><span>Desire <b>${Number(rel.desire) || 0}</b></span><span>Tension <b>${Number(rel.tension) || 0}</b></span></div><p>${escapeHtml(npc.relationshipSummary || 'No established relationship summary.')}</p><b>Recent relationship changes</b>${history}<b>Key relationships</b>${listHtml(npc.keyRelationships)}</section>
-        <section><h3>Background</h3><p>${escapeHtml(npc.background || 'Unknown')}</p></section>
-        <section><h3>Important memories</h3>${listHtml(npc.memories, 'No persistent memories recorded yet.')}</section>
-        <footer class="npc-state-v3-dossier-actions"><button class="menu_button npc-state-v3-edit" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-pen"></i> Edit dossier</button><button class="menu_button npc-state-v3-refresh" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-arrows-rotate"></i> Scan dossier</button><button class="menu_button npc-state-v3-archive" data-npc-id="${escapeHtml(npc.id)}">${npc.archived ? '<i class="fa-solid fa-box-open"></i> Restore' : '<i class="fa-solid fa-box-archive"></i> Archive'}</button><button class="menu_button redWarningBG npc-state-v3-delete" data-npc-id="${escapeHtml(npc.id)}"><i class="fa-solid fa-trash"></i> Delete</button></footer>
-      </article>`;
 }
 
 export function createNpcStateUi(adapters = {}) {
@@ -224,28 +190,64 @@ export function createNpcStateUi(adapters = {}) {
     }
 
     function filteredNpcs(query = '') {
-        const current = state();
-        const rows = [...(current?.npcs || [])].sort((a, b) => Number(b.present) - Number(a.present) || Number(a.archived) - Number(b.archived) || a.name.localeCompare(b.name));
-        const needle = String(query || '').trim().toLocaleLowerCase();
-        if (!needle) return rows;
-        return rows.filter(npc => [npc.name, npc.role, npc.species, ...(npc.aliases || [])].some(value => String(value || '').toLocaleLowerCase().includes(needle)));
+        return filterDossierNpcs(state()?.npcs || [], query);
     }
 
     function libraryOverlay() { return document.getElementById(LIBRARY_ID); }
 
-    function renderLibrary() {
+    function centerSelectedCastCard(overlay, behavior = 'smooth') {
+        const rail = overlay?.querySelector('.npc-state-v3-cast-rail');
+        if (!rail || !selectedNpcId) return false;
+        const card = [...rail.querySelectorAll('.npc-state-v3-cast-card')].find(item => item.dataset.npcId === selectedNpcId);
+        if (!card) return false;
+        try { card.scrollIntoView({ behavior, block: 'nearest', inline: 'center' }); }
+        catch { card.scrollIntoView(); }
+        return true;
+    }
+
+    function renderLibrary({ centerSelected = false } = {}) {
         const overlay = libraryOverlay();
         if (!overlay) return;
+        const allRows = filteredNpcs('');
+        selectedNpcId = chooseLibrarySelection(allRows, selectedNpcId);
         const search = overlay.querySelector('#npc_state_v3_library_search');
-        const rows = filteredNpcs(search?.value || '');
-        selectedNpcId = chooseLibrarySelection(rows, selectedNpcId);
-        const list = overlay.querySelector('.npc-state-v3-library-list');
-        if (list) list.innerHTML = rows.length ? rows.map(npc => `<button class="npc-state-v3-library-row ${npc.id === selectedNpcId ? 'active' : ''}" data-npc-id="${escapeHtml(npc.id)}"><b>${escapeHtml(npc.name)}</b><span>${escapeHtml(npc.role || npc.species || 'NPC')}</span><small>${escapeHtml(statusLabel(npc))}</small></button>`).join('') : '<div class="npc-state-v3-empty">No dossiers match this search.</div>';
-        list?.querySelectorAll('.npc-state-v3-library-row').forEach(button => button.addEventListener('click', () => { selectedNpcId = button.dataset.npcId; renderLibrary(); }));
+        const query = search?.value || '';
+        const railRows = filteredNpcs(query);
+        const oldNpcId = overlay.querySelector('.npc-state-v3-dossier')?.dataset.npcId || '';
+        const oldScroll = overlay.querySelector('.npc-state-v3-dossier-document')?.scrollTop || 0;
+        const npc = allRows.find(item => item.id === selectedNpcId) || null;
+
+        const rail = overlay.querySelector('.npc-state-v3-cast-rail');
+        if (rail) rail.innerHTML = castRailHtml(railRows, selectedNpcId);
+        rail?.querySelectorAll('.npc-state-v3-cast-card').forEach(button => button.addEventListener('click', () => {
+            selectedNpcId = button.dataset.npcId;
+            renderLibrary({ centerSelected: true });
+        }));
+
         const detail = overlay.querySelector('.npc-state-v3-library-detail');
-        const npc = rows.find(item => item.id === selectedNpcId) || null;
         if (detail) detail.innerHTML = dossierHtml(npc);
         wireDossierActions(detail);
+
+        const title = overlay.querySelector('.npc-state-v3-library-head-name');
+        if (title) title.textContent = npc?.name || 'No dossier selected';
+        const count = overlay.querySelector('.npc-state-v3-cast-count');
+        if (count) count.textContent = query.trim() ? `${railRows.length} of ${allRows.length} NPCs` : `${allRows.length} NPC${allRows.length === 1 ? '' : 's'}`;
+
+        const documentPane = detail?.querySelector('.npc-state-v3-dossier-document');
+        if (documentPane && npc?.id === oldNpcId && !centerSelected) documentPane.scrollTop = oldScroll;
+
+        if (centerSelected) {
+            const schedule = globalThis.requestAnimationFrame || (callback => setTimeout(callback, 0));
+            schedule(() => centerSelectedCastCard(overlay));
+        }
+    }
+
+    function scrollCastRail(direction) {
+        const rail = libraryOverlay()?.querySelector('.npc-state-v3-cast-rail');
+        if (!rail) return;
+        const distance = Math.max(220, Math.round((rail.clientWidth || 320) * 0.72)) * direction;
+        if (typeof rail.scrollBy === 'function') rail.scrollBy({ left: distance, behavior: 'smooth' });
+        else rail.scrollLeft += distance;
     }
 
     function openLibrary(npcId = '') {
@@ -255,16 +257,35 @@ export function createNpcStateUi(adapters = {}) {
             overlay = document.createElement('div');
             overlay.id = LIBRARY_ID;
             overlay.className = 'npc-state-v3-library-overlay';
-            overlay.innerHTML = `<div class="npc-state-v3-library-shell" role="dialog" aria-modal="true"><header><div><span class="npc-state-kicker">DOSSIER LIBRARY</span><h2>All NPCs</h2></div><button class="npc-state-v3-library-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></header><div class="npc-state-v3-library-body"><aside><input id="npc_state_v3_library_search" class="text_pole" type="search" placeholder="Search name, alias, role, species"><div class="npc-state-v3-library-list"></div></aside><main class="npc-state-v3-library-detail"></main></div></div>`;
+            overlay.innerHTML = `<div class="npc-state-v3-library-shell" role="dialog" aria-modal="true" aria-label="NPC dossier" tabindex="-1">
+              <header class="npc-state-v3-library-header"><div><span class="npc-state-kicker">NPC DOSSIER</span><small class="npc-state-v3-library-head-name"></small></div><button class="npc-state-v3-library-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></header>
+              <main class="npc-state-v3-library-detail"></main>
+              <footer class="npc-state-v3-cast-dock">
+                <div class="npc-state-v3-cast-dock-head"><div><span class="npc-state-kicker">DOSSIER LIBRARY</span><small class="npc-state-v3-cast-count"></small></div><label class="npc-state-v3-cast-search"><i class="fa-solid fa-magnifying-glass"></i><input id="npc_state_v3_library_search" class="text_pole" type="search" placeholder="Search name, alias, role, species, state" aria-label="Search dossier library"></label></div>
+                <div class="npc-state-v3-cast-rail-shell"><button type="button" class="npc-state-v3-cast-arrow npc-state-v3-cast-prev" aria-label="Previous dossiers"><i class="fa-solid fa-chevron-left"></i></button><div class="npc-state-v3-cast-rail" role="list"></div><button type="button" class="npc-state-v3-cast-arrow npc-state-v3-cast-next" aria-label="Next dossiers"><i class="fa-solid fa-chevron-right"></i></button></div>
+              </footer>
+            </div>`;
             overlay.addEventListener('click', event => { if (event.target === overlay || event.target.closest?.('.npc-state-v3-library-close')) closeLibrary(); });
             document.body.appendChild(overlay);
-            overlay.querySelector('#npc_state_v3_library_search')?.addEventListener('input', renderLibrary);
+            document.documentElement?.classList.add('npc-state-v3-library-open');
+            document.body?.classList.add('npc-state-v3-library-open');
+            overlay.querySelector('#npc_state_v3_library_search')?.addEventListener('input', () => renderLibrary());
+            overlay.querySelector('.npc-state-v3-cast-prev')?.addEventListener('click', () => scrollCastRail(-1));
+            overlay.querySelector('.npc-state-v3-cast-next')?.addEventListener('click', () => scrollCastRail(1));
+            const shell = overlay.querySelector('.npc-state-v3-library-shell');
+            shell?.addEventListener('keydown', event => { if (event.key === 'Escape') closeLibrary(); });
+            try { shell?.focus({ preventScroll: true }); } catch { shell?.focus?.(); }
         }
-        renderLibrary();
+        renderLibrary({ centerSelected: true });
         return true;
     }
 
-    function closeLibrary() { libraryOverlay()?.remove(); closeEditor(); }
+    function closeLibrary() {
+        libraryOverlay()?.remove();
+        document.documentElement?.classList.remove('npc-state-v3-library-open');
+        document.body?.classList.remove('npc-state-v3-library-open');
+        closeEditor();
+    }
 
     function wireDossierActions(root) {
         if (!root) return;
