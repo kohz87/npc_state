@@ -270,13 +270,15 @@ function edgeKey(edge) {
 
 function mergedEdges(baseEdges, importedEdges, validIds, tombstones, sameChat, blockedImportedIds = new Set()) {
     const map = new Map();
-    for (const raw of [...baseEdges, ...importedEdges]) {
+    const add = (raw, imported = false) => {
         const edge = clearEdgeMessageId(raw, sameChat);
-        if (!validIds.has(edge.fromId) || !validIds.has(edge.toId)) continue;
-        if (tombstones.has(edge.fromId) || tombstones.has(edge.toId)) continue;
-        if (blockedImportedIds.has(edge.fromId) || blockedImportedIds.has(edge.toId)) continue;
+        if (!validIds.has(edge.fromId) || !validIds.has(edge.toId)) return;
+        if (tombstones.has(edge.fromId) || tombstones.has(edge.toId)) return;
+        if (imported && (blockedImportedIds.has(edge.fromId) || blockedImportedIds.has(edge.toId))) return;
         map.set(edgeKey(edge), edge);
-    }
+    };
+    for (const raw of baseEdges) add(raw, false);
+    for (const raw of importedEdges) add(raw, true);
     return [...map.values()].slice(-200);
 }
 
@@ -357,6 +359,7 @@ export function applyNpcStateBundleImport(stateInput = {}, bundleInput, options 
     for (const id of importedTombstones) if (!ignoredImportedTombstones.has(id) && !currentById.has(id)) tombstones.add(id);
     const validIds = new Set(nextNpcs.map(npc => npc.id));
     const socialGraph = mergedEdges(state.socialGraph || [], bundle.data.socialGraph || [], validIds, tombstones, sameChat, skippedNpcIds);
+    const retainedEdgeKeys = new Set(socialGraph.map(edgeKey));
     const suppressedNames = [...new Set([...(state.suppressedNames || []), ...(bundle.data.suppressedNames || [])])].slice(0, 300);
     const next = normalizeState({
         ...state,
@@ -375,7 +378,7 @@ export function applyNpcStateBundleImport(stateInput = {}, bundleInput, options 
             replacedNpcIds,
             skippedNpcIds: [...skippedNpcIds],
             importedTombstones: [...importedTombstones].filter(id => !ignoredImportedTombstones.has(id) && !currentById.has(id)),
-            droppedSocialEdges: Math.max(0, bundle.data.socialGraph.length - socialGraph.filter(edge => (bundle.data.socialGraph || []).some(candidate => edgeKey(candidate) === edgeKey(edge))).length),
+            droppedSocialEdges: (bundle.data.socialGraph || []).filter(edge => !retainedEdgeKeys.has(edgeKey(edge))).length,
         },
     };
 }
