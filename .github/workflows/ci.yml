@@ -25,6 +25,7 @@ jobs:
           sed -i 's#            const p = `/files/${body.name}`;#            const p = "/files/" + body.name;#' tests/apply-v0220-patch.mjs
           node --check tests/apply-v0220-patch.mjs
           node tests/apply-v0220-patch.mjs
+          sed -i "s/globalThis.NPCState?.version, '0.2.18'/globalThis.NPCState?.version, '0.2.20'/" tests/runtime-smoke.mjs
           python3 - <<'PY'
           from pathlib import Path
 
@@ -91,6 +92,7 @@ jobs:
           node --check tests/index-hardening.test.js
           node --check tests/v0214-hardening.test.js
           node --check tests/v0215-identity-hardening.test.js
+          node --check tests/runtime-smoke.mjs
           git diff --check
       - name: Full verification
         run: npm test
