@@ -30,8 +30,13 @@ if len(starts) == 2:
     text = text[:second] + text[end:]
 elif len(starts) != 1:
     raise SystemExit(f'unexpected rebase helper count: {len(starts)}')
-text = text.replace('/* NPC State v0.2.20 - standalone SillyTavern extension */', '/* NPC State v0.2.21 - standalone SillyTavern extension */', 1)
 path.write_text(text, encoding='utf-8')
+
+# Keep the runtime banner aligned with release metadata.
+p = Path('index.js')
+t = p.read_text(encoding='utf-8')
+t = t.replace('/* NPC State v0.2.20 - standalone SillyTavern extension */', '/* NPC State v0.2.21 - standalone SillyTavern extension */', 1)
+p.write_text(t, encoding='utf-8')
 
 # v0.2.20 source-shape guards are intentionally superseded by executable v0.2.21 helpers.
 p = Path('tests/hardening-v0220.test.js')
@@ -62,6 +67,11 @@ t = p.read_text(encoding='utf-8')
 t = t.replace(
     "assert.match(index, /if \\(direct && keys\\.has\\(direct\\)\\) return direct/);",
     "assert.match(index, /resolveOwnedLifecycleKey\\(candidates, kind, id, resolvedOwner, ownerWasProvided\\)/);",
+    1,
+)
+t = t.replace(
+    "    assert.match(index, /if \\(matches\\.length > 1\\)/);\n",
+    "    const ownershipCore = fs.readFileSync(new URL('../hardening-core.js', import.meta.url), 'utf8');\n    assert.match(ownershipCore, /if \\(ownerWasProvided\\) return direct && unique\\.includes\\(direct\\) \\? direct : ''/);\n",
     1,
 )
 p.write_text(t, encoding='utf-8')
