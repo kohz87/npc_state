@@ -71,7 +71,6 @@ jobs:
           if (!fs.existsSync('tests/hardening-v0221.test.js')) throw new Error('v0.2.21 regressions missing');
           NODE
       - name: Commit verified candidate
-        if: ${{ !contains(github.event.head_commit.message, 'release-candidate: v0.2.21') }}
         run: |
           set -euo pipefail
           if git diff --quiet; then
