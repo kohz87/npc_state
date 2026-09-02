@@ -7,6 +7,7 @@ on:
     paths:
       - .release/apply_v023.py
       - .release/fix_apply_v023_v2.py
+      - .release/post_v023_pass1.py
       - .github/workflows/v023-hard-pass.yml
   workflow_dispatch:
 
@@ -32,6 +33,7 @@ jobs:
         run: |
           python3 .release/fix_apply_v023_v2.py
           python3 .release/apply_v023.py
+          python3 .release/post_v023_pass1.py
 
       - name: Upload candidate snapshot
         uses: actions/upload-artifact@v4
