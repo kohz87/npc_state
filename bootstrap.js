@@ -4,19 +4,15 @@ if (!document.getElementById('npc_state_v3_editor_flex_fix')) {
     style.id = 'npc_state_v3_editor_flex_fix';
     style.textContent = `
 .npc-state-v3-editor-grid{min-height:0}
-.npc-state-v3-editor-overlay{
-  z-index:2147483647!important;
-  isolation:isolate;
-  background:rgba(5,6,8,.98)!important;
-}
-body:has(> #npc_state_v3_editor_overlay)>#npc_state_v3_library_overlay{
-  display:none!important;
+.npc-state-v3-editor-overlay[popover]{
+  margin:0!important;
+  border:0!important;
+  width:auto!important;
+  height:auto!important;
+  max-width:none!important;
+  max-height:none!important;
 }
 @media(max-width:1180px),(hover:none) and (pointer:coarse){
-  .npc-state-v3-library-overlay{
-    backdrop-filter:none!important;
-    -webkit-backdrop-filter:none!important;
-  }
   .npc-state-v3-editor-overlay{
     align-items:flex-start!important;
     overflow-y:auto!important;
@@ -37,3 +33,5 @@ body:has(> #npc_state_v3_editor_overlay)>#npc_state_v3_library_overlay{
     document.head.appendChild(style);
 }
 await import('./v03/index.js');
+const { startEditorTopLayerBridge } = await import('./v03/editor-top-layer.js');
+startEditorTopLayerBridge();
