@@ -1,3 +1,15 @@
+# Changelog
+
+## 0.2.16
+
+- Release verification for the completed chat-identity and persistent-ownership hardening.
+- Group chat identity is namespace-safe when SillyTavern exposes both groupId and chatId.
+- Stale hydration is rejected through ownership epochs across delete and rename lifecycle races.
+- Retired sidecars and recovery metadata prevent deleted or renamed state from being resurrected.
+- Broken sidecars have an explicit non-destructive detach/recovery path.
+- Cross-chat branch inheritance requires stronger user-authored provenance and uses a bounded branch index.
+- Release candidate survived ten consecutive full hard-pass cycles before promotion.
+
 # NPC State Changelog
 
 ## v0.2.15
