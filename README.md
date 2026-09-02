@@ -49,6 +49,8 @@ Off-screen world-active NPCs may receive grounded live-state updates such as loc
 - Safe merge defaults to keeping current data for matching stable IDs and aborting on hard stable-ID/name or tombstone conflicts. The UI can instead use imported data for matching IDs or skip conflicting imported identities.
 - Full-chat **Replace durable state** is a separate explicit restore mode. It replaces portable dossier/social/tombstone domains but keeps the destination chat's branch/runtime machinery local and clears imported live presence.
 - Cross-chat bundle imports clear source-chat message IDs, preserve relative stale age by rebasing `lastActivityTurn`, and never import source live presence.
+- Portrait prompt support is settings-only and local. It stores a reusable portrait preset, a generation template, and Natural/Tags/Hybrid formatting for the dossier-derived `{{character}}` placeholder.
+- Portrait prompt preview/copy does not call an image API, generate images, create queues, or add portrait lifecycle state.
 - Dossier Library searches every stored NPC, including off-screen and archived dossiers.
 - One canonical dossier detail surface is used by the library, roster, and inline present cards.
 - Background/model operations never save editor DOM state. Editor saves are identity-bound and use an optimistic `updatedAt` guard so a stale form cannot overwrite newer scan data.
@@ -72,6 +74,35 @@ The **Bundle import / export** section in NPC State settings supports:
 Imports are previewed before confirmation. A rejected preview or conflict performs no sidecar write. Successful import is committed through the normal serialized engine as one sidecar revision and receives a v0.3 branch checkpoint in the destination chat.
 
 Safe merge treats local manual-deletion tombstones as authoritative and will not silently resurrect those IDs. Likewise an imported tombstone cannot silently delete a live local dossier; that is surfaced as an identity conflict. Full-chat Replace is the deliberate escape hatch when the user genuinely intends to restore the bundle's durable state wholesale.
+
+## Portrait prompt
+
+The **Portrait prompt** section in NPC State settings is intentionally small. It stores three global v0.3 settings:
+
+- **Character formatting**: `Natural`, `Tags`, or `Hybrid`.
+- **Portrait preset**: reusable style/composition text.
+- **Generation prompt**: the final template resolved for a selected NPC.
+
+The default template is:
+
+```text
+{{portraitPreset}}
+{{character}}
+```
+
+`{{character}}` is built from the selected dossier according to the formatting mode. The rest of the template is left exactly under user control. Available placeholders include:
+
+```text
+{{portraitPreset}} {{character}} {{name}} {{aliases}} {{role}} {{species}}
+{{age}} {{apparentAge}} {{appearance}} {{personality}} {{behaviorProfile}}
+{{speech}} {{mannerisms}} {{background}} {{mood}} {{location}} {{goal}} {{status}}
+```
+
+Unknown placeholders remain visible instead of silently disappearing, making template typos easy to spot. Missing dossier fields resolve empty; NPC State does not invent portrait facts.
+
+Edits are kept as a local draft until **Save portrait prompt settings** is pressed. The same panel provides a dossier selector, live resolved preview, and **Copy resolved prompt** button for use with any external image generator.
+
+There is deliberately no automatic portrait generation, provider/API integration, regeneration workflow, request queue, image polling, or portrait-generation state machine in v0.3.
 
 ## v0.2 data migration
 
@@ -113,6 +144,8 @@ v03/                 supported runtime
   stale-ui.js         settings and manual stale-review surface
   bundle.js           portable v0.3 bundle validation/export/import logic
   bundle-ui.js        full-chat/selected-NPC bundle management surface
+  portrait-prompt.js  local portrait prompt composition and placeholders
+  portrait-ui.js      settings, preview, save, and copy surface
   identity.js
   style.css
 tests/               v0.3 behavioral release gate
@@ -126,9 +159,9 @@ Nothing under `legacy/` is imported by the supported extension runtime.
 
 ## Current rewrite scope
 
-The v0.3.0 rewrite now covers the durable core: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, and validated portable bundle import/export for full-chat and selected-NPC workflows.
+The v0.3.0 rewrite now covers the durable core and planned management surfaces: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, searchable dossier library, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, validated portable bundle import/export for full-chat and selected-NPC workflows, and lightweight portrait preset/generation-prompt composition with local preview/copy.
 
-The remaining intentionally staged feature is portrait preset + generation-prompt support. Existing portrait data already migrates, displays, and is preserved by v0.3 bundles.
+Automatic portrait generation and image-provider integration remain intentionally outside the v0.3 scope.
 
 ## Development
 
