@@ -70,11 +70,11 @@ if old_test not in hard:
 hard_path.write_text(hard.replace(old_test, new_test, 1), encoding='utf-8')
 
 ui_path = root / 'tests' / 'ui-layout.test.js'
-ui = ui_path.read_text(encoding='utf-8')
-old_ui = "    assert.match(index, /runFocusedRelationshipPass\\(ctx, fullWindowRelationship\\.evaluation, state\\.npcs, currentTranscript \\|\\| transcript, settings\\)/);"
-new_ui = "    assert.match(index, /runFocusedRelationshipPass\\(\\s*ctx,\\s*fullWindowRelationship\\.evaluation,\\s*state\\.npcs,\\s*currentTranscript \\|\\| transcript,\\s*settings,\\s*\\{ currentExchangeOnly: manual \\|\\| fullWindowScan \\},\\s*\\)/);"
-if old_ui not in ui:
-    raise SystemExit('stale relationship UI invariant not found')
-ui_path.write_text(ui.replace(old_ui, new_ui, 1), encoding='utf-8')
+ui_lines = ui_path.read_text(encoding='utf-8').splitlines()
+ui_matches = [i for i, line in enumerate(ui_lines) if 'assert.match(index, /runFocusedRelationshipPass' in line]
+if len(ui_matches) != 1:
+    raise SystemExit(f'focused relationship UI invariant: expected one assertion, found {len(ui_matches)}')
+ui_lines[ui_matches[0]] = "    assert.match(index, /runFocusedRelationshipPass\\(\\s*ctx,\\s*fullWindowRelationship\\.evaluation,\\s*state\\.npcs,\\s*currentTranscript \\|\\| transcript,\\s*settings,\\s*\\{ currentExchangeOnly: manual \\|\\| fullWindowScan \\},\\s*\\)/);"
+ui_path.write_text('\n'.join(ui_lines) + '\n', encoding='utf-8')
 
 print('v0.2.23 manual relationship repair preserved with rolling-history scrub')
