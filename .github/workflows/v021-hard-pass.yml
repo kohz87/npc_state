@@ -26,6 +26,7 @@ jobs:
             echo 'Candidate source is already patched; validating pushed candidate.'
           else
             python3 .release/v021_patch.py
+            python3 .release/v021_postfix.py
           fi
       - name: Ten consecutive hard passes
         run: |
