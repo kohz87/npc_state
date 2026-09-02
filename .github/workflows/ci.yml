@@ -84,6 +84,48 @@ jobs:
                   updateInjection();
                   return true;""")
 
+          # v0.2.19 renamed the non-owning legacy lookup hint to legacyCandidateKey, while the
+          # retained v0.2.18 engine still looked only at legacyKey. Accept the candidate only after
+          # the stored four-message prefix and two user-authored turns prove ownership.
+          rewrite('index.js', """function legacyMigrationMatchesActiveChat(state, chat = getContext().chat || []) {
+              const stored = Array.isArray(state?.lineage) ? state.lineage : [];
+              const messages = Array.isArray(chat) ? chat : [];
+              if (!stored.length || !messages.length) return false;
+              const candidates = [chatLineage(messages), legacyChatLineageV0210(messages)];
+              for (const current of candidates) {
+                  const common = firstLineageDivergence(stored, current);
+                  const prefix = common < 0 ? Math.min(stored.length, current.length) : common;
+                  const required = Math.min(4, stored.length, current.length);
+                  if (required > 0 && prefix >= required && messages.slice(0, required).some(message => message?.is_user)) return true;
+              }
+              return false;
+          }
+
+          async function migrateActiveLegacyNamespace() {
+              const identity = getChatIdentity();
+              if (identity.pending || !isCanonicalChatKey(identity.key) || !identity.legacyKey) return false;
+              const newKey = identity.key;
+              const oldKey = identity.legacyKey;""", """function legacyMigrationMatchesActiveChat(state, chat = getContext().chat || []) {
+              const stored = Array.isArray(state?.lineage) ? state.lineage : [];
+              const messages = Array.isArray(chat) ? chat : [];
+              if (!stored.length || !messages.length) return false;
+              const candidates = [chatLineage(messages), legacyChatLineageV0210(messages)];
+              for (const current of candidates) {
+                  const common = firstLineageDivergence(stored, current);
+                  const prefix = common < 0 ? Math.min(stored.length, current.length) : common;
+                  const required = Math.min(4, stored.length, current.length);
+                  const userTurns = messages.slice(0, required).filter(message => message?.is_user).length;
+                  if (required >= 4 && prefix >= required && userTurns >= 2) return true;
+              }
+              return false;
+          }
+
+          async function migrateActiveLegacyNamespace() {
+              const identity = getChatIdentity();
+              const oldKey = identity.legacyCandidateKey || identity.legacyKey || '';
+              if (identity.pending || !isCanonicalChatKey(identity.key) || !oldKey) return false;
+              const newKey = identity.key;""")
+
           for smoke_path in ('tests/runtime-smoke.mjs', 'tests/migration-smoke.mjs'):
               rewrite(smoke_path,
                   "export function getRequestHeaders() { return { 'Content-Type': 'application/json'" + (", 'X-CSRF-Token': 'mock'" if smoke_path.endswith('runtime-smoke.mjs') else "") + " }; }",
@@ -126,11 +168,8 @@ jobs:
               assert.match(lifecycleCache, /scanOperations\.cancel\(key, reason\)/);
               assert.match(index, /clearLifecycleCacheKey\(key, 'chat-deleted'\)/);""")
 
-          # Extend the new release-specific contract so physical cleanup cannot move back
-          # ahead of the synchronous settings durability boundary.
           p = Path('tests/hardening-v0220.test.js')
           source = p.read_text()
-          source = source.replace("test('destructive chat lifecycle retires the revision-checked source before publishing ownership metadata', () => {", "test('destructive chat lifecycle retires the revision-checked source before publishing ownership metadata', () => {")
           source += """
           test('retired canonical sidecars are physically removed only after synchronous ownership metadata persistence', () => {
             const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
@@ -142,6 +181,13 @@ jobs:
             const renameSave = rename.indexOf('await saveHostSettings()');
             const renameDelete = rename.indexOf('deleteNpcStateDataFile(oldPointer');
             assert.ok(renameSave >= 0 && renameDelete > renameSave);
+          });
+
+          test('retained legacy migration consumes v0.2.19 legacyCandidateKey only with four-message two-user proof', () => {
+            const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+            const block = index.slice(index.indexOf('function legacyMigrationMatchesActiveChat'), index.indexOf('function flushLifecycleOwner'));
+            assert.match(block, /identity\.legacyCandidateKey \|\| identity\.legacyKey/);
+            assert.match(block, /required >= 4 && prefix >= required && userTurns >= 2/);
           });
           """
           p.write_text(source)
