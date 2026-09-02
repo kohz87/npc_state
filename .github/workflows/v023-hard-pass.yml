@@ -58,6 +58,18 @@ jobs:
           node --check tests/runtime-smoke.mjs
           node --check tests/hardening-v0223.test.js
 
+      - name: Diagnostic unit suites
+        run: node --test tests/*.test.js
+
+      - name: Diagnostic compatibility
+        run: node tests/compatibility-check.js
+
+      - name: Diagnostic runtime smoke
+        run: node tests/runtime-smoke.mjs
+
+      - name: Diagnostic migration smoke
+        run: node tests/migration-smoke.mjs
+
       - name: Ten consecutive hard passes
         run: |
           set -eu
