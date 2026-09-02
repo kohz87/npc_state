@@ -103,15 +103,16 @@ jobs:
           test ! -e .github/scripts/apply_v0217_fix8.py
           test ! -e .github/scripts/apply_v0217_fix9.py
           git diff --check
-      - name: Commit only after all ten passes succeed
+      - name: Commit verified production changes only
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git restore --source=HEAD --worktree .github/workflows/ci.yml .github/scripts
           git add -A
           if git diff --cached --quiet; then
-            echo "No verified release changes to commit"
+            echo "No verified production changes to commit"
             exit 0
           fi
-          git commit -m "release: v0.2.17 identity and storage hardening"
+          git commit -m "release: materialize v0.2.17 identity and storage hardening"
           git push origin HEAD:v0.2.17-identity-storage-hardening
