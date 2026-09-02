@@ -9,8 +9,8 @@ function integer(value, fallback, min = 0, max = 10000) {
 }
 
 export function normalizeStaleSettings(settings = {}) {
-    const archiveAfter = integer(settings.staleArchiveAfter, DEFAULT_STALE_ARCHIVE_AFTER, 1);
-    const deleteAfter = integer(settings.staleDeleteAfter, DEFAULT_STALE_DELETE_AFTER, archiveAfter + 1);
+    const archiveAfter = integer(settings.staleArchiveAfter, DEFAULT_STALE_ARCHIVE_AFTER, 1, 9999);
+    const deleteAfter = integer(settings.staleDeleteAfter, DEFAULT_STALE_DELETE_AFTER, archiveAfter + 1, 10000);
     return {
         enabled: settings.staleManagementEnabled !== false,
         archiveAfter,
@@ -135,6 +135,8 @@ export function applyStaleLifecycle(stateInput = {}, options = {}) {
                 npc.archived = false;
                 npc.archiveReason = '';
                 npc.archivedAt = null;
+                npc.present = activity.finalPresentNpcIds.includes(npc.id);
+                npc.worldActive = !npc.present && activity.worldActiveNpcIds.includes(npc.id);
                 restoredIds.push(npc.id);
             }
             if (changed || restoredIds.includes(npc.id)) npc.updatedAt = Math.max(Date.now(), Number(npc.updatedAt || 0) + 1);
