@@ -77,4 +77,17 @@ if len(ui_matches) != 1:
 ui_lines[ui_matches[0]] = "    assert.match(index, /runFocusedRelationshipPass\\(\\s*ctx,\\s*fullWindowRelationship\\.evaluation,\\s*state\\.npcs,\\s*currentTranscript \\|\\| transcript,\\s*settings,\\s*\\{ currentExchangeOnly: manual \\|\\| fullWindowScan \\},\\s*\\)/);"
 ui_path.write_text('\n'.join(ui_lines) + '\n', encoding='utf-8')
 
+runtime_path = root / 'tests' / 'runtime-smoke.mjs'
+runtime = runtime_path.read_text(encoding='utf-8')
+cast_start = runtime.find('    // v0.2.23: an NPC involved at the beginning of a response must still reconcile')
+cast_end = runtime.find('    // Non-truncation structural JSON errors', cast_start)
+if cast_start < 0 or cast_end < 0:
+    raise SystemExit('v0.2.23 cast regression block not found')
+cast_block = runtime[cast_start:cast_end]
+if 'Yunyun' not in cast_block or 'yunyunBeforeCast' not in cast_block:
+    raise SystemExit('stale Yunyun cast regression fixture not found')
+cast_block = cast_block.replace('Yunyun', 'Mira').replace('yunyun', 'mira')
+runtime = runtime[:cast_start] + cast_block + runtime[cast_end:]
+runtime_path.write_text(runtime, encoding='utf-8')
+
 print('v0.2.23 manual relationship repair preserved with rolling-history scrub')
