@@ -36,6 +36,59 @@ jobs:
                   raise RuntimeError(f'missing test patch anchor in {path}')
               p.write_text(source.replace(old, new, 1))
 
+          rewrite('index.js',
+              "import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../script.js';",
+              "import { extension_prompt_types, extension_prompt_roles, getRequestHeaders, saveSettings as saveHostSettings } from '../../../../script.js';")
+
+          rewrite('index.js', """    if (settings.chats?.[key]) delete settings.chats[key];
+              persistSettings();
+              return true;
+          }
+
+          async function moveRenamedChatState""", """    if (settings.chats?.[key]) delete settings.chats[key];
+              persistSettings();
+              let tombstoneDurable = false;
+              try {
+                  await saveHostSettings();
+                  tombstoneDurable = true;
+              } catch (error) {
+                  console.warn(`[NPC State] chat deletion tombstone for ${key} could not be synchronously persisted; the retired sidecar is being retained as the crash-safe marker.`, error);
+              }
+              if (tombstoneDurable && pointer?.path) {
+                  try { await deleteNpcStateDataFile(pointer, { headers: requestHeaders() }); }
+                  catch (error) { console.warn(`[NPC State] retired sidecar for ${key} could not be physically deleted; the durable tombstone still prevents recovery.`, error); }
+              }
+              return true;
+          }
+
+          async function moveRenamedChatState""")
+
+          rewrite('index.js', """        persistedVersions.set(newKey, Number(stateVersions.get(newKey) || 0));
+                  persistSettings();
+                  renderDossier();
+                  updateInjection();
+                  return true;""", """        persistedVersions.set(newKey, Number(stateVersions.get(newKey) || 0));
+                  persistSettings();
+                  let renameOwnershipDurable = false;
+                  try {
+                      await saveHostSettings();
+                      renameOwnershipDurable = true;
+                  } catch (error) {
+                      console.warn(`[NPC State] renamed ownership for ${newKey} could not be synchronously persisted; the retired predecessor is being retained as a crash-safe marker.`, error);
+                  }
+                  if (renameOwnershipDurable && oldPointer?.path) {
+                      try { await deleteNpcStateDataFile(oldPointer, { headers: requestHeaders() }); }
+                      catch (error) { console.warn(`[NPC State] retired rename predecessor for ${oldKey} could not be physically deleted.`, error); }
+                  }
+                  renderDossier();
+                  updateInjection();
+                  return true;""")
+
+          for smoke_path in ('tests/runtime-smoke.mjs', 'tests/migration-smoke.mjs'):
+              rewrite(smoke_path,
+                  "export function getRequestHeaders() { return { 'Content-Type': 'application/json'" + (", 'X-CSRF-Token': 'mock'" if smoke_path.endswith('runtime-smoke.mjs') else "") + " }; }",
+                  "export function getRequestHeaders() { return { 'Content-Type': 'application/json'" + (", 'X-CSRF-Token': 'mock'" if smoke_path.endswith('runtime-smoke.mjs') else "") + " }; }\nexport async function saveSettings() {}")
+
           rewrite('tests/index-hardening.test.js', """test('chat deletion handlers preserve chat/group namespace isolation',()=>{
             assert.match(source,/removeDeletedChatState\(chatId, 'chat', getCharacterOwnerId\(getContext\(\)\)\)/);
             assert.match(source,/removeDeletedChatState\(chatId, 'group', String\(getContext\(\)\.groupId \|\| ''\)\)/);
@@ -72,6 +125,26 @@ jobs:
               assert.match(lifecycleCache, /bumpOwnershipEpoch\(key\)/);
               assert.match(lifecycleCache, /scanOperations\.cancel\(key, reason\)/);
               assert.match(index, /clearLifecycleCacheKey\(key, 'chat-deleted'\)/);""")
+
+          # Extend the new release-specific contract so physical cleanup cannot move back
+          # ahead of the synchronous settings durability boundary.
+          p = Path('tests/hardening-v0220.test.js')
+          source = p.read_text()
+          source = source.replace("test('destructive chat lifecycle retires the revision-checked source before publishing ownership metadata', () => {", "test('destructive chat lifecycle retires the revision-checked source before publishing ownership metadata', () => {")
+          source += """
+          test('retired canonical sidecars are physically removed only after synchronous ownership metadata persistence', () => {
+            const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+            const deletion = index.slice(index.indexOf('async function removeDeletedChatState'), index.indexOf('async function moveRenamedChatState'));
+            const settingsSave = deletion.indexOf('await saveHostSettings()');
+            const physicalDelete = deletion.indexOf('deleteNpcStateDataFile(pointer');
+            assert.ok(settingsSave >= 0 && physicalDelete > settingsSave);
+            const rename = index.slice(index.indexOf('async function moveRenamedChatState'), index.indexOf('function legacyMigrationMatchesActiveChat'));
+            const renameSave = rename.indexOf('await saveHostSettings()');
+            const renameDelete = rename.indexOf('deleteNpcStateDataFile(oldPointer');
+            assert.ok(renameSave >= 0 && renameDelete > renameSave);
+          });
+          """
+          p.write_text(source)
           PY
       - name: Syntax and diff check
         run: |
@@ -93,6 +166,7 @@ jobs:
           node --check tests/v0214-hardening.test.js
           node --check tests/v0215-identity-hardening.test.js
           node --check tests/runtime-smoke.mjs
+          node --check tests/migration-smoke.mjs
           git diff --check
       - name: Full verification
         run: npm test
