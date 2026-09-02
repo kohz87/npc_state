@@ -10,6 +10,7 @@ on:
       - .release/post_v022_pass3.py
       - .release/run_v022_pass4.py
       - .release/post_v022_pass5.py
+      - .release/post_v022_pass6.py
       - .github/workflows/v022-hard-pass.yml
   workflow_dispatch:
 
@@ -38,6 +39,7 @@ jobs:
           python3 .release/post_v022_pass3.py
           python3 .release/run_v022_pass4.py
           python3 .release/post_v022_pass5.py
+          python3 .release/post_v022_pass6.py
 
       - name: Syntax and diff check
         run: |
@@ -72,6 +74,7 @@ jobs:
           if (!index.includes('for (let offset = 0; offset < newTargets.length; offset += 4)')) throw new Error('new NPC relationship batching missing');
           if (!index.includes('discarded stale dossier scan after new-NPC relationship evaluation')) throw new Error('post-admission stale guard missing');
           if (!index.includes('memoryInputLimit: IMPORTANT_MEMORY_LIMIT')) throw new Error('targeted memory intake missing');
+          if (!index.includes('finalNpc.seenCount = Number(liveBeforeBackfill.seenCount || 0)')) throw new Error('backfill observation restoration missing');
           if (!retained.includes('LOW-BAND FAMILIARITY')) throw new Error('low-band relationship policy missing');
           if (!retained.includes('kisses|kissed|kissing')) throw new Error('Desire inflection coverage missing');
           if (!retained.includes('memoryInputLimit')) throw new Error('memory normalization split missing');
