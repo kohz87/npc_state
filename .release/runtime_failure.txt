@@ -1,0 +1,205 @@
+[NPC State] v0.2.23 loaded
+[NPC State] dossier scan metrics {
+  label: 'automatic',
+  durationMs: 24,
+  promptChars: 6427,
+  responseChars: 935,
+  retried: false,
+  relationshipPass: false,
+  relationshipTargets: 0,
+  relationshipResponseChars: 0,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342259827
+}
+[NPC State] dossier scan metrics {
+  label: 'manual',
+  durationMs: 24,
+  promptChars: 7009,
+  responseChars: 707,
+  retried: false,
+  relationshipPass: true,
+  relationshipTargets: 2,
+  relationshipResponseChars: 707,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 1,
+  profileApplied: 1,
+  profileEvidenceAdded: 0,
+  at: 1788342260512
+}
+[NPC State] dossier scan metrics {
+  label: 'manual',
+  durationMs: 8,
+  promptChars: 7226,
+  responseChars: 241,
+  retried: false,
+  relationshipPass: true,
+  relationshipTargets: 2,
+  relationshipResponseChars: 867,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342260781
+}
+[NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [ 'npc_yunyun' ] }
+[NPC State] dossier scan metrics {
+  label: 'manual',
+  durationMs: 1,
+  promptChars: 7302,
+  responseChars: 186,
+  retried: false,
+  relationshipPass: true,
+  relationshipTargets: 2,
+  relationshipResponseChars: 305,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342260870
+}
+[NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [ 'npc_yunyun' ] }
+[NPC State] dossier scan metrics {
+  label: 'manual',
+  durationMs: 1,
+  promptChars: 7412,
+  responseChars: 213,
+  retried: false,
+  relationshipPass: true,
+  relationshipTargets: 2,
+  relationshipResponseChars: 428,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342260956
+}
+[NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_yunyun', 'npc_wiz' ], decided: [] }
+[NPC State] dossier scan metrics {
+  label: 'automatic',
+  durationMs: 1,
+  promptChars: 6225,
+  responseChars: 141,
+  retried: false,
+  relationshipPass: true,
+  relationshipTargets: 2,
+  relationshipResponseChars: 141,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342261045
+}
+[NPC State] discarded stale dossier scan after chat or dossier state changed.
+[NPC State] discarded stale dossier scan after chat or dossier state changed.
+[NPC State] backfill for Neris returned invalid JSON; retrying once with a compact correction prompt. {
+  responseChars: 83,
+  truncated: true,
+  error: 'Scanner returned malformed JSON: Unterminated string in JSON at position 83 (line 1 column 84)'
+}
+[NPC State] manual dossier scan returned invalid JSON; retrying once with a compact correction prompt. {
+  responseChars: 95,
+  truncated: true,
+  error: 'Scanner returned malformed JSON: Unterminated string in JSON at position 95 (line 1 column 96)'
+}
+[NPC State] dossier scan metrics {
+  label: 'manual',
+  durationMs: 92,
+  promptChars: 7525,
+  responseChars: 276,
+  retried: true,
+  relationshipPass: false,
+  relationshipTargets: 0,
+  relationshipResponseChars: 0,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 0,
+  newNpcRelationshipResponseChars: 0,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342261917
+}
+[NPC State] dossier scan metrics {
+  label: 'automatic-full',
+  durationMs: 41,
+  promptChars: 8092,
+  responseChars: 421,
+  retried: false,
+  relationshipPass: false,
+  relationshipTargets: 0,
+  relationshipResponseChars: 0,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 1,
+  newNpcRelationshipResponseChars: 386,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342261970
+}
+[NPC State] targeted backfill returned no accepted NPC { target: 'Myla', literalMention: false, returnedCount: 0 }
+[NPC State] targeted backfill returned no accepted NPC { target: 'Toris Vale', literalMention: false, returnedCount: 0 }
+[NPC State] targeted backfill returned no accepted NPC { target: 'Neris', literalMention: true, returnedCount: 0 }
+[NPC State] targeted backfill returned no accepted NPC { target: 'Liora', literalMention: true, returnedCount: 0 }
+[NPC State] focused relationship pass omitted or malformed one or more target decisions. { targets: [ 'npc_neri' ], decided: [] }
+[NPC State] dossier scan metrics {
+  label: 'automatic-full',
+  durationMs: 22,
+  promptChars: 8235,
+  responseChars: 222,
+  retried: false,
+  relationshipPass: false,
+  relationshipTargets: 0,
+  relationshipResponseChars: 0,
+  relationshipRetried: false,
+  newNpcRelationshipTargets: 1,
+  newNpcRelationshipResponseChars: 11,
+  relationshipEdges: 0,
+  relationshipEdgeFallbacks: 0,
+  profileUpdates: 0,
+  profileApplied: 0,
+  profileEvidenceAdded: 0,
+  at: 1788342262274
+}
+[NPC State] targeted backfill returned no accepted NPC { target: 'Mira', literalMention: false, returnedCount: 0 }
+[NPC State] targeted backfill returned no accepted NPC { target: 'Myla', literalMention: false, returnedCount: 0 }
+[NPC State] targeted backfill returned no accepted NPC { target: 'Toris Vale', literalMention: false, returnedCount: 0 }
+[NPC State] targeted backfill returned no accepted NPC { target: 'Neris', literalMention: false, returnedCount: 1 }
+[NPC State] targeted backfill returned no accepted NPC { target: 'Liora', literalMention: false, returnedCount: 0 }
+file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1061
+    assert.equal(yunyunAfterCast.relationship.trust, yunyunBeforeCast.relationship.trust + 1, 'Yunyun should gain the current-exchange trust point despite appearing before the scene transition');
+                                 ^
+
+TypeError: Cannot read properties of undefined (reading 'relationship')
+    at file:///home/runner/work/npc_state/npc_state/tests/runtime-smoke.mjs:1061:34
+
+Node.js v22.23.2
