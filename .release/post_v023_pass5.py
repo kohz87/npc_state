@@ -93,6 +93,17 @@ cast_block = cast_block.replace(
     "    assert.equal(state.pendingBackfills.some(item => item.npcId === miraAfterCast.id || item.npcId === neri.id), false, 'successful cast reconciliation should drain the current Mira/Neri requests without deleting unrelated retry backlog');",
 )
 runtime = runtime[:cast_start] + cast_block + runtime[cast_end:]
+
+swipe_anchor = "    const rawCallsBeforeSwipe = mockState.rawCalls.length;"
+swipe_replacement = "    const rawCallsBeforeSwipe = mockState.rawCalls.length;\n    const broadScansBeforeSwipe = mockState.rawCalls.filter(call => /isolated dossier scanner/i.test(String(call?.[0]?.systemPrompt || ''))).length;"
+if swipe_anchor not in runtime:
+    raise SystemExit('swipe raw-call baseline not found')
+runtime = runtime.replace(swipe_anchor, swipe_replacement, 1)
+old_swipe_assert = "    assert.equal(mockState.rawCalls.length, rawCallsBeforeSwipe + 1, 'settled replacement should receive exactly one deferred dossier scan');"
+new_swipe_assert = "    const broadScansAfterSwipe = mockState.rawCalls.filter(call => /isolated dossier scanner/i.test(String(call?.[0]?.systemPrompt || ''))).length;\n    assert.equal(broadScansAfterSwipe, broadScansBeforeSwipe + 1, 'settled replacement should receive exactly one deferred dossier scan even when that scan also needs focused relationship evaluation');"
+if old_swipe_assert not in runtime:
+    raise SystemExit('stale swipe raw-call assertion not found')
+runtime = runtime.replace(old_swipe_assert, new_swipe_assert, 1)
 runtime_path.write_text(runtime, encoding='utf-8')
 
 print('v0.2.23 manual relationship repair preserved with rolling-history scrub')
