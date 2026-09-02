@@ -1,0 +1,54 @@
+name: NPC State v0.2.20 Live Delete Gate
+
+on:
+  push:
+    branches: [fix/v0.2.20-hard-pass]
+
+permissions:
+  contents: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Apply live-owner candidate fix
+        run: |
+          python3 -m py_compile tests/v0220-live-delete-patch.py
+          python3 tests/v0220-live-delete-patch.py
+      - name: Ten exact-tree hard passes
+        run: |
+          set -euo pipefail
+          for pass in $(seq 1 10); do
+            echo "===== HARD PASS ${pass}/10 ====="
+            node --check bootstrap.js
+            node --check hardening.js
+            node --check hardening-core.js
+            node --check index.js
+            node --check core.js
+            node --check core-v0218.js
+            node --check branch.js
+            node --check branch-v0218.js
+            node --check bundle.js
+            node --check social.js
+            node --check storage.js
+            node --check identity.js
+            node --check tests/hardening-v0220.test.js
+            git diff --check
+            npm test
+          done
+      - name: Commit verified source only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.js tests/hardening-v0220.test.js
+          git diff --cached --check
+          git commit -m "fix: scope ambiguous deletion proof to live owners"
+          git push origin HEAD:fix/v0.2.20-hard-pass
