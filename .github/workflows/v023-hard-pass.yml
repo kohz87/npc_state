@@ -59,7 +59,34 @@ jobs:
           node --check tests/hardening-v0223.test.js
 
       - name: Diagnostic unit suites
-        run: node --test tests/*.test.js
+        id: unitdiag
+        shell: bash
+        run: |
+          set +e
+          node --test tests/*.test.js > unit.log 2>&1
+          code=$?
+          cat unit.log
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Capture unit failure
+        if: steps.unitdiag.outputs.exit_code != '0'
+        run: |
+          git config user.name "kohz87"
+          git config user.email "83744063+kohz87@users.noreply.github.com"
+          {
+            echo "run=${{ github.run_id }}"
+            echo "head=${{ github.sha }}"
+            echo
+            tail -n 240 unit.log
+          } > .release/unit_failure.txt
+          git add .release/unit_failure.txt
+          git commit -m "chore: capture v0.2.23 unit failure"
+          git push origin HEAD:fix/v0.2.23-cast-reconcile-portrait-save
+
+      - name: Fail after unit diagnostic
+        if: steps.unitdiag.outputs.exit_code != '0'
+        run: exit 1
 
       - name: Diagnostic compatibility
         run: node tests/compatibility-check.js
