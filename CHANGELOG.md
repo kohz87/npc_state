@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.22
+
+- Automatically queues the existing targeted history backfill whenever automatic scanning creates or promotes a dossier, so first-pass memories/profile data no longer depend on a manual Refresh.
+- Lets the isolated same-ID backfill/Refresh workflow seed blank Appearance, Personality, and Speech summaries from its target-only history while preserving broad-scan grounding and every manual profile lock.
+- Scrubs numeric relationship fields from every rolling full-window result, including brand-new NPCs, then evaluates newly admitted NPCs from the current exchange only.
+- Restores low-band mundane relationship progression: fresh directional interactions can move one axis by +/-1 below 25, while the existing 25 milestone still requires meaningful evidence.
+- Removes magic-word requirements for Trust/Affection/Tension evidence while keeping Desire's strict attraction/intimacy firewall.
+- Preserves valid relationship axes when a different proposed axis fails validation instead of zeroing the entire event.
+- Advances settings schema to 28 and migrates only untouched v0.2.21 stock relationship rubrics; user customizations remain authoritative.
+- Adds executable runtime coverage for automatic new-NPC enrichment, five retained memories, current-only relationship scoring, low-band progression, and mixed-axis validation.
+
 ## 0.2.21
 
 - Makes explicit SillyTavern chat owners authoritative during rename/delete resolution; an untracked same-named chat can no longer move or retire another owner's dossier.
