@@ -5,6 +5,7 @@ import {
     STABLE_PROFILE_FIELDS,
     findNpcByReference,
     makeNpcId,
+    normalizeApparentAge,
     normalizeName,
     normalizeNpc,
     normalizeRelationship,
@@ -66,6 +67,49 @@ export function currentExchange(chat = [], assistantMessageId = null) {
     };
 }
 
+function resolvePlayerName(explicit = '', chat = [], assistantMessageId = null) {
+    const direct = compactText(explicit, 160);
+    if (direct) return direct;
+    if (Array.isArray(chat) && chat.length) {
+        const exchange = currentExchange(chat, assistantMessageId);
+        const messageName = compactText(exchange?.user?.name, 160);
+        if (messageName) return messageName;
+    }
+    try {
+        return compactText(globalThis.SillyTavern?.getContext?.()?.name1, 160);
+    } catch {
+        return '';
+    }
+}
+
+function containsNormalizedPhrase(value, phrase) {
+    const haystack = normalizeName(value);
+    const needle = normalizeName(phrase);
+    return Boolean(haystack && needle && ` ${haystack} `.includes(` ${needle} `));
+}
+
+export function keyRelationshipReferencesPlayer(value, playerName = '') {
+    const key = normalizeName(value);
+    if (!key) return false;
+    if (['player', 'user', 'pc'].includes(key)) return true;
+    for (const marker of ['the player', 'player character', 'the player character', 'the user', 'current player', 'current user', 'player persona', 'user persona']) {
+        if (containsNormalizedPhrase(key, marker)) return true;
+    }
+    const playerKey = normalizeName(playerName);
+    return Boolean(playerKey && containsNormalizedPhrase(key, playerKey));
+}
+
+function sanitizePlayerKeyRelationships(npc, playerName = '') {
+    if ((npc?.manualProfileFields || []).includes('keyRelationships')) return npc;
+    const current = Array.isArray(npc?.keyRelationships) ? npc.keyRelationships : [];
+    const filtered = current.filter(item => !keyRelationshipReferencesPlayer(item, playerName));
+    if (filtered.length === current.length) return npc;
+    const next = structuredClone(npc);
+    next.keyRelationships = filtered;
+    next.updatedAt = Math.max(Date.now(), Number(next.updatedAt || 0) + 1);
+    return next;
+}
+
 export function recentHistory(chat = [], assistantMessageId = null, depth = 8) {
     const exchange = currentExchange(chat, assistantMessageId);
     const cutoff = exchange?.user?.id ?? (Number.isInteger(assistantMessageId) ? assistantMessageId : chat.length);
@@ -96,28 +140,31 @@ function rosterForPrompt(state) {
     }));
 }
 
-export function buildScanPrompt({ state, chat, assistantMessageId, scanDepth = 8, relationshipCriteria = '', memoryCriteria = '' }) {
+export function buildScanPrompt({ state, chat, assistantMessageId, scanDepth = 8, relationshipCriteria = '', memoryCriteria = '', playerName = '' }) {
     const exchange = currentExchange(chat, assistantMessageId);
     if (!exchange) throw new Error('NPC State v0.3 scanner requires an assistant message and its preceding user exchange.');
     const history = recentHistory(chat, assistantMessageId, scanDepth);
+    const activePlayerName = resolvePlayerName(playerName, chat, assistantMessageId);
     const contract = {
         exchangeActiveNpcIds: ['existing dossier id OR exact canonical name'],
         finalPresentNpcIds: ['existing dossier id OR exact canonical name'],
         worldActiveNpcIds: ['existing dossier id OR exact canonical name'],
         npcs: [{
             id: 'existing id when known, otherwise empty',
-            name: 'canonical name or unique role label',
-            aliases: [], role: '', species: '', age: '', apparentAge: '', appearance: '', personality: '',
+            name: 'canonical NPC name or unique NPC role label',
+            aliases: [], role: '', species: '', age: '', apparentAge: '~N only, e.g. ~25, or empty', appearance: '', personality: '',
             behaviorProfile: [], speech: '', mannerisms: [], background: '', keyRelationships: [], memories: [],
-            relationshipSummary: '', mood: '', location: '', goal: '', status: '', importance: 0,
+            relationshipSummary: 'NPC relationship with PLAYER only', mood: '', location: '', goal: '', status: '', importance: 0,
             lifeState: 'alive|dead|unknown', lifeStateCertainty: 'explicit|strong|uncertain', lifeStateReason: '', livingReturn: false,
             relationshipChange: { impact: 'none|ordinary|meaningful|major|extreme', delta: { trust: 0, affection: 0, desire: 0, tension: 0 }, evidence: '', reason: '' },
         }],
-        socialEdges: [{ from: 'id/name', to: 'id/name', relation: '', summary: '' }],
+        socialEdges: [{ from: 'NPC id/name only', to: 'NPC id/name only', relation: '', summary: '' }],
     };
     return [
         'You are NPC State v0.3, a private structured continuity scanner for a roleplay chat.',
         'Return JSON only. Never narrate, explain, or wrap the JSON in markdown.',
+        '',
+        `PLAYER IDENTITY:\n${JSON.stringify({ name: activePlayerName })}`,
         '',
         'SEMANTIC RULES:',
         '- exchangeActiveNpcIds: NPCs who SPOKE, ACTED, WERE DIRECTLY ACTED UPON, or DIRECTLY PERCEIVED/RECEIVED a story-relevant event in the CURRENT USER+ASSISTANT exchange.',
@@ -125,8 +172,13 @@ export function buildScanPrompt({ state, chat, assistantMessageId, scanDepth = 8
         '- finalPresentNpcIds: NPCs physically present at the END of the current assistant scene. This is strict physical presence. Off-screen activity does not count.',
         '- worldActiveNpcIds: NPCs explicitly active off-screen in the current world state. Keep this separate from physical presence.',
         '- Every new NPC referenced by those arrays must also have one npcs entry so identity can be created safely.',
+        '- The PLAYER/current USER persona is not an NPC for this scanner, even when named in narration. Never create the PLAYER as an npcs entry.',
+        '- relationship, relationshipSummary, and relationshipChange describe THIS NPC toward the PLAYER. They are the dedicated player-relationship channel.',
+        '- keyRelationships contains significant NON-PLAYER ties only, such as family, friends, rivals, patrons, dependents, or other NPCs. Never include the PLAYER/current USER persona there.',
+        '- socialEdges are NPC-to-NPC only. Never use the PLAYER/current USER persona as an endpoint.',
         '- Current exchange decides relationship changes. Older history may recover stable profile facts and durable memories, but must NEVER replay relationship deltas.',
         '- Only propose a relationshipChange when the current exchange contains concrete evidence. If unsure, use impact none and zero deltas.',
+        '- apparentAge is separate from actual age. When clearly supported, it MUST be one approximate integer written exactly as ~N, for example ~18 or ~25. Never output decade bands, prose bands, or ranges such as twenties, 20s, late twenties, 20-30, or twenties to thirties. If a single numeric apparent age is not supported, leave apparentAge empty.',
         '- Do not infer romance, obedience, hostility, personality, motives, secrets, age, species, or relationships without evidence.',
         '- Confirmed death requires explicit current-timeline evidence. Ambiguous danger/injury is not death.',
         '- livingReturn is true only when a previously archived/dead dossier is explicitly alive, surviving, resurrected, or physically returned.',
@@ -143,21 +195,25 @@ export function buildScanPrompt({ state, chat, assistantMessageId, scanDepth = 8
     ].filter(Boolean).join('\n\n');
 }
 
-export function buildTargetedRefreshPrompt({ npc, chat, assistantMessageId, scanDepth = 12, memoryCriteria = '' }) {
+export function buildTargetedRefreshPrompt({ npc, chat, assistantMessageId, scanDepth = 12, memoryCriteria = '', playerName = '' }) {
     const history = nonSystemMessages(chat)
         .filter(message => !Number.isInteger(assistantMessageId) || message.id <= assistantMessageId)
         .slice(-Math.max(2, Math.min(30, Math.round(Number(scanDepth) || 12))))
         .map(message => ({ id: message.id, role: message.is_user ? 'USER' : 'ASSISTANT', text: compactText(message.mes, 8000) }));
+    const activePlayerName = resolvePlayerName(playerName, chat, assistantMessageId);
     return [
         'You are NPC State v0.3 performing a targeted dossier reconciliation.',
         'Return JSON only using the same object shape shown below.',
+        `PLAYER IDENTITY: ${JSON.stringify({ name: activePlayerName })}`,
         `TARGET DOSSIER: ${JSON.stringify(rosterForPrompt({ npcs: [npc] })[0])}`,
         'Use the supplied chat window to reconcile grounded stable profile facts, current status when supported, durable memories, and key relationships for THIS NPC only.',
+        'The PLAYER/current USER persona is not an NPC. relationshipSummary is this NPC toward the PLAYER; keyRelationships is NON-PLAYER ties only and must never duplicate the PLAYER.',
+        'apparentAge must be one supported numeric approximation formatted exactly as ~N. Never use decade bands, worded age bands, or ranges. Leave it empty if no single numeric apparent age is supported.',
         'Do NOT change relationship scores or propose relationship deltas in a targeted refresh. Do NOT change global physical presence for other NPCs.',
         'If the chat does not establish a field, leave it empty. Never invent facts.',
         memoryCriteria ? `IMPORTANT MEMORY RUBRIC:\n${compactText(memoryCriteria, 6000)}` : '',
         `CHAT WINDOW:\n${JSON.stringify(history)}`,
-        `OUTPUT CONTRACT:\n${JSON.stringify({ exchangeActiveNpcIds: [], finalPresentNpcIds: [], worldActiveNpcIds: [], npcs: [{ id: npc.id, name: npc.name, aliases: [], role: '', species: '', age: '', apparentAge: '', appearance: '', personality: '', behaviorProfile: [], speech: '', mannerisms: [], background: '', keyRelationships: [], memories: [], relationshipSummary: '', mood: '', location: '', goal: '', status: '', importance: 0, lifeState: 'alive|dead|unknown', lifeStateCertainty: '', lifeStateReason: '', livingReturn: false, relationshipChange: { impact: 'none', delta: { trust: 0, affection: 0, desire: 0, tension: 0 }, evidence: '', reason: '' } }], socialEdges: [] })}`,
+        `OUTPUT CONTRACT:\n${JSON.stringify({ exchangeActiveNpcIds: [], finalPresentNpcIds: [], worldActiveNpcIds: [], npcs: [{ id: npc.id, name: npc.name, aliases: [], role: '', species: '', age: '', apparentAge: '~N only or empty', appearance: '', personality: '', behaviorProfile: [], speech: '', mannerisms: [], background: '', keyRelationships: [], memories: [], relationshipSummary: 'NPC relationship with PLAYER only', mood: '', location: '', goal: '', status: '', importance: 0, lifeState: 'alive|dead|unknown', lifeStateCertainty: '', lifeStateReason: '', livingReturn: false, relationshipChange: { impact: 'none', delta: { trust: 0, affection: 0, desire: 0, tension: 0 }, evidence: '', reason: '' } }], socialEdges: [] })}`,
     ].filter(Boolean).join('\n\n');
 }
 
@@ -200,13 +256,15 @@ function createFromPatch(patch, sourceMessageId) {
     });
 }
 
-function applyStablePatch(npc, patch) {
+function applyStablePatch(npc, patch, options = {}) {
     const locked = new Set(npc.manualProfileFields || []);
     const next = structuredClone(npc);
     const stringFields = ['name', 'role', 'species', 'age', 'apparentAge', 'appearance', 'personality', 'speech', 'background'];
     for (const field of stringFields) {
         if (locked.has(field)) continue;
-        const value = String(patch?.[field] ?? '').trim();
+        const value = field === 'apparentAge'
+            ? normalizeApparentAge(patch?.[field])
+            : String(patch?.[field] ?? '').trim();
         if (!value) continue;
         if (field === 'name' && value !== next.name && next.name) next.aliases = appendUnique(next.aliases, [next.name], 10);
         next[field] = value;
@@ -214,7 +272,11 @@ function applyStablePatch(npc, patch) {
     if (!locked.has('aliases')) next.aliases = appendUnique(next.aliases, patch?.aliases, 10);
     if (!locked.has('behaviorProfile')) next.behaviorProfile = Array.isArray(patch?.behaviorProfile) && patch.behaviorProfile.length ? appendUnique([], patch.behaviorProfile, 8) : next.behaviorProfile;
     if (!locked.has('mannerisms')) next.mannerisms = appendUnique(next.mannerisms, patch?.mannerisms, 8);
-    if (!locked.has('keyRelationships')) next.keyRelationships = appendUnique(next.keyRelationships, patch?.keyRelationships, 12);
+    if (!locked.has('keyRelationships')) {
+        const existing = (next.keyRelationships || []).filter(item => !keyRelationshipReferencesPlayer(item, options.playerName));
+        const incoming = (Array.isArray(patch?.keyRelationships) ? patch.keyRelationships : []).filter(item => !keyRelationshipReferencesPlayer(item, options.playerName));
+        next.keyRelationships = appendUnique(existing, incoming, 12);
+    }
     return next;
 }
 
@@ -314,6 +376,9 @@ export function applyScanResult(stateInput, resultInput, options = {}) {
     const preservePresence = options.preservePresence === true;
     const applyRelationship = options.applyRelationship !== false;
     const allowHistoricalProfilePatches = options.allowHistoricalProfilePatches === true;
+    const playerName = resolvePlayerName(options.playerName);
+
+    state.npcs = state.npcs.map(npc => sanitizePlayerKeyRelationships(npc, playerName));
 
     const exchangeRefs = uniqueStrings(result.exchangeActiveNpcIds);
     const presentRefs = uniqueStrings(result.finalPresentNpcIds);
@@ -376,7 +441,7 @@ export function applyScanResult(stateInput, resultInput, options = {}) {
         const patch = patchByNpcId.get(npc.id);
         const canPatch = Boolean(patch && (targetSet.has(npc.id) || allowHistoricalProfilePatches));
         if (canPatch) {
-            npc = applyStablePatch(npc, patch);
+            npc = applyStablePatch(npc, patch, { playerName });
             npc = applyDynamicPatch(npc, patch);
             npc = applyLifeState(npc, patch, options);
             if (applyRelationship && exchangeSet.has(npc.id)) npc = applyRelationshipChange(npc, patch, {
@@ -412,6 +477,7 @@ export function applyScanResult(stateInput, resultInput, options = {}) {
 
     const edgeMap = new Map((state.socialGraph || []).map(edge => [socialEdgeKey(edge), edge]));
     for (const raw of result.socialEdges) {
+        if (keyRelationshipReferencesPlayer(raw?.from, playerName) || keyRelationshipReferencesPlayer(raw?.to, playerName)) continue;
         const from = findNpcByReference(state, raw?.from);
         const to = findNpcByReference(state, raw?.to);
         if (!from || !to || from.id === to.id) continue;
