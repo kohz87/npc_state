@@ -226,14 +226,13 @@ test('legacy state without checkpoints is not destructively erased on first reco
     assert.equal(result.state.npcs[0].name, 'Yunyun');
 });
 
-test('new chat branch can inherit the nearest checkpoint from a known common prefix', () => {
-    const parentChat = [user('A'), assistant('B'), user('C'), assistant('D')];
+test('new chat branch can inherit the nearest checkpoint from a strongly verified common prefix', () => {
+    const parentChat = [user('A'), assistant('B'), user('C'), assistant('D'), user('E')];
     const parent = baseState();
     parent.npcs = [createNpcRecord('Yunyun')];
     recordBranchCheckpoint(parent, parentChat, 1, 'scan');
-    parent.npcs.push(createNpcRecord('Wiz', parent.npcs.map(n => n.id)));
-    recordBranchCheckpoint(parent, parentChat, 3, 'scan');
-    const branchChat = [user('A'), assistant('B'), user('Different continuation')];
+    parent.lineage = chatLineage(parentChat);
+    const branchChat = [user('A'), assistant('B'), user('C'), assistant('D'), user('Different continuation')];
     const inherited = bestAncestorState({ 'chat:parent': parent }, 'chat:branch', branchChat);
     assert.ok(inherited);
     assert.equal(inherited.branchParent, 'chat:parent');

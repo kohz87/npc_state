@@ -1,4 +1,4 @@
-# NPC State v0.2.14 Test Report
+# NPC State v0.2.15 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 
@@ -8,7 +8,7 @@ Target: SillyTavern 1.18.0 extension contract.
 
 The reviewed working tree completed:
 
-- **327/327 Node tests passed**
+- **Full Node test suite passed**
 - SillyTavern 1.18 compatibility/import/event contract passed
 - Megumin Suite isolation and master-block integration checks passed
 - Mocked browser/runtime smoke passed

@@ -28,6 +28,7 @@ const mockState = {
     slashCalls: [],
     uploadCalls: 0,
     uploadBarrier: null,
+    readBarrier: null,
 };
 
 fs.writeFileSync(path.join(tempRoot, 'public', 'scripts', 'extensions.js'), `
@@ -151,7 +152,15 @@ globalThis.fetch = async (url, options = {}) => {
         const existed = mockState.files.delete(body.path);
         return { ok: existed, status: existed ? 200 : 404, text: async () => '' };
     }
-    if (mockState.files.has(url)) return { ok: true, status: 200, text: async () => mockState.files.get(url) };
+    if (mockState.files.has(url)) {
+        const barrier = mockState.readBarrier;
+        if (barrier) {
+            mockState.readBarrier = null;
+            barrier.entered?.();
+            await barrier.promise;
+        }
+        return { ok: true, status: 200, text: async () => mockState.files.get(url) };
+    }
     return { ok: false, status: 404, text: async () => '' };
 };
 
@@ -360,7 +369,7 @@ try {
     await import(pathToFileURL(path.join(extRoot, 'index.js')).href + `?t=${Date.now()}`);
     await sleep(30);
     assert.equal(mounted, true, 'settings panel should mount');
-    assert.equal(globalThis.NPCState?.version, '0.2.14');
+    assert.equal(globalThis.NPCState?.version, '0.2.15');
     assert.ok(mockState.extensionSettings.npc_state, 'settings namespace should initialize');
     assert.equal(mockState.extensionSettings.npc_state.admissionMode, 'conservative');
     assert.equal(mockState.extensionSettings.npc_state.chats, undefined, 'live NPC database should not be stored in extension_settings');
@@ -1140,7 +1149,16 @@ try {
     assert.equal(mockState.extensionSettings.npc_state.dataFiles['chat:smoke-chat'], undefined);
     assert.equal(mockState.files.has(deletedPointer.path), false);
 
-    console.log('Runtime smoke: file persistence, strict presence cards, off-screen World State activity, reversible archive, desire metric, branching, OOC removal, and chat cleanup passed.');
+    // SillyTavern exposes both groupId and the active group chat_id as chatId. Group identity must win.
+    mockState.context.groupId = 'party-1';
+    mockState.context.chatId = 'group-chat-1';
+    mockState.context.getCurrentChatId = () => 'group-chat-1';
+    mockState.context.chat = [{ is_user: false, is_system: false, name: 'Megumin', mes: 'Group opening.' }, { is_user: true, is_system: false, name: 'Kazuma', mes: 'We enter together.' }];
+    eventSource.emit('chat_changed');
+    await sleep(80);
+    assert.equal(globalThis.NPCState.uiStatus().chatKey, 'group:group-chat-1', 'groupId must force the group namespace even when chatId is present');
+
+    console.log('Runtime smoke: file persistence, strict presence cards, off-screen World State activity, reversible archive, desire metric, branching, OOC removal, chat cleanup, and group identity passed.');
 } finally {
     delete globalThis.__npcMock;
     fs.rmSync(tempRoot, { recursive: true, force: true });

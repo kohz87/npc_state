@@ -1,5 +1,18 @@
 # NPC State Changelog
 
+## v0.2.15
+
+### Chat identity, ownership, and recovery hardening
+
+- Corrected SillyTavern group-chat keying so group conversations use `group:<group-chat-id>` even though the host also exposes `chatId`; existing v0.2.14 group state is migrated when safely matched to the active group lineage.
+- Added per-key ownership epochs so hydration and sidecar writes that finish after delete, rename, reset, or ownership transfer are discarded instead of resurrecting stale state.
+- Added durable retired sidecar markers, recovery-file metadata, and tombstones so failed physical deletes and renamed predecessor files cannot be auto-recovered as live dossiers.
+- Added explicit **Detach Broken Sidecar** recovery for genuinely missing/corrupt pointed files while preserving the old pointer in recovery metadata.
+- Strengthened cross-chat branch inheritance to require a longer shared prefix with at least two user-authored messages, and replaced all-library hydration with a bounded branch-index shortlist plus limited legacy discovery.
+- Made rename namespace selection use the SillyTavern `CHAT_RENAMED` event payload rather than whichever chat happens to be active when the async handler resumes.
+- Prevented transient character/group-pending identities from becoming durable state namespaces.
+- Replaced the version-specific CI hardener with version-neutral Node 24 verification and release-consistency tests.
+
 ## v0.2.14
 
 ### Data-safety and runtime-affinity hardening

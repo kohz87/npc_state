@@ -40,7 +40,7 @@ test('legacy label-only deletion groups retain legacy suppression behavior',()=>
   assert.ok(result.state.dismissed.includes('mina'));
 });
 
-test('new branch can inherit a verified message-zero checkpoint from a one-message common prefix',()=>{
+test('one-message common prefix is insufficient for cross-chat inheritance',()=>{
   const shared=user('Shared opening');
   const parentChat=[shared,assistant('Parent continuation')];
   const parent=baseState();
@@ -48,9 +48,7 @@ test('new branch can inherit a verified message-zero checkpoint from a one-messa
   recordBranchCheckpoint(parent,parentChat,0,'opening');
   const childChat=[shared,assistant('Different continuation')];
   const inherited=bestAncestorState({'chat:parent':parent},'chat:child',childChat);
-  assert.ok(inherited);
-  assert.equal(inherited.branchForkMessageId,0);
-  assert.equal(inherited.npcs[0].name,'Mina');
+  assert.equal(inherited,null);
 });
 
 

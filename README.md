@@ -1,4 +1,4 @@
-# NPC State v0.2.14
+# NPC State v0.2.15
 
 NPC State is a standalone SillyTavern extension that maintains persistent, branch-aware NPC dossiers for roleplay. It tracks identity, durable characterization, live state, player relationships, important memories, portraits, and present-scene visibility without depending on Megumin Suite's NPC Bank.
 

@@ -637,9 +637,9 @@ export function bestAncestorState(chats = {}, currentKey = '', currentChat = [])
     for (const [key, state] of Object.entries(chats || {})) {
         if (key === currentKey || !state || !Array.isArray(state.lineage) || !Array.isArray(state.checkpoints)) continue;
         const prefixLength = commonPrefixLength(state.lineage, lineage);
-        if (prefixLength < 1) continue;
+        if (prefixLength < 4) continue;
         const sharedPrefix = (Array.isArray(currentChat) ? currentChat : []).slice(0, prefixLength);
-        if (!sharedPrefix.some(message => message?.is_user)) continue;
+        if (sharedPrefix.filter(message => message?.is_user).length < 2) continue;
         const checkpoints = normalizeBranchCheckpoints(state.checkpoints, state.lineage);
         const checkpoint = checkpoints
             .filter(item => item.messageId < prefixLength && item.lineageKey === currentKeys[item.messageId])

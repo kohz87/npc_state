@@ -2,54 +2,23 @@ name: NPC State CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      apply_v0214_hardening:
-        description: Apply audited v0.2.14 hardening
-        required: false
-        default: false
-        type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
+        uses: actions/checkout@v5
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
-
-      - name: Sync v0.2.14 release docs
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: |
-          sed -i '1s/# NPC State v0\.2\.13/# NPC State v0.2.14/' README.md
-          sed -i '1s/# NPC State v0\.2\.13 Code Review/# NPC State v0.2.14 Code Review/' CODE-REVIEW.md
-          sed -i '1s/# NPC State v0\.2\.13 Test Report/# NPC State v0.2.14 Test Report/' TEST-REPORT.md
-          sed -i 's/\*\*320\/320 Node tests passed\*\*/**327\/327 Node tests passed**/' TEST-REPORT.md
-          git diff --check
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add README.md CODE-REVIEW.md TEST-REPORT.md
-            git commit -m "docs: align release surfaces with v0.2.14"
-            git push origin HEAD:main
-          fi
-
-      - name: Apply v0.2.14 hardening
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_v0214_hardening }}
-        run: python3 .github/scripts/apply_v0214_hardening.py
-
+          node-version: 24
       - name: Syntax and diff check
         run: |
           node --check index.js
@@ -59,41 +28,18 @@ jobs:
           node --check social.js
           node --check storage.js
           git diff --check
-
-      - name: First full hard pass
+      - name: Full verification
         run: npm test
-
-      - name: Adversarial invariant review
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_v0214_hardening }}
+      - name: SillyTavern compatibility contract
+        run: node tests/compatibility-check.js
+      - name: Release consistency
         run: |
-          node --test tests/v0214-hardening.test.js
-          grep -Fq "function setChatState(key, state, { markLoaded = false } = {})" index.js
-          grep -Fq "setChatState(key, sourceState, { markLoaded: true })" index.js
-          grep -Fq "readNpcStateDataFile(newPointer, { expectedChatKey: newKey })" index.js
-          grep -Fq "BACKFILL_MAX_ATTEMPTS = 3" index.js
-          if grep -Fq "settings.dataFiles[newKey] = oldPointer" index.js; then
-            echo "Legacy non-transactional rename remains"
-            exit 1
-          fi
-
-      - name: Second full hard pass
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_v0214_hardening }}
-        run: |
-          npm test
-          node --check index.js
-          node --check core.js
-          git diff --check
-          test "$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")" = "0.2.14"
-
-      - name: Commit verified v0.2.14 hardening
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_v0214_hardening }}
-        run: |
-          if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
-            echo "No hardening changes required"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.js core.js manifest.json CHANGELOG.md tests/package.test.js tests/runtime-smoke.mjs tests/v0214-hardening.test.js
-          git commit -m "fix: harden v0.2.14 runtime data safety"
-          git push origin HEAD:main
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          const core = fs.readFileSync('core.js', 'utf8');
+          const readme = fs.readFileSync('README.md', 'utf8');
+          const escaped = String(manifest.version).replaceAll('.', '\.');
+          if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
+          if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
+          NODE

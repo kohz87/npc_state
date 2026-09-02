@@ -18,6 +18,12 @@ export function makeNpcStateDataFileName(chatKey) {
     return `npc-state-${fnv1a(key)}${fnv1a(`npc-state\0${[...key].reverse().join('')}`)}.json`;
 }
 
+export function makeNpcStateRecoveryFileName(chatKey, generation = Date.now()) {
+    const key = String(chatKey || 'chat');
+    const stamp = Math.max(0, Number(generation) || Date.now()).toString(36);
+    return `npc-state-recovery-${fnv1a(key)}${fnv1a(`npc-state-recovery\0${[...key].reverse().join('')}`)}-${stamp}.json`;
+}
+
 function bytesToBase64(bytes) {
     const input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     const chunkSize = 0x8000;
@@ -61,6 +67,20 @@ export function encodeStateFilePayload(chatKey, state, appVersion = '') {
     return JSON.stringify(payload, null, 2);
 }
 
+export function encodeRetiredStateFilePayload(chatKey, reason = 'retired', appVersion = '') {
+    return JSON.stringify({
+        format: NPC_STATE_FILE_FORMAT,
+        formatVersion: NPC_STATE_FILE_FORMAT_VERSION,
+        appVersion: String(appVersion || ''),
+        chatKey: String(chatKey || ''),
+        updatedAt: new Date().toISOString(),
+        retired: true,
+        retiredAt: new Date().toISOString(),
+        retireReason: String(reason || 'retired').slice(0, 120),
+        state: {},
+    }, null, 2);
+}
+
 export function decodeStateFilePayload(text) {
     let payload;
     try {
@@ -75,6 +95,7 @@ export function decodeStateFilePayload(text) {
     if (!payload.state || typeof payload.state !== 'object' || Array.isArray(payload.state)) {
         throw new Error('NPC State data file is missing its state object.');
     }
+    payload.retired = payload.retired === true;
     return payload;
 }
 
@@ -95,6 +116,25 @@ export async function writeNpcStateDataFile({ chatKey, state, appVersion = '', p
     const result = typeof response.json === 'function' ? await response.json() : {};
     if (!result?.path) throw new Error('NPC State data-file endpoint returned no path.');
     return { name, path: result.path, updatedAt: Date.now() };
+}
+
+export async function retireNpcStateDataFile({ chatKey, pointer = null, reason = 'retired', appVersion = '', fetchFn = globalThis.fetch, headers = {} }) {
+    if (typeof fetchFn !== 'function') throw new Error('fetch() is unavailable for NPC State data-file persistence.');
+    const name = pointer?.name || makeNpcStateDataFileName(chatKey);
+    const json = encodeRetiredStateFilePayload(chatKey, reason, appVersion);
+    const data = bytesToBase64(new TextEncoder().encode(json));
+    const response = await fetchFn('/api/files/upload', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name, data }),
+    });
+    if (!response?.ok) {
+        const detail = typeof response?.text === 'function' ? await response.text() : '';
+        throw new Error(`NPC State data file retirement failed${detail ? `: ${detail}` : ''}.`);
+    }
+    const result = typeof response.json === 'function' ? await response.json() : {};
+    if (!result?.path) throw new Error('NPC State data-file endpoint returned no path while retiring a sidecar.');
+    return { name, path: result.path, updatedAt: Date.now(), retired: true };
 }
 
 export async function readNpcStateDataFile(pointer, { fetchFn = globalThis.fetch, expectedChatKey = '' } = {}) {

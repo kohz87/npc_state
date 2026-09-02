@@ -26,10 +26,10 @@ test('same stock greeting alone never proves cross-chat ancestry', () => {
     assert.equal(inherited, null);
 });
 
-test('shared greeting plus user-authored history can prove branch ancestry', () => {
-    const oldChat = [msg('Welcome, traveler.'), msg('I enter the gate.', true), msg('The guard nods.')];
-    const current = [msg('Welcome, traveler.'), msg('I enter the gate.', true), msg('The guard smiles instead.')];
-    const state = ancestorState(oldChat.slice(0, 2));
+test('shared greeting plus two user-authored turns can prove branch ancestry', () => {
+    const oldChat = [msg('Welcome, traveler.'), msg('I enter the gate.', true), msg('The guard nods.'), msg('I ask for work.', true), msg('The clerk opens a ledger.')];
+    const current = [msg('Welcome, traveler.'), msg('I enter the gate.', true), msg('The guard nods.'), msg('I ask for work.', true), msg('The clerk opens a different ledger.')];
+    const state = ancestorState(oldChat.slice(0, 4));
     state.lineage = chatLineage(oldChat);
     const inherited = bestAncestorState({ 'chat:old': state }, 'chat:new', current);
     assert.ok(inherited);
@@ -57,14 +57,14 @@ test('startup mounts recovery UI machinery before hydration', () => {
 });
 
 test('character fallback cannot become a durable mutation namespace', () => {
-    assert.match(index, /key\.startsWith\('character:'\)/);
-    assert.match(index, /key === 'no-chat' \|\| key\.startsWith\('character:'\) \|\| !chatStateCache/);
+    assert.match(index, /function isCanonicalChatKey/);
+    assert.match(index, /!isCanonicalChatKey\(key\) \|\| !chatStateCache/);
 });
 
-test('rename retains predecessor recovery copy and deterministic recovery probe exists', () => {
+test('rename backs up then retires predecessor and deterministic recovery rejects retired files', () => {
     const rename = index.slice(index.indexOf('async function moveRenamedChatState'), index.indexOf('function flushCurrentChatOnPageHide'));
-    assert.doesNotMatch(rename, /deleteNpcStateDataFile\(oldPointer/);
-    assert.match(rename, /retains the predecessor sidecar as a recovery copy/);
+    assert.match(rename, /makeNpcStateRecoveryFileName\(oldKey\)/);
+    assert.match(rename, /retireNpcStateDataFile/);
     assert.match(index, /recovered deterministic sidecar pointer/);
     assert.match(index, /`\/user\/files\/\$\{recoveryName\}`/);
 });
