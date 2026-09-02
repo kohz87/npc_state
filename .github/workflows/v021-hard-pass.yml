@@ -27,6 +27,7 @@ jobs:
           else
             python3 .release/v021_patch.py
             python3 .release/v021_postfix.py
+            python3 .release/v021_manualfix.py
           fi
       - name: Ten consecutive hard passes
         run: |
@@ -67,8 +68,9 @@ jobs:
           if (!index.includes('resolveDeletedLifecycleKeyFromPresence')) throw new Error('owner-safe delete resolver missing');
           if (!index.includes('runBoundedLifecycleEvent')) throw new Error('bounded engine lifecycle missing');
           if (!hardening.includes('runBoundedHardeningEvent')) throw new Error('bounded hardening lifecycle missing');
-          if (!hardening.includes('HISTORICAL_RENAME_CANDIDATE_LIMIT = 1024')) throw new Error('historical rename bound missing');
+          if (!hardening.includes('HISTORICAL_RENAME_CANDIDATE_LIMIT = 1024')) throw new Error('historical rename batch bound missing');
           if (!storage.includes('continuousRetry = true')) throw new Error('bounded lifecycle write mode missing');
+          if (!index.includes('NPC_STATE_OWNER_FLUSH_INCOMPLETE')) throw new Error('owner flush fail-closed guard missing');
           if (!fs.existsSync('tests/hardening-v0221.test.js')) throw new Error('v0.2.21 regressions missing');
           NODE
       - name: Commit verified candidate
@@ -80,7 +82,7 @@ jobs:
           fi
           git config user.name 'kohz87'
           git config user.email '83744063+kohz87@users.noreply.github.com'
-          git add CHANGELOG.md CODE-REVIEW.md README.md TEST-REPORT.md bootstrap.js core.js hardening-core.js hardening.js index.js manifest.json storage.js tests/hardening-v0220.test.js tests/hardening-v0221.test.js tests/runtime-smoke.mjs tests/migration-smoke.mjs tests/package.test.js tests/compatibility-check.js
+          git add CHANGELOG.md CODE-REVIEW.md README.md TEST-REPORT.md bootstrap.js core.js hardening-core.js hardening.js index.js manifest.json storage.js tests/hardening-v0220.test.js tests/hardening-v0221.test.js tests/runtime-smoke.mjs tests/migration-smoke.mjs tests/package.test.js tests/compatibility-check.js tests/v0214-hardening.test.js tests/v0217-hardening.test.js
           git diff --cached --check
           git commit -m 'release-candidate: v0.2.21 lifecycle ownership hardening'
           git push origin HEAD:fix/v0.2.21-deep-pass
