@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    DEFAULT_PORTRAIT_GENERATION_PROMPT,
+    DEFAULT_PORTRAIT_NEGATIVE_PROMPT,
+    DEFAULT_PORTRAIT_POSITIVE_PROMPT,
     DEFAULT_PORTRAIT_PRESET,
     buildPortraitCharacterBlock,
     buildPortraitPrompt,
+    buildPortraitPrompts,
     normalizePortraitPromptSettings,
 } from '../v03/portrait-prompt.js';
 import { normalizeNpc } from '../v03/schema.js';
@@ -25,14 +27,30 @@ function astra() {
     });
 }
 
-test('portrait prompt settings normalize to a small three-mode schema', () => {
+test('portrait settings normalize to paired positive and negative preset/template channels', () => {
     assert.deepEqual(normalizePortraitPromptSettings({}), {
         portraitPromptMode: 'hybrid',
-        portraitPreset: DEFAULT_PORTRAIT_PRESET,
-        portraitGenerationPrompt: DEFAULT_PORTRAIT_GENERATION_PROMPT,
+        portraitPreset: {
+            positive: DEFAULT_PORTRAIT_PRESET.positive,
+            negative: DEFAULT_PORTRAIT_PRESET.negative,
+        },
+        portraitPositivePrompt: DEFAULT_PORTRAIT_POSITIVE_PROMPT,
+        portraitNegativePrompt: DEFAULT_PORTRAIT_NEGATIVE_PROMPT,
     });
     assert.equal(normalizePortraitPromptSettings({ portraitPromptMode: 'tags' }).portraitPromptMode, 'tags');
     assert.equal(normalizePortraitPromptSettings({ portraitPromptMode: 'anything-else' }).portraitPromptMode, 'hybrid');
+});
+
+test('legacy single preset and generation prompt migrate into the positive side without losing user text', () => {
+    const normalized = normalizePortraitPromptSettings({
+        portraitPromptMode: 'natural',
+        portraitPreset: 'my old positive preset',
+        portraitGenerationPrompt: '{{portraitPreset}} :: {{character}}',
+    });
+    assert.equal(normalized.portraitPreset.positive, 'my old positive preset');
+    assert.equal(normalized.portraitPreset.negative, DEFAULT_PORTRAIT_PRESET.negative);
+    assert.equal(normalized.portraitPositivePrompt, '{{positivePreset}} :: {{character}}');
+    assert.equal(normalized.portraitNegativePrompt, DEFAULT_PORTRAIT_NEGATIVE_PROMPT);
 });
 
 test('natural, tags, and hybrid modes change only the auto-built character block', () => {
@@ -49,52 +67,69 @@ test('natural, tags, and hybrid modes change only the auto-built character block
     assert.match(hybrid, /Appearance:/);
 });
 
-test('generation template resolves preset, character, and direct dossier placeholders', () => {
-    const result = buildPortraitPrompt(astra(), {
+test('paired templates resolve their own presets plus shared dossier placeholders', () => {
+    const result = buildPortraitPrompts(astra(), {
         portraitPromptMode: 'natural',
-        portraitPreset: 'cinematic fantasy portrait',
-        portraitGenerationPrompt: '{{portraitPreset}}\n{{name}} | {{role}}\n{{character}}',
+        portraitPreset: {
+            positive: 'cinematic fantasy portrait',
+            negative: 'blurry, watermark',
+        },
+        portraitPositivePrompt: '{{positivePreset}}\n{{name}} | {{role}}\n{{character}}',
+        portraitNegativePrompt: '{{negativePreset}}, wrong role: {{role}}',
     });
-    assert.match(result, /^cinematic fantasy portrait\nAstra \| Guesthouse Keeper\nPortrait of Astra/);
-    assert.equal(result.includes('{{name}}'), false);
-    assert.equal(result.includes('{{portraitPreset}}'), false);
+    assert.match(result.positive, /^cinematic fantasy portrait\nAstra \| Guesthouse Keeper\nPortrait of Astra/);
+    assert.equal(result.negative, 'blurry, watermark, wrong role: Guesthouse Keeper');
+    assert.match(result.combined, /^POSITIVE\n/);
+    assert.match(result.combined, /\n\nNEGATIVE\n/);
 });
 
-test('free-form templates support tags and hybrid composition without rewriting user text', () => {
-    const tags = buildPortraitPrompt(astra(), {
+test('legacy buildPortraitPrompt helper remains the positive-channel result', () => {
+    const settings = {
         portraitPromptMode: 'tags',
-        portraitPreset: 'anime portrait, clean linework',
-        portraitGenerationPrompt: 'POSITIVE: {{portraitPreset}}, {{character}}',
-    });
-    assert.match(tags, /^POSITIVE: anime portrait, clean linework, Astra, Human/);
-
-    const hybrid = buildPortraitPrompt(astra(), {
-        portraitPromptMode: 'hybrid',
-        portraitPreset: 'painterly fantasy',
-        portraitGenerationPrompt: 'Style: {{portraitPreset}}\nSubject: {{character}}',
-    });
-    assert.match(hybrid, /^Style: painterly fantasy\nSubject: Astra, Human/);
-    assert.match(hybrid, /Appearance:/);
+        portraitPreset: { positive: 'anime portrait', negative: 'bad anatomy' },
+        portraitPositivePrompt: '{{positivePreset}}, {{character}}',
+        portraitNegativePrompt: '{{negativePreset}}',
+    };
+    const pair = buildPortraitPrompts(astra(), settings);
+    assert.equal(buildPortraitPrompt(astra(), settings), pair.positive);
+    assert.match(pair.positive, /^anime portrait, Astra, Human/);
+    assert.equal(pair.negative, 'bad anatomy');
 });
 
-test('unknown placeholders remain visible instead of silently disappearing', () => {
-    const result = buildPortraitPrompt(astra(), {
+test('free-form positive and negative templates are not rewritten beyond placeholder resolution', () => {
+    const result = buildPortraitPrompts(astra(), {
         portraitPromptMode: 'hybrid',
-        portraitPreset: '',
-        portraitGenerationPrompt: '{{name}} {{typoField}}',
+        portraitPreset: { positive: 'painterly fantasy', negative: 'text, watermark' },
+        portraitPositivePrompt: 'Style: {{positivePreset}}\nSubject: {{character}}',
+        portraitNegativePrompt: 'Avoid: {{negativePreset}}',
     });
-    assert.equal(result, 'Astra {{typoField}}');
+    assert.match(result.positive, /^Style: painterly fantasy\nSubject: Astra, Human/);
+    assert.match(result.positive, /Appearance:/);
+    assert.equal(result.negative, 'Avoid: text, watermark');
+});
+
+test('unknown placeholders remain visible in either channel instead of silently disappearing', () => {
+    const result = buildPortraitPrompts(astra(), {
+        portraitPromptMode: 'hybrid',
+        portraitPreset: { positive: '', negative: '' },
+        portraitPositivePrompt: '{{name}} {{typoField}}',
+        portraitNegativePrompt: '{{anotherTypo}}',
+    });
+    assert.equal(result.positive, 'Astra {{typoField}}');
+    assert.equal(result.negative, '{{anotherTypo}}');
 });
 
 test('empty dossier fields resolve cleanly and do not manufacture portrait facts', () => {
     const npc = normalizeNpc({ id: 'npc-quiet', name: 'Quiet Stranger' });
-    const result = buildPortraitPrompt(npc, {
+    const result = buildPortraitPrompts(npc, {
         portraitPromptMode: 'natural',
-        portraitPreset: '',
-        portraitGenerationPrompt: '{{character}}\nSpecies={{species}}\nMood={{mood}}',
+        portraitPreset: { positive: '', negative: '' },
+        portraitPositivePrompt: '{{character}}\nSpecies={{species}}\nMood={{mood}}',
+        portraitNegativePrompt: '{{negativePreset}}',
     });
-    assert.match(result, /^Portrait of Quiet Stranger\./);
-    assert.match(result, /Species=/);
-    assert.match(result, /Mood=/);
-    assert.equal(result.includes('human'), false);
+    assert.match(result.positive, /^Portrait of Quiet Stranger\./);
+    assert.match(result.positive, /Species=/);
+    assert.match(result.positive, /Mood=/);
+    assert.equal(result.positive.includes('human'), false);
+    assert.equal(result.negative, '');
 });
