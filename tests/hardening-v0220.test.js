@@ -131,7 +131,7 @@ test('ambiguous filename deletion uses host ownership proof and never falls back
   const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
   assert.match(index, /async function resolveDeletedChatKey/);
   assert.match(index, /\/api\/characters\/chats/);
-  assert.match(index, /absent\.length === 1 && present\.length === candidates\.length - 1/);
+  assert.match(index, /resolveDeletedLifecycleKeyFromPresence\(candidates, presence\)/);
   assert.match(index, /removeDeletedChatState\(chatId, 'chat', ''\)/);
 });
 
@@ -162,10 +162,12 @@ test('owner-wide retired canonical predecessors are deleted only after settings 
 
 test('ambiguous delete proof considers only live ownership and ignores historical tombstone/recovery records', () => {
   const index = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-  const block = index.slice(index.indexOf('function lifecycleCandidateKeys'), index.indexOf('async function hostCharacterChatPresence'));
-  assert.match(block, /settings\.dataFiles/);
-  assert.match(block, /settings\.branchIndex/);
-  assert.match(block, /settings\.chats/);
-  assert.match(block, /chatStateCache/);
-  assert.doesNotMatch(block, /sidecarTombstones|recoveryFiles/);
+  const wrapper = index.slice(index.indexOf('function lifecycleCandidateKeys'), index.indexOf('async function hostCharacterChatPresence'));
+  assert.match(wrapper, /liveLifecycleCandidateKeys\(getSettings\(\), chatStateCache\.keys\(\), kind, id\)/);
+  const core = fs.readFileSync(new URL('../hardening-core.js', import.meta.url), 'utf8');
+  const block = core.slice(core.indexOf('export function liveLifecycleCandidateKeys'), core.indexOf('export function resolveOwnedLifecycleKey'));
+  assert.match(block, /settings\?\.dataFiles/);
+  assert.match(block, /settings\?\.chats/);
+  assert.doesNotMatch(block, /branchIndex|recoveryFiles/);
+  assert.match(block, /sidecarTombstones/);
 });

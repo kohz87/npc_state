@@ -1,4 +1,12 @@
-# NPC State v0.2.20 Code Review
+# NPC State v0.2.21 Code Review
+
+## v0.2.21 ownership/lifecycle deep-pass hardening
+
+The v0.2.20 post-release deep pass found two wrong-owner same-filename paths: ownerless delete trusted a sole internal candidate without host proof, and explicit-owner rename could fall through to another owner when the requested owner had no state. v0.2.21 centralizes live ownership resolution in pure helpers, excludes tombstone/recovery/branch-index history from live evidence, makes explicit owner identity absolute, and requires authoritative host absence proof for every ownerless destructive delete including the one-candidate case.
+
+Lifecycle event waits are bounded because SillyTavern awaits listeners sequentially. Transactions that exceed the foreground budget remain fail-closed in the background; fast failures receive a delayed retry. Lifecycle-only sidecar writes use bounded retry rather than joining the ordinary endless dirty-write loop. Character-wide rename/delete isolates each chat transaction and always invalidates owner caches in `finally`.
+
+Recovery filenames include a writer token for cross-tab uniqueness, sidecar ISO timestamps are parsed to numeric milliseconds, meaningful branch/social/portrait/inline destination state is protected during rename, historical rename indexing is bounded and rejects partial HTTP indexes, and failed temporary recovery cleanup is queued for later garbage collection. Settings schema is 27.
 
 ## v0.2.20 lifecycle/cache convergence
 

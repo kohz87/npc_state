@@ -1,4 +1,4 @@
-/* NPC State v0.2.19 - lifecycle and durability hardening wrapper */
+/* NPC State v0.2.21 - lifecycle and durability hardening wrapper */
 import { prepareNpcStateHardening } from './hardening.js';
 
 await prepareNpcStateHardening();

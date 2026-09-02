@@ -1,3 +1,16 @@
+# Changelog
+
+## 0.2.21
+
+- Makes explicit SillyTavern chat owners authoritative during rename/delete resolution; an untracked same-named chat can no longer move or retire another owner's dossier.
+- Requires host ownership proof even when NPC State sees only one same-filename candidate, and uses the cheap `simple: true` chat listing.
+- Bounds lifecycle event waits so storage outages cannot stall SillyTavern's sequential event emitter; failed transactions remain fail-closed and retry in the background.
+- Makes recovery filenames cross-tab unique, repairs hydrated pointer timestamps numerically, and bounds lifecycle-only sidecar writes.
+- Isolates character-wide rename/delete failures per chat so one corrupt sidecar cannot abort cleanup for every other chat.
+- Treats branch roots, social graph state, inline cards and portraits as meaningful rename destinations instead of ephemeral empty state.
+- Bounds historical rename indexing, refuses to cache partial HTTP failures, tracks failed temporary recovery cleanup, and advances settings schema to 27.
+- Adds executable v0.2.21 lifecycle ownership/storage regression tests.
+
 ## v0.2.20
 
 - Reunifies chat rename/delete lifecycle with the retained engine cache instead of suppressing cache-aware handlers from an external wrapper.

@@ -71,7 +71,8 @@ export function makeNpcStateDataFileName(chatKey) {
 export function makeNpcStateRecoveryFileName(chatKey, generation = nextRecoveryGeneration()) {
     const key = String(chatKey || 'chat');
     const stamp = Math.max(0, Number(generation) || Date.now()).toString(36);
-    return `npc-state-recovery-${fnv1a(key)}${fnv1a(`npc-state-recovery\0${[...key].reverse().join('')}`)}-${stamp}.json`;
+    const writerToken = fnv1a(String(writerId || 'writer'));
+    return `npc-state-recovery-${fnv1a(key)}${fnv1a(`npc-state-recovery\0${[...key].reverse().join('')}`)}-${stamp}-${writerToken}.json`;
 }
 
 function bytesToBase64(bytes) {
@@ -254,7 +255,7 @@ export function pendingNpcStateDurabilityKeys() {
     return [...durabilityQueue.keys()];
 }
 
-export async function writeNpcStateDataFile({ chatKey, state, appVersion = '', pointer = null, operationKey = '', fetchFn = globalThis.fetch, headers = {}, sleepFn = globalThis.setTimeout }) {
+export async function writeNpcStateDataFile({ chatKey, state, appVersion = '', pointer = null, operationKey = '', fetchFn = globalThis.fetch, headers = {}, sleepFn = globalThis.setTimeout, continuousRetry = true }) {
     if (typeof fetchFn !== 'function') throw new Error('fetch() is unavailable for NPC State data-file persistence.');
     const key = String(chatKey || '');
     const durabilityKey = String(operationKey || key);
@@ -264,7 +265,8 @@ export async function writeNpcStateDataFile({ chatKey, state, appVersion = '', p
         throw error;
     }
     let lastError = null;
-    for (const delay of NPC_STATE_WRITE_RETRY_DELAYS_MS) {
+    const retryDelays = continuousRetry ? NPC_STATE_WRITE_RETRY_DELAYS_MS : [0, 250, 750, 1500];
+    for (const delay of retryDelays) {
         if (delay) await wait(delay, sleepFn);
         try {
             return await guardedWriteOnce({ chatKey: key, state, appVersion, pointer, fetchFn, headers });
@@ -273,6 +275,7 @@ export async function writeNpcStateDataFile({ chatKey, state, appVersion = '', p
             if (!retryableWriteError(error)) throw error;
         }
     }
+    if (!continuousRetry) throw lastError || new Error(`NPC State bounded sidecar write failed for ${key}.`);
     const job = {
         chatKey: key,
         durabilityKey,
@@ -371,7 +374,8 @@ export async function readNpcStateDataFile(pointer, { fetchFn = globalThis.fetch
     if (pointer && typeof pointer === 'object') {
         pointer.revision = Math.max(0, Math.trunc(Number(payload.revision) || 0));
         pointer.writerId = String(payload.writerId || pointer.writerId || '');
-        pointer.updatedAt = Number(payload.updatedAt || pointer.updatedAt || Date.now());
+        const parsedUpdatedAt = Date.parse(String(payload.updatedAt || ''));
+        pointer.updatedAt = Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : (Number(pointer.updatedAt) || Date.now());
         pointer.retired = Boolean(payload.retired);
     }
     return payload;
