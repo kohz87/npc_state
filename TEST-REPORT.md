@@ -1,4 +1,4 @@
-# NPC State v0.2.15 Test Report
+# NPC State v0.2.16 Test Report
 
 Target: SillyTavern 1.18.0 extension contract.
 

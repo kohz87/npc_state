@@ -1,4 +1,4 @@
-# NPC State v0.2.15 Code Review
+# NPC State v0.2.16 Code Review
 
 ## v0.2.13 runtime lifecycle hardening
 
