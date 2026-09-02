@@ -12,7 +12,20 @@ function npc(id, name, patch = {}) {
     return normalizeNpc({ id, name, ...patch });
 }
 
+function relationshipEvent() {
+    return {
+        impact: 'ordinary',
+        delta: { trust: 1, affection: 0, desire: 0, tension: 0 },
+        evidence: 'A grounded interaction.',
+        reason: 'Trust increased.',
+        sourceMessageId: 39,
+        turn: 18,
+        at: 1700000000000,
+    };
+}
+
 function state(patch = {}) {
+    const event = relationshipEvent();
     return normalizeState({
         chatKey: 'chat:source',
         npcs: [
@@ -20,11 +33,14 @@ function state(patch = {}) {
                 memories: ['Saved the player at Glassdock.'],
                 relationship: { trust: 22, affection: 8, desire: 0, tension: -2 },
                 relationshipSummary: 'Trusted companion.',
+                relationshipHistory: [event],
+                lastRelationshipChange: event,
                 portrait: { dataUrl: 'data:image/png;base64,AAAA', prompt: 'portrait prompt' },
                 archived: true,
                 archiveReason: 'manual',
                 retentionProtected: true,
                 lastActivityTurn: 30,
+                lastActivityMessageId: 39,
                 firstSeenMessageId: 2,
                 lastSeenMessageId: 38,
                 lastInteractionMessageId: 39,
@@ -71,7 +87,7 @@ test('selected NPC export keeps one dossier and only social edges touching that 
     assert.deepEqual(bundle.data.deletedNpcIds, []);
 });
 
-test('bundle parser requires stable IDs, rejects duplicate identities, and drops unknown dossier fields', () => {
+test('bundle parser requires stable IDs, required collection arrays, unique identities, and drops unknown dossier fields', () => {
     const bundle = createNpcStateBundle(state(), { sourceNarrativeTurn: 40 });
     bundle.data.npcs[0].pendingBackfills = [{ bad: true }];
     const parsed = parseNpcStateBundle(JSON.stringify(bundle));
@@ -84,9 +100,24 @@ test('bundle parser requires stable IDs, rejects duplicate identities, and drops
     const duplicateName = structuredClone(bundle);
     duplicateName.data.npcs[1].name = 'Astra';
     assert.throws(() => parseNpcStateBundle(duplicateName), /canonical name/);
+
+    for (const key of ['npcs', 'socialGraph', 'suppressedNames', 'deletedNpcIds']) {
+        const malformed = structuredClone(bundle);
+        delete malformed.data[key];
+        assert.throws(() => parseNpcStateBundle(malformed), new RegExp(`data\\.${key} must be an array`));
+    }
 });
 
-test('cross-chat selected import preserves dossier data, rebases inactivity, clears chat-local message ids, and resolves available social edges', () => {
+test('bundle validation never silently truncates a large dossier collection', () => {
+    const npcs = Array.from({ length: 501 }, (_, index) => npc(`npc-${index}`, `NPC ${index}`));
+    const source = normalizeState({ chatKey: 'chat:large', npcs }, 'chat:large');
+    const bundle = createNpcStateBundle(source, { sourceNarrativeTurn: 1 });
+    const parsed = parseNpcStateBundle(bundle);
+    assert.equal(bundle.data.npcs.length, 501);
+    assert.equal(parsed.data.npcs.length, 501);
+});
+
+test('cross-chat selected import preserves durable dossier data, rebases inactivity, and clears source-chat provenance', () => {
     const bundle = createNpcStateBundle(state(), { npcId: 'npc-astra', sourceNarrativeTurn: 40 });
     const target = normalizeState({ chatKey: 'chat:target', npcs: [npc('npc-neri', 'Neri')] }, 'chat:target');
     const imported = applyNpcStateBundleImport(target, bundle, { mode: 'merge', currentNarrativeTurn: 100 });
@@ -103,10 +134,32 @@ test('cross-chat selected import preserves dossier data, rebases inactivity, cle
     assert.equal(astra.firstSeenMessageId, null);
     assert.equal(astra.lastSeenMessageId, null);
     assert.equal(astra.lastInteractionMessageId, null);
+    assert.equal(astra.lastActivityMessageId, null);
+    assert.equal(astra.lastRelationshipChange.sourceMessageId, null);
+    assert.equal(astra.lastRelationshipChange.turn, null);
+    assert.equal(astra.relationshipHistory[0].sourceMessageId, null);
+    assert.equal(astra.relationshipHistory[0].turn, null);
     assert.equal(astra.present, false);
     assert.equal(astra.worldActive, false);
     assert.equal(imported.state.socialGraph.length, 1);
     assert.equal(imported.state.socialGraph[0].sourceMessageId, null);
+});
+
+test('same-chat restore preserves valid message provenance and absolute stale turn while clearing live presence', () => {
+    const bundle = createNpcStateBundle(state(), { sourceNarrativeTurn: 40 });
+    const target = normalizeState({ chatKey: 'chat:source', npcs: [npc('npc-local', 'Local')] }, 'chat:source');
+    const imported = applyNpcStateBundleImport(target, bundle, { mode: 'replace', currentNarrativeTurn: 100 });
+    assert.equal(imported.ok, true);
+    const astra = imported.state.npcs.find(item => item.id === 'npc-astra');
+    assert.equal(astra.lastActivityTurn, 30, 'same-chat narrative turn coordinate remains valid');
+    assert.equal(astra.lastActivityMessageId, 39);
+    assert.equal(astra.firstSeenMessageId, 2);
+    assert.equal(astra.lastSeenMessageId, 38);
+    assert.equal(astra.lastRelationshipChange.sourceMessageId, 39);
+    assert.equal(astra.lastRelationshipChange.turn, 18);
+    assert.equal(astra.present, false);
+    assert.equal(astra.worldActive, false);
+    assert.equal(imported.state.socialGraph[0].sourceMessageId, 39);
 });
 
 test('matching stable IDs are deliberate: keep is default and replace can import dossier data without changing live presence', () => {
