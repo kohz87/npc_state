@@ -6,6 +6,7 @@ on:
       - fix/v0.2.23-cast-reconcile-portrait-save
     paths:
       - .release/apply_v023.py
+      - .release/fix_apply_v023.py
       - .github/workflows/v023-hard-pass.yml
   workflow_dispatch:
 
@@ -28,7 +29,9 @@ jobs:
           node-version: 22
 
       - name: Apply candidate patch
-        run: python3 .release/apply_v023.py
+        run: |
+          python3 .release/fix_apply_v023.py
+          python3 .release/apply_v023.py
 
       - name: Upload candidate snapshot
         uses: actions/upload-artifact@v4
