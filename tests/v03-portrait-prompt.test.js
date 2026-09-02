@@ -119,6 +119,17 @@ test('unknown placeholders remain visible in either channel instead of silently 
     assert.equal(result.negative, '{{anotherTypo}}');
 });
 
+test('intentionally blank positive or negative templates remain blank', () => {
+    const result = buildPortraitPrompts(astra(), {
+        portraitPreset: { positive: 'positive preset', negative: 'negative preset' },
+        portraitPositivePrompt: '',
+        portraitNegativePrompt: '',
+    });
+    assert.equal(result.positive, '');
+    assert.equal(result.negative, '');
+    assert.equal(result.combined, 'POSITIVE\n\n\nNEGATIVE');
+});
+
 test('empty dossier fields resolve cleanly and do not manufacture portrait facts', () => {
     const npc = normalizeNpc({ id: 'npc-quiet', name: 'Quiet Stranger' });
     const result = buildPortraitPrompts(npc, {
