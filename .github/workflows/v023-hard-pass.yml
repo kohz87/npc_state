@@ -9,6 +9,7 @@ on:
       - .release/fix_apply_v023_v2.py
       - .release/post_v023_pass1.py
       - .release/post_v023_pass2.py
+      - .release/post_v023_pass3.py
       - .github/workflows/v023-hard-pass.yml
   workflow_dispatch:
 
@@ -36,6 +37,7 @@ jobs:
           python3 .release/apply_v023.py
           python3 .release/post_v023_pass1.py
           python3 .release/post_v023_pass2.py
+          python3 .release/post_v023_pass3.py
 
       - name: Upload candidate snapshot
         uses: actions/upload-artifact@v4
@@ -50,7 +52,9 @@ jobs:
             tests/runtime-smoke.mjs
             tests/package.test.js
             tests/hardening-v0223.test.js
+            tests/hardening-v0222.test.js
             tests/v0214-hardening.test.js
+            tests/ui-layout.test.js
           retention-days: 2
 
       - name: Syntax and diff check
@@ -134,7 +138,7 @@ jobs:
         run: |
           git config user.name "kohz87"
           git config user.email "83744063+kohz87@users.noreply.github.com"
-          git add index.js core.js manifest.json README.md CHANGELOG.md tests/runtime-smoke.mjs tests/package.test.js tests/v0214-hardening.test.js tests/hardening-v0223.test.js
+          git add index.js core.js manifest.json README.md CHANGELOG.md tests/runtime-smoke.mjs tests/package.test.js tests/v0214-hardening.test.js tests/hardening-v0222.test.js tests/hardening-v0223.test.js tests/ui-layout.test.js
           git diff --cached --quiet && { echo "No candidate changes to commit"; exit 1; }
           git commit -m "release: v0.2.23 cast reconciliation and portrait settings"
           git push origin HEAD:fix/v0.2.23-cast-reconcile-portrait-save
