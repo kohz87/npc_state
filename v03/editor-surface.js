@@ -1,8 +1,8 @@
 /* NPC State v0.3 dossier/editor surface coordinator.
-   Some mobile browsers composite overlapping fixed + backdrop-filter surfaces
-   unreliably. The dossier library and editor therefore never remain mounted
-   together during an Edit transition. The existing ui.js Edit handler remains
-   authoritative for constructing/saving the editor. */
+   The canonical dossier and editor should not remain as overlapping fixed
+   surfaces on mobile. The normal ui.js Edit handler stays authoritative: this
+   coordinator waits until that handler has actually mounted the editor before
+   removing the dossier surface. */
 
 const LIBRARY_ID = 'npc_state_v3_library_overlay';
 const EDITOR_ID = 'npc_state_v3_editor_overlay';
@@ -43,15 +43,20 @@ function removeLibrarySurface(library) {
     globalThis.document?.body?.classList?.remove('npc-state-v3-library-open');
 }
 
-function scheduleLibraryReturn({ errorMessage = '' } = {}) {
+function failEditTransition() {
+    clearMountTimer();
+    pendingReturn = null;
+    editorSeen = false;
+    notify('error', 'NPC State: the dossier editor did not mount. The dossier was left open.');
+}
+
+function scheduleLibraryReturn() {
     if (!pendingReturn) return false;
     const returning = pendingReturn;
     pendingReturn = null;
     editorSeen = false;
     clearMountTimer();
     clearRestoreTimer();
-
-    if (errorMessage) notify('error', errorMessage);
 
     restoreTimer = setTimeout(() => {
         restoreTimer = null;
@@ -68,14 +73,22 @@ function scheduleLibraryReturn({ errorMessage = '' } = {}) {
     return true;
 }
 
-function watchEditorState() {
-    if (!pendingReturn || !globalThis.document) return;
+function confirmEditorMounted() {
+    if (!pendingReturn || !globalThis.document) return false;
     const editor = globalThis.document.getElementById(EDITOR_ID);
-    if (editor) {
+    if (!editor) return false;
+    if (!editorSeen) {
         editorSeen = true;
         clearMountTimer();
-        return;
+        removeLibrarySurface(pendingReturn.library);
+        pendingReturn.library = null;
     }
+    return true;
+}
+
+function watchEditorState() {
+    if (!pendingReturn || !globalThis.document) return;
+    if (confirmEditorMounted()) return;
     if (editorSeen) scheduleLibraryReturn();
 }
 
@@ -91,25 +104,15 @@ function beginEditTransition(button) {
 
     clearMountTimer();
     clearRestoreTimer();
-    pendingReturn = { npcId, chatKey: currentChatKey() };
+    pendingReturn = { npcId, chatKey: currentChatKey(), library };
     editorSeen = false;
 
-    /* Capture phase runs before ui.js's button listener. Removing the library
-       here prevents overlapping fixed/backdrop-filter compositor layers while
-       the already-bound target listener continues the same click dispatch and
-       calls openEditor(npcId). */
-    removeLibrarySurface(library);
-
+    /* This listener runs in capture phase only to remember the intended return
+       dossier. It deliberately leaves the DOM untouched so the already-bound
+       ui.js target listener can receive the same click and call openEditor(). */
     mountTimer = setTimeout(() => {
         mountTimer = null;
-        const editor = globalThis.document?.getElementById?.(EDITOR_ID);
-        if (editor) {
-            editorSeen = true;
-            return;
-        }
-        scheduleLibraryReturn({
-            errorMessage: 'NPC State: the dossier editor did not mount. The dossier was restored instead of failing silently.',
-        });
+        if (!confirmEditorMounted()) failEditTransition();
     }, MOUNT_TIMEOUT_MS);
     return true;
 }
