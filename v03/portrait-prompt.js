@@ -163,7 +163,7 @@ function placeholderValues(npc = {}, settings = {}) {
 }
 
 function renderTemplate(template, values) {
-    const rendered = String(template || '').replace(/\{\{\s*([A-Za-z][A-Za-z0-9]*)\s*\}\}/g, (match, key) => (
+    const rendered = String(template ?? '').replace(/\{\{\s*([A-Za-z][A-Za-z0-9]*)\s*\}\}/g, (match, key) => (
         Object.hasOwn(values, key) ? values[key] : match
     ));
     return rendered
@@ -178,8 +178,8 @@ function renderTemplate(template, values) {
 export function buildPortraitPrompts(npc = {}, settings = {}) {
     const normalized = normalizePortraitPromptSettings(settings);
     const values = placeholderValues(npc, normalized);
-    const positive = renderTemplate(normalized.portraitPositivePrompt || DEFAULT_PORTRAIT_POSITIVE_PROMPT, values);
-    const negative = renderTemplate(normalized.portraitNegativePrompt || DEFAULT_PORTRAIT_NEGATIVE_PROMPT, values);
+    const positive = renderTemplate(normalized.portraitPositivePrompt, values);
+    const negative = renderTemplate(normalized.portraitNegativePrompt, values);
     const combined = [
         `POSITIVE\n${positive}`,
         `NEGATIVE\n${negative}`,
