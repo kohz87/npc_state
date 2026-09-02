@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.23 — Cast reconciliation and portrait-settings persistence
+
+- When automatic scanning creates or promotes an NPC, every active dossier is considered for a deep recent-history reconciliation sweep; evidence-free dossiers become cheap no-ops while relevant dossiers receive the existing targeted five-memory/profile backfill.
+- Current-exchange relationship targeting no longer depends on the broad scanner returning that NPC. An existing NPC who acts early in a response is still evaluated even when the response later moves to another location/cast.
+- Existing relationship targets are processed in bounded batches of four until every relevant target is covered instead of truncating at four total.
+- Existing NPCs explicitly mentioned in the current exchange but omitted by the broad scanner receive a silent targeted continuity repair so memories and durable dossier changes are not lost.
+- One failed queued backfill no longer starves the rest of a cast sweep; each queued dossier gets one bounded attempt per processing cycle.
+- Portrait generation settings now use an explicit Save Portrait Settings transaction. Draft edits and Reset remain unsaved until Save succeeds, and Save uses SillyTavern's immediate host settings persistence rather than a debounce-only write.
+- Added regression coverage for scene-transition relationship targeting, cast-wide new-NPC reconciliation, important-memory recovery, and portrait-settings host persistence.
+
 ## 0.2.22
 
 - Automatically queues the existing targeted history backfill whenever automatic scanning creates or promotes a dossier, so first-pass memories/profile data no longer depend on a manual Refresh.

@@ -145,7 +145,9 @@ test('rolling full-window relationships are scrubbed for new and existing NPCs',
 
 test('runtime wires auto enrichment and post-admission relationship repair', () => {
     const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-    assert.match(source, /queueNpcBackfillInState\(nextState, npc\.id, npc\.name, targetMessageId, \{ preserveLiveState: true \}\)/);
+    assert.match(source, /queueNpcBackfillInState\(nextState, npc\.id, npc\.name, targetMessageId/);
+    assert.match(source, /deepSweep: true/);
+    assert.match(source, /silent: true/);
     assert.match(source, /for \(let offset = 0; offset < newTargets\.length; offset \+= 4\)/);
     assert.match(source, /preserveLiveState: item\?\.preserveLiveState === true/);
     assert.match(source, /discarded stale dossier scan after new-NPC relationship evaluation/);
@@ -155,5 +157,5 @@ test('runtime wires auto enrichment and post-admission relationship repair', () 
     assert.match(source, /finalNpc\.seenCount = Number\(liveBeforeBackfill\.seenCount \|\| 0\)/);
     assert.match(source, /targetedMemoryLimit = \/\(\?:backfill\|chat refresh\)\/i/);
     assert.match(source, /const reasonPresent = Boolean\(String\(normalized\.relationshipChangeReason/);
-    assert.match(source, /schemaVersion: 28/);
+    assert.match(source, /schemaVersion: 29/);
 });
