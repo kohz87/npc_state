@@ -2,7 +2,7 @@ name: NPC State CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v0.3.0-rewrite]
   pull_request:
   workflow_dispatch:
 
@@ -22,35 +22,30 @@ jobs:
       - name: Syntax and diff check
         run: |
           node --check bootstrap.js
-          node --check hardening.js
-          node --check hardening-core.js
-          node --check index.js
-          node --check core.js
-          node --check core-v0218.js
-          node --check branch.js
-          node --check branch-v0218.js
-          node --check bundle.js
-          node --check social.js
-          node --check storage.js
-          node --check identity.js
-          node --check tests/hardening-v0219.test.js
-          node --check tests/hardening-v0220.test.js
+          for file in v03/*.js tests/v03-*.test.js; do node --check "$file"; done
           git diff --check
-      - name: Full verification
+      - name: v0.3 behavioral verification
         run: npm test
       - name: Release consistency
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-          const core = fs.readFileSync('core.js', 'utf8');
+          const schema = fs.readFileSync('v03/schema.js', 'utf8');
           const readme = fs.readFileSync('README.md', 'utf8');
           const bootstrap = fs.readFileSync('bootstrap.js', 'utf8');
           const escaped = String(manifest.version).replaceAll('.', '\\.');
-          if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(core)) throw new Error('core version does not match manifest');
+          if (!new RegExp(`NPC_STATE_VERSION = ['\"]${escaped}['\"]`).test(schema)) throw new Error('v03 schema version does not match manifest');
           if (!readme.startsWith(`# NPC State v${manifest.version}`)) throw new Error('README version does not match manifest');
           if (manifest.js !== 'bootstrap.js') throw new Error('manifest must load bootstrap.js');
-          const prepareAt = bootstrap.indexOf('await prepareNpcStateHardening()');
-          const engineAt = bootstrap.indexOf("await import('./index.js')");
-          if (prepareAt < 0 || engineAt < 0 || prepareAt > engineAt) throw new Error('hardening must initialize before the retained engine');
+          if (manifest.css !== 'v03/style.css') throw new Error('manifest must load v0.3 stylesheet');
+          if (!bootstrap.includes("await import('./v03/index.js')")) throw new Error('bootstrap must load only the v0.3 runtime');
+          for (const forbidden of ['./index.js', './hardening.js', './enhancements.js']) {
+            if (bootstrap.includes(forbidden)) throw new Error(`bootstrap still loads legacy runtime: ${forbidden}`);
+          }
+          const v3Files = fs.readdirSync('v03').filter(name => name.endsWith('.js'));
+          for (const name of v3Files) {
+            const text = fs.readFileSync(`v03/${name}`, 'utf8');
+            if (/pendingBackfills|fullCastScanEveryTurn/.test(text)) throw new Error(`legacy runtime concept leaked into v03/${name}`);
+          }
           NODE
