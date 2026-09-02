@@ -26,7 +26,7 @@ test('settings migration batches historical changes into one save', () => {
 });
 
 test('sidecar persistence writes immutable snapshots until the latest version is durable', () => {
-    const body = functionBody(index, 'async function flushStateFile', '\nfunction persist()');
+    const body = functionBody(index, 'async function flushStateFile', '\nfunction persist(');
     assert.match(body, /while \(chatStateCache\.has\(key\)\)/);
     assert.match(body, /const snapshot = structuredClone\(getChatState\(key\)\)/);
     assert.match(body, /persistedVersions\.set\(key, writeVersion\)/);

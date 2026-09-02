@@ -483,7 +483,7 @@ function assertChatHydratedForWrite(key = getChatKey()) {
 }
 
 function requireReadyChatMutation(action = 'modify NPC State', key = getChatKey(), { notify = true } = {}) {
-    if (!key || key === 'no-chat') {
+    if (!key || key === 'no-chat' || key.startsWith('character:')) {
         if (notify) globalThis.toastr?.warning?.(`NPC State: open a chat before attempting to ${action}.`);
         return false;
     }
@@ -524,9 +524,26 @@ async function ensureChatStateLoaded(key = getChatKey()) {
     if (loadingChatStates.has(key)) return loadingChatStates.get(key);
     const task = (async () => {
         const settings = getSettings();
-        const pointer = settings.dataFiles?.[key] || null;
-        let loaded = null;
-        if (pointer?.path) {
+        let pointer = settings.dataFiles?.[key] || null;
+        let recoveredState = null;
+        if (!pointer?.path && (key.startsWith('chat:') || key.startsWith('group:'))) {
+            const recoveryName = makeNpcStateDataFileName(key);
+            const recoveryPointer = { name: recoveryName, path: `/user/files/${recoveryName}` };
+            try {
+                const recovered = await readNpcStateDataFile(recoveryPointer, { expectedChatKey: key });
+                if (recovered?.state) {
+                    recoveredState = recovered.state;
+                    pointer = recoveryPointer;
+                    settings.dataFiles[key] = recoveryPointer;
+                    persistSettings();
+                    console.info(`[NPC State] recovered deterministic sidecar pointer for ${key}.`);
+                }
+            } catch (error) {
+                if (!/404|not found/i.test(String(error?.message || error))) console.debug(`[NPC State] deterministic sidecar recovery skipped for ${key}.`, error);
+            }
+        }
+        let loaded = recoveredState;
+        if (pointer?.path && !loaded) {
             let lastError = null;
             for (let attempt = 0; attempt < 3 && !loaded; attempt += 1) {
                 try {
@@ -593,7 +610,7 @@ function markStateDirty(key = getChatKey()) {
 }
 
 function queueStateFileWrite(key = getChatKey(), delay = STATE_WRITE_DELAY) {
-    if (!key || key === 'no-chat' || !chatStateCache.has(key)) return;
+    if (!key || key === 'no-chat' || key.startsWith('character:') || !chatStateCache.has(key)) return;
     if (chatHydrationStatus(key) !== 'ready') {
         console.warn(`[NPC State] refused to queue an unhydrated state write for ${key}.`);
         return;
@@ -663,8 +680,7 @@ async function settleStateFileWrite(key, { flush = false } = {}) {
     return getSettings().dataFiles?.[key] || null;
 }
 
-function persist() {
-    const key = getChatKey();
+function persist(key = getChatKey()) {
     if (!requireReadyChatMutation('save chat dossier changes', key, { notify: false })) {
         console.warn(`[NPC State] refused to persist unhydrated chat state for ${key}.`);
         return false;
@@ -725,7 +741,9 @@ function mergeBranchOptions(base = {}, incoming = {}) {
 }
 
 function queueSettledSwipeReconcile(options = {}) {
-    let next = { reason: 'message-swiped', rescan: true, ...options };
+    const originKey = options.chatKey || getChatKey();
+    if (originKey === 'no-chat') return;
+    let next = { reason: 'message-swiped', rescan: true, ...options, chatKey: originKey };
 
     // A normal branch timer must never be allowed to fire inside SillyTavern's swipe window.
     // Fold it into the swipe settlement instead.
@@ -746,6 +764,12 @@ function queueSettledSwipeReconcile(options = {}) {
 
     const poll = async () => {
         if (sequence !== swipeSettlementSequence) return;
+        if (getChatKey() !== originKey) {
+            swipeSettlementTimer = null;
+            swipeSettlementPending = null;
+            deferredSwipeMessageId = null;
+            return;
+        }
         if (isHostSwipeActive()) {
             if (Date.now() - startedAt >= SWIPE_SETTLE_TIMEOUT_MS) {
                 swipeSettlementTimer = null;
@@ -795,11 +819,14 @@ async function maybeInheritKnownBranch() {
     const key = getChatKey();
     if (key === 'no-chat') return false;
     await ensureChatStateLoaded(key);
+    if (getChatKey() !== key) return false;
     const current = getChatState(key);
     const chat = getContext().chat || [];
+    const lineageAtStart = chatLineage(chat);
     const isEmptyState = !current.npcs.length && !current.candidates.length && !current.dismissed.length && !current.checkpoints.length && !current.lineage.length;
-    if (!isEmptyState || chat.length < 1) return false;
+    if (!isEmptyState || chat.length < 2 || !chat.some(message => message?.is_user)) return false;
     await ensureKnownChatStatesLoaded();
+    if (getChatKey() !== key || firstLineageDivergence(lineageAtStart, chatLineage(getContext().chat || [])) !== -1) return false;
     const inherited = bestAncestorState(Object.fromEntries(chatStateCache.entries()), key, chat);
     if (!inherited) return false;
     setChatState(key, { ...freshChatState(), ...inherited });
@@ -807,31 +834,36 @@ async function maybeInheritKnownBranch() {
     return true;
 }
 
-async function reconcileCurrentBranch({ explicitDivergence = null, rescan = true, processOocMessageId = null, reason = 'branch' } = {}) {
-    const key = getChatKey();
-    if (key === 'no-chat') return null;
+async function reconcileCurrentBranch({ explicitDivergence = null, rescan = true, processOocMessageId = null, reason = 'branch', chatKey = null } = {}) {
+    const key = chatKey || getChatKey();
+    if (key === 'no-chat' || getChatKey() !== key) return null;
     const ctx = getContext();
     await ensureChatStateLoaded(key);
+    if (getChatKey() !== key) return null;
     const before = getChatState(key);
     seedBranchTracking(before);
+    const lineageBefore = chatLineage(ctx.chat || []);
     const result = reconcileBranchState(before, ctx.chat || [], { explicitDivergence });
+    if (getChatKey() !== key || firstLineageDivergence(lineageBefore, chatLineage(getContext().chat || [])) !== -1) return null;
     if (!result.invalidated) {
         before.lineage = result.state.lineage;
         return result;
     }
 
     setChatState(key, result.state);
-    persist();
+    persist(key);
     renderDossier();
     updateInjection();
 
     if (Number.isInteger(processOocMessageId) && (ctx.chat || [])[processOocMessageId]?.is_user) {
+        if (getChatKey() !== key) return result;
         processOocCommands(processOocMessageId);
     }
 
     const targetAssistant = findLatestAssistantAtOrAfter(result.divergence);
     if (rescan && !result.exactRestored && getSettings().branchRescan !== false && targetAssistant >= 0) {
-        if (isScanBusy(key)) queueBranchRescan(targetAssistant);
+        if (getChatKey() !== key) return result;
+        if (isScanBusy(key)) queueBranchRescan(targetAssistant, 0, key);
         else await scanNow({ manual: false, messageId: targetAssistant });
     }
     return result;
@@ -839,8 +871,20 @@ async function reconcileCurrentBranch({ explicitDivergence = null, rescan = true
 
 function queuePendingAutoScan(chatKey, messageId, reason = 'automatic') {
     if (!chatKey || chatKey === 'no-chat' || !Number.isInteger(messageId) || messageId < 0) return false;
+    const chat = getContext().chat || [];
+    const message = chat[messageId];
+    if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()) return false;
+    const lineage = chatLineage(chat);
+    const queued = {
+        chatKey,
+        messageId,
+        reason,
+        queuedAt: Date.now(),
+        fingerprint: fingerprintMessage(message),
+        lineageKey: lineageCheckpointKey(lineage, messageId),
+    };
     const previous = pendingAutoScans.get(chatKey);
-    if (!previous || messageId >= previous.messageId) pendingAutoScans.set(chatKey, { chatKey, messageId, reason, queuedAt: Date.now() });
+    if (!previous || messageId >= previous.messageId) pendingAutoScans.set(chatKey, queued);
     return true;
 }
 
@@ -848,8 +892,14 @@ async function drainPendingAutoScan(chatKey) {
     if (!chatKey || getChatKey() !== chatKey || isScanBusy(chatKey) || isHostSwipeActive()) return false;
     const pending = pendingAutoScans.get(chatKey);
     if (!pending) return false;
-    const message = (getContext().chat || [])[pending.messageId];
-    if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()) {
+    const chat = getContext().chat || [];
+    const message = chat[pending.messageId];
+    const lineage = chatLineage(chat);
+    const currentFingerprint = message ? fingerprintMessage(message) : '';
+    const currentLineageKey = lineageCheckpointKey(lineage, pending.messageId);
+    if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()
+        || pending.fingerprint !== currentFingerprint
+        || pending.lineageKey !== currentLineageKey) {
         pendingAutoScans.delete(chatKey);
         return false;
     }
@@ -872,6 +922,11 @@ function queueBranchReconcile(options = {}, delay = 90) {
         return;
     }
     let next = { ...options };
+    if (branchReconcilePending?.chatKey && branchReconcilePending.chatKey !== originKey) {
+        if (branchReconcileTimer) clearTimeout(branchReconcileTimer);
+        branchReconcileTimer = null;
+        branchReconcilePending = null;
+    }
     if (branchReconcilePending) next = mergeBranchOptions(branchReconcilePending, next);
     branchReconcilePending = next;
     if (branchReconcileTimer) clearTimeout(branchReconcileTimer);
@@ -967,11 +1022,9 @@ async function moveRenamedChatState(eventData = {}) {
         persistedVersions.set(newKey, Number(stateVersions.get(newKey) || 0));
         persistSettings();
 
-        // Phase 3: old storage becomes cleanup only; failure here cannot invalidate the rename.
-        if (oldPointer?.path && oldPointer.path !== newPointer.path) {
-            try { await deleteNpcStateDataFile(oldPointer, { headers: requestHeaders() }); }
-            catch (error) { console.warn(`[NPC State] renamed state is safe, but the old sidecar could not be deleted for ${oldKey}.`, error); }
-        }
+        // Phase 3 intentionally retains the predecessor sidecar as a recovery copy. The new-key
+        // deterministic file can recover a lost debounced settings pointer, while the old file is
+        // harmless because no active chat mapping points to it.
         return Boolean(installed);
     } catch (error) {
         console.warn(`[NPC State] transactional rename failed for ${oldKey}; original mapping was preserved.`, error);
@@ -4460,6 +4513,14 @@ function registerEvents() {
 
     if (events.CHAT_CHANGED) {
         source.on(events.CHAT_CHANGED, async () => {
+            if (branchReconcileTimer) clearTimeout(branchReconcileTimer);
+            branchReconcileTimer = null;
+            branchReconcilePending = null;
+            if (swipeSettlementTimer) clearTimeout(swipeSettlementTimer);
+            swipeSettlementTimer = null;
+            swipeSettlementPending = null;
+            deferredSwipeMessageId = null;
+            swipeSettlementSequence += 1;
             closePortraitGenerator();
             closeNpcViewer();
             closeNpcEditor();
@@ -4498,15 +4559,6 @@ async function init() {
     }
     initialized = true;
     getSettings();
-    await migrateLegacyChatStates();
-    const key = getChatKey();
-    if (key !== 'no-chat') {
-        await ensureChatStateLoaded(key);
-        if (getChatKey() === key) {
-            await maybeInheritKnownBranch();
-            if (getChatKey() === key) seedBranchTracking(getChatState(key));
-        }
-    }
     bindUi();
     installUiCaptureBridge();
     registerEvents();
@@ -4514,6 +4566,22 @@ async function init() {
     globalThis.addEventListener?.('pagehide', flushCurrentChatOnPageHide);
     globalThis.document?.addEventListener?.('visibilitychange', () => { if (globalThis.document?.visibilityState === 'hidden') flushCurrentChatOnPageHide(); });
     scheduleSettingsMountRetries();
+
+    const key = getChatKey();
+    try {
+        await migrateLegacyChatStates();
+        if (getChatKey() !== key) return;
+        if (key !== 'no-chat') {
+            await ensureChatStateLoaded(key);
+            if (getChatKey() !== key) return;
+            await maybeInheritKnownBranch();
+            if (getChatKey() !== key) return;
+            seedBranchTracking(getChatState(key));
+        }
+    } catch (error) {
+        console.error('[NPC State] startup hydration failed; extension remains mounted in read-only recovery mode.', error);
+        if (getChatKey() === key) renderDossier();
+    }
     updateInjection();
     console.log(`[NPC State] v${NPC_STATE_VERSION} loaded`);
 }

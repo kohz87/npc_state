@@ -23,10 +23,11 @@ test('bundle import reports skipped capacity and only clears deletion state for 
   assert.match(source,/existing active dossiers were preserved/);
 });
 
-test('manual trash removes narrative name suppression and branch inheritance accepts message zero',()=>{
+test('manual trash removes narrative name suppression and branch inheritance requires user-authored provenance',()=>{
   assert.match(source,/const permanentLabels = new Set/);
   assert.match(source,/working\.dismissed = .*?working\.dismissed/s);
-  assert.match(source,/chat\.length < 1/);
+  assert.match(source,/chat\.length < 2/);
+  assert.match(source,/chat\.some\(message => message\?\.is_user\)/);
 });
 
 
