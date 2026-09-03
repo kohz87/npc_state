@@ -14,6 +14,7 @@ import {
 } from './portrait-prompt.js';
 import { createPortraitPromptUi } from './portrait-ui.js';
 import { DEFAULT_RELATIONSHIP_CAPS, DOSSIER_LIMIT_DEFAULTS, NPC_STATE_VERSION, normalizeDossierLimits } from './schema.js';
+import { runSharedQuietGeneration } from './shared-generation-queue.js';
 import { createStaleManagementUi } from './stale-ui.js';
 import { createNpcStateUi } from './ui.js';
 
@@ -131,13 +132,13 @@ function notify(kind, message) {
 async function generateJson({ systemPrompt, prompt, responseLength }) {
     const ctx = getContext();
     if (typeof ctx.generateRaw !== 'function') throw new Error('SillyTavern generateRaw() is unavailable.');
-    return ctx.generateRaw({
+    return runSharedQuietGeneration('npc-state-scan', () => ctx.generateRaw({
         systemPrompt,
         prompt,
         quietToLoud: false,
         instructOverride: true,
         responseLength,
-    });
+    }));
 }
 
 function updateInjection() {
