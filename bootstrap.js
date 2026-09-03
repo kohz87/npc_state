@@ -32,7 +32,17 @@ if (!document.getElementById('npc_state_v3_editor_flex_fix')) {
 }`;
     document.head.appendChild(style);
 }
+const settingsResponsiveHref = new URL('./v03/settings-responsive.css', import.meta.url).href;
+if (!document.querySelector('link[data-npc-state-settings-responsive]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = settingsResponsiveHref;
+    link.dataset.npcStateSettingsResponsive = '1';
+    document.head.appendChild(link);
+}
 await import('./v03/index.js');
+const { startSettingsLayoutCoordinator } = await import('./v03/settings-layout.js');
+startSettingsLayoutCoordinator();
 const { startManualOperationFeedback } = await import('./v03/manual-operation-feedback.js');
 startManualOperationFeedback();
 const { startEditorTopLayerBridge } = await import('./v03/editor-top-layer.js');
