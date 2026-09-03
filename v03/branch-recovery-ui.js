@@ -37,6 +37,13 @@ function hostForBanner() {
     return panel?.querySelector?.('.npc-state-v3-tracking-section') || panel?.querySelector?.('.npc-state-drawer') || null;
 }
 
+function placeBanner(host, banner) {
+    if (!host || !banner || banner.parentElement === host) return;
+    const heading = host.querySelector?.('.npc-state-v3-settings-card-title');
+    if (heading?.nextSibling) host.insertBefore(banner, heading.nextSibling);
+    else host.prepend?.(banner);
+}
+
 async function rebaseCurrentChat() {
     if (running) return;
     const current = state();
@@ -74,18 +81,22 @@ export function renderBranchRecoveryUi() {
         existing?.remove?.();
         return false;
     }
+
     const kind = String(current.branchSafety?.kind || '');
     let banner = existing;
     if (!banner) {
         banner = globalThis.document.createElement('div');
         banner.id = BANNER_ID;
-        const heading = host.querySelector?.('.npc-state-v3-settings-card-title');
-        if (heading?.nextSibling) host.insertBefore(banner, heading.nextSibling);
-        else host.prepend?.(banner);
     }
-    banner.dataset.running = running ? '1' : '0';
-    banner.innerHTML = `<b>Timeline rebase required</b><small>${messageForKind(kind)} Durable dossiers are intact. Rebase only if the remaining chat is now the canon you want to keep.</small><div class="npc-state-v3-branch-recovery-actions"><button type="button" class="menu_button npc-state-v3-rebase-current"><i class="fa-solid fa-code-branch"></i> ${running ? 'Rebasing...' : 'Rebase to current chat'}</button></div>`;
-    banner.querySelector('.npc-state-v3-rebase-current')?.addEventListener('click', rebaseCurrentChat);
+    placeBanner(host, banner);
+
+    const renderKey = `${kind}|${running ? '1' : '0'}`;
+    if (banner.dataset.renderKey !== renderKey) {
+        banner.dataset.renderKey = renderKey;
+        banner.dataset.running = running ? '1' : '0';
+        banner.innerHTML = `<b>Timeline rebase required</b><small>${messageForKind(kind)} Durable dossiers are intact. Rebase only if the remaining chat is now the canon you want to keep.</small><div class="npc-state-v3-branch-recovery-actions"><button type="button" class="menu_button npc-state-v3-rebase-current"><i class="fa-solid fa-code-branch"></i> ${running ? 'Rebasing...' : 'Rebase to current chat'}</button></div>`;
+        banner.querySelector('.npc-state-v3-rebase-current')?.addEventListener('click', rebaseCurrentChat);
+    }
     return true;
 }
 
