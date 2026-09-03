@@ -1,4 +1,4 @@
-/* NPC State v0.3.1 - clean runtime bootstrap */
+/* NPC State v0.3.2 - clean runtime bootstrap */
 if (!document.getElementById('npc_state_v3_editor_flex_fix')) {
     const style = document.createElement('style');
     style.id = 'npc_state_v3_editor_flex_fix';
@@ -45,6 +45,8 @@ const { startSettingsLayoutCoordinator } = await import('./v03/settings-layout.j
 startSettingsLayoutCoordinator();
 const { startRelationshipHistoryUi } = await import('./v03/relationship-history-ui.js');
 startRelationshipHistoryUi();
+const { startBranchRecoveryUi } = await import('./v03/branch-recovery-ui.js');
+startBranchRecoveryUi();
 const { startManualOperationFeedback } = await import('./v03/manual-operation-feedback.js');
 startManualOperationFeedback();
 const { startEditorTopLayerBridge } = await import('./v03/editor-top-layer.js');

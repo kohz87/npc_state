@@ -88,7 +88,7 @@ export function createNpcStateUi(adapters = {}) {
 
     function settingsHtml() {
         return `<div id="${SETTINGS_ID}" class="extension_container npc-state-extension npc-state-v3-settings">
-          <div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>NPC State <span class="npc-state-version">v0.3.1</span></b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
+          <div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>NPC State <span class="npc-state-version">v0.3.2</span></b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
           <div class="inline-drawer-content npc-state-drawer">
             <div class="npc-state-intro">v0.3 uses one current-exchange scanner transaction. Exchange participation, strict final physical presence, and off-screen world activity are independent signals. Existing v0.2 sidecars are imported once into a separate v0.3 file and never rewritten.</div>
             <div class="npc-state-settings-grid">
@@ -166,6 +166,7 @@ export function createNpcStateUi(adapters = {}) {
             if (id < 0) return notify('info', 'NPC State: there is no assistant message to scan yet.');
             const result = await safely('current-cast scan', () => engine.scan(id, { manual: true, force: true }));
             if (result.ok) notify('success', `NPC State: reconciled ${result.targetNpcIds?.length || 0} current-cast dossier${result.targetNpcIds?.length === 1 ? '' : 's'}.`);
+            else if (!result.discarded && result.reason === 'branch-unsafe') notify('warning', 'NPC State: timeline rebase required. Open NPC State settings and choose Rebase to current chat.');
             else if (!result.discarded) notify('warning', `NPC State scan did not commit: ${result.reason || 'unknown reason'}.`);
             refresh();
         });
@@ -330,7 +331,7 @@ export function createNpcStateUi(adapters = {}) {
             event.currentTarget.disabled = true;
             const result = await safely('dossier scan', () => engine.refreshDossier(id));
             event.currentTarget.disabled = false;
-            notify(result.ok ? 'success' : 'warning', result.ok ? 'NPC State: dossier reconciled from recent chat without replaying relationship deltas.' : `NPC State: dossier scan did not commit (${result.reason || 'unknown'}).`);
+            notify(result.ok ? 'success' : 'warning', result.ok ? 'NPC State: dossier reconciled from recent chat without replaying relationship deltas.' : (result.reason === 'branch-unsafe' ? 'NPC State: timeline rebase required. Open NPC State settings and choose Rebase to current chat.' : `NPC State: dossier scan did not commit (${result.reason || 'unknown'}).`));
             refresh();
         });
         root.querySelector('.npc-state-v3-archive')?.addEventListener('click', async event => {

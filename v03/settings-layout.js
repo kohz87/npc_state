@@ -1,4 +1,4 @@
-/* NPC State v0.3.1 responsive settings layout coordinator.
+/* NPC State v0.3.2 responsive settings layout coordinator.
    This module only reorganizes existing settings DOM. It moves live nodes rather
    than recreating controls, so the authoritative listeners owned by ui.js and the
    feature modules stay attached. */

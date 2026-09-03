@@ -1,4 +1,4 @@
-export const NPC_STATE_VERSION = '0.3.1';
+export const NPC_STATE_VERSION = '0.3.2';
 export const NPC_STATE_SCHEMA_VERSION = 1;
 export const RELATIONSHIP_AXES = Object.freeze(['trust', 'affection', 'desire', 'tension']);
 export const STABLE_PROFILE_FIELDS = Object.freeze([
@@ -222,7 +222,7 @@ export function createEmptyState(chatKey = '') {
         checkpoints: [],
         branchBase: null,
         branchHeadLineage: [],
-        branchSafety: { status: 'safe', reason: '' },
+        branchSafety: { status: 'safe', kind: '', reason: '' },
         migration: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -257,7 +257,14 @@ export function normalizeState(input = {}, chatKey = '') {
         }
         : null;
     const rawSafety = input.branchSafety && typeof input.branchSafety === 'object' ? input.branchSafety : {};
-    const branchSafetyStatus = ['safe', 'prebaseline-diverged'].includes(String(rawSafety.status)) ? String(rawSafety.status) : 'safe';
+    const rawSafetyStatus = String(rawSafety.status || 'safe');
+    const branchSafetyStatus = rawSafetyStatus === 'prebaseline-diverged'
+        ? 'rebase-required'
+        : (['safe', 'rebase-required'].includes(rawSafetyStatus) ? rawSafetyStatus : 'safe');
+    const rawSafetyKind = String(rawSafety.kind || '');
+    const branchSafetyKind = ['prebaseline-truncation', 'prebaseline-rewrite', 'legacy-prebaseline-divergence'].includes(rawSafetyKind)
+        ? rawSafetyKind
+        : (rawSafetyStatus === 'prebaseline-diverged' ? 'legacy-prebaseline-divergence' : '');
     return {
         ...base,
         schemaVersion: NPC_STATE_SCHEMA_VERSION,
@@ -282,6 +289,7 @@ export function normalizeState(input = {}, chatKey = '') {
         branchHeadLineage: Array.isArray(input.branchHeadLineage) ? input.branchHeadLineage.map(value => String(value || '')).filter(Boolean) : [],
         branchSafety: {
             status: branchSafetyStatus,
+            kind: branchSafetyStatus === 'safe' ? '' : branchSafetyKind,
             reason: text(rawSafety.reason, 500),
         },
         migration: input.migration && typeof input.migration === 'object' ? structuredClone(input.migration) : null,

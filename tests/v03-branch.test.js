@@ -45,7 +45,7 @@ test('branch divergence before the v0.3 baseline fails closed instead of trustin
     const reconciled = reconcileToCurrentBranch(state, changedChat);
     assert.equal(reconciled.changed, true);
     assert.equal(reconciled.unsafeDivergence, true);
-    assert.equal(reconciled.state.branchSafety.status, 'prebaseline-diverged');
+    assert.equal(reconciled.state.branchSafety.status, 'rebase-required');
     assert.equal(reconciled.state.npcs[0].present, false);
     assert.equal(reconciled.state.npcs[0].worldActive, false);
     assert.equal(reconciled.state.lastScannedMessageId, null);

@@ -1,4 +1,4 @@
-import { bestCheckpoint, ensureBranchBase, fingerprintMessage, reconcileToCurrentBranch, recordCheckpoint } from './branches.js';
+import { bestCheckpoint, ensureBranchBase, fingerprintMessage, rebaseToCurrentChat, reconcileToCurrentBranch, recordCheckpoint } from './branches.js';
 import {
     applyNpcStateBundleImport,
     bundleSuggestedFilename,
@@ -36,7 +36,7 @@ import {
 } from './stale.js';
 import { readV3PointerHint, readV3Sidecar, writeV3Sidecar } from './storage.js';
 
-const SYSTEM_PROMPT = 'Return only valid JSON for the NPC State v0.3.1 structured scanner. Obey the supplied schema and evidence rules exactly.';
+const SYSTEM_PROMPT = 'Return only valid JSON for the NPC State v0.3.2 structured scanner. Obey the supplied schema and evidence rules exactly.';
 
 function latestAssistantMessageId(chat = []) {
     for (let i = chat.length - 1; i >= 0; i -= 1) {
@@ -189,7 +189,7 @@ export function createNpcStateEngine(adapters = {}) {
         return exclusive(chatKey, async () => {
             const state = await loadChat(chatKey);
             if (!state) return { ok: false, reason: 'no-state' };
-            if (state.branchSafety?.status === 'prebaseline-diverged') return { ok: false, reason: 'branch-unsafe', messageId };
+            if (state.branchSafety?.status !== 'safe') return { ok: false, reason: 'branch-unsafe', messageId };
             if (!force && state.lastScannedMessageId === messageId) return { ok: true, skipped: true, reason: 'already-scanned', messageId };
             const ctx = getContext();
             const chat = ctx.chat || [];
@@ -490,7 +490,7 @@ export function createNpcStateEngine(adapters = {}) {
         invalidate(chatKey);
         return exclusive(chatKey, async () => {
             const state = normalizeState(await loadChat(chatKey), chatKey);
-            if (state.branchSafety?.status === 'prebaseline-diverged') return { ok: false, reason: 'branch-unsafe' };
+            if (state.branchSafety?.status !== 'safe') return { ok: false, reason: 'branch-unsafe' };
             const chat = getContext().chat || [];
             const messageId = latestAssistantMessageId(chat);
             const imported = applyNpcStateBundleImport(state, bundleInput, {
@@ -512,25 +512,39 @@ export function createNpcStateEngine(adapters = {}) {
         });
     }
 
-    async function reconcileBranch({ rescan = false } = {}) {
+    async function reconcileBranch({ rescan = false, rebase = false } = {}) {
         const chatKey = getChatKey();
         if (!chatKey || chatKey === 'no-chat') return { ok: false, reason: 'no-chat' };
         invalidate(chatKey);
         let result;
         await exclusive(chatKey, async () => {
             const state = await loadChat(chatKey);
-            const reconciled = reconcileToCurrentBranch(state, getContext().chat || []);
+            const chat = getContext().chat || [];
+            if (rebase) {
+                const rebased = rebaseToCurrentChat(state, chat);
+                const persisted = await persist(chatKey, rebased);
+                result = {
+                    ok: true,
+                    changed: true,
+                    rebased: true,
+                    unsafeDivergence: false,
+                    checkpoint: persisted.branchBase || null,
+                    state: structuredClone(persisted),
+                };
+                return;
+            }
+            const reconciled = reconcileToCurrentBranch(state, chat);
             if (!reconciled.changed) {
-                result = { ok: true, changed: false, unsafeDivergence: false, checkpoint: bestCheckpoint(state, getContext().chat || []) };
+                result = { ok: true, changed: false, unsafeDivergence: false, checkpoint: bestCheckpoint(state, chat) };
                 return;
             }
             const persisted = await persist(chatKey, reconciled.state);
             result = { ok: true, changed: true, unsafeDivergence: reconciled.unsafeDivergence === true, checkpoint: reconciled.checkpoint, state: structuredClone(persisted) };
         });
         if (result?.unsafeDivergence) return result;
-        if (rescan && getSettings().branchRescan !== false) {
+        if (rescan && (rebase || getSettings().branchRescan !== false)) {
             const id = latestAssistantMessageId(getContext().chat || []);
-            if (id >= 0) result.rescan = await scan(id, { manual: false, force: true });
+            if (id >= 0) result.rescan = await scan(id, { manual: rebase === true, force: true });
         }
         return result;
     }
