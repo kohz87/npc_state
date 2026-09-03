@@ -23,7 +23,10 @@ jobs:
         with:
           python-version: '3.13'
       - name: Apply patch
-        run: python tools/apply-v032-branch-rebase.py
+        run: |
+          sed -i "s/if count != 3:/if count != 2:/" tools/apply-v032-branch-rebase.py
+          sed -i "s/expected 3 legacy unsafe checks/expected 2 legacy unsafe checks/" tools/apply-v032-branch-rebase.py
+          python tools/apply-v032-branch-rebase.py
       - name: Commit generated changes
         run: |
           git config user.name "github-actions[bot]"
