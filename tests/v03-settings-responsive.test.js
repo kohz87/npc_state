@@ -76,3 +76,19 @@ test('tablet landscape gains paired settings while narrower tablet remains singl
     const baseTracking = css.slice(css.indexOf('.npc-state-v3-settings .npc-state-v3-tracking-grid'), css.indexOf('.npc-state-v3-settings .npc-state-setting-row'));
     assert.match(baseTracking, /grid-template-columns:1fr/);
 });
+
+test('nested stale bundle and portrait settings also collapse by panel width', () => {
+    const tablet = css.slice(css.indexOf('@container (max-width:899px)'), css.indexOf('@container (min-width:700px)'));
+    for (const selector of [
+        'npc-state-v3-stale-thresholds',
+        'npc-state-v3-bundle-export-grid',
+        'npc-state-v3-bundle-import-options',
+        'npc-state-v3-portrait-control-grid',
+        'npc-state-v3-portrait-preset-pair',
+        'npc-state-v3-portrait-template-pair',
+        'npc-state-v3-portrait-preview-pair',
+    ]) {
+        assert.match(tablet, new RegExp(selector));
+    }
+    assert.match(tablet, /grid-template-columns:1fr!important/);
+});
