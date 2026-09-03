@@ -63,8 +63,14 @@ async function rebaseCurrentChat() {
         if (result.rescan?.ok) globalThis.toastr?.success?.('NPC State: timeline rebased and the latest surviving exchange was scanned.');
         else globalThis.toastr?.success?.('NPC State: timeline rebased. No surviving assistant exchange needed a scan.');
     } catch (error) {
-        console.error('[NPC State v0.3.2] timeline rebase failed safely', error);
-        globalThis.toastr?.error?.(`NPC State: timeline rebase failed without replacing your durable dossiers. ${error?.message || error}`);
+        const rebasedState = state();
+        if (rebasedState?.branchSafety?.status === 'safe') {
+            console.warn('[NPC State v0.3.2] timeline rebase committed, but the follow-up scan failed', error);
+            globalThis.toastr?.warning?.(`NPC State: timeline rebased successfully, but the latest exchange scan failed. Use Scan current cast to retry. ${error?.message || error}`);
+        } else {
+            console.error('[NPC State v0.3.2] timeline rebase failed safely', error);
+            globalThis.toastr?.error?.(`NPC State: timeline rebase failed without replacing your durable dossiers. ${error?.message || error}`);
+        }
     } finally {
         running = false;
         if (toast && globalThis.toastr?.clear) globalThis.toastr.clear(toast);
