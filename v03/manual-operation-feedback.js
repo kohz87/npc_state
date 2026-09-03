@@ -50,7 +50,6 @@ function beginProgressToast(message) {
 function markButtonBusy(button, label) {
     if (!button) return () => {};
     const originalHtml = button.innerHTML;
-    const originalDisabled = Boolean(button.disabled);
     const originalAriaBusy = button.getAttribute?.('aria-busy');
     button.disabled = true;
     button.setAttribute?.('aria-busy', 'true');
@@ -58,7 +57,10 @@ function markButtonBusy(button, label) {
     return () => {
         if (!button.isConnected) return;
         button.innerHTML = originalHtml;
-        button.disabled = originalDisabled;
+        // A button that emitted this click was enabled before the authoritative
+        // target handler ran. Refresh itself may disable it before bubble phase,
+        // so do not preserve that transient disabled snapshot.
+        button.disabled = false;
         if (originalAriaBusy == null) button.removeAttribute?.('aria-busy');
         else button.setAttribute?.('aria-busy', originalAriaBusy);
     };
