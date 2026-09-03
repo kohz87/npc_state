@@ -25,7 +25,7 @@ function npcBlock(npc) {
 }
 
 export function buildInjection(state, settings = {}) {
-    if (state?.branchSafety?.status === 'prebaseline-diverged') return '';
+    if (state?.branchSafety?.status && state.branchSafety.status !== 'safe') return '';
     if (settings.enabled === false || settings.inject === false) return '';
     const limit = Math.max(1, Math.min(20, Math.round(Number(settings.injectLimit) || 6)));
     const budgetTokens = Math.max(256, Math.min(8000, Math.round(Number(settings.injectBudgetTokens) || 1800)));
