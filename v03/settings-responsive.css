@@ -157,6 +157,20 @@
     scrollbar-width:thin;
     padding-bottom:.18em;
   }
+  .npc-state-v3-settings .npc-state-v3-stale-thresholds,
+  .npc-state-v3-settings .npc-state-v3-bundle-export-grid,
+  .npc-state-v3-settings .npc-state-v3-bundle-import-options,
+  .npc-state-v3-settings .npc-state-v3-portrait-control-grid,
+  .npc-state-v3-settings .npc-state-v3-portrait-preset-pair,
+  .npc-state-v3-settings .npc-state-v3-portrait-template-pair,
+  .npc-state-v3-settings .npc-state-v3-portrait-preview-pair{
+    grid-template-columns:1fr!important;
+  }
+  .npc-state-v3-settings .npc-state-v3-portrait-settings .npc-state-v3-portrait-control-row,
+  .npc-state-v3-settings .npc-state-v3-portrait-name-field{
+    grid-template-columns:1fr!important;
+    gap:7px;
+  }
 }
 
 /* Tablet landscape / generous tablet drawer: paired controls. */
@@ -210,4 +224,11 @@
   .npc-state-v3-settings #npc_state_v3_roster_summary>.npc-state-muted{font-size:.78em}
   .npc-state-v3-settings .npc-state-roster-chips{margin-top:.32em;gap:.28em}
   .npc-state-v3-settings .npc-state-v3-roster-open{padding:.34em .48em;font-size:.88em}
+  .npc-state-v3-settings .npc-state-v3-portrait-intro,
+  .npc-state-v3-settings .npc-state-v3-portrait-field-head>small,
+  .npc-state-v3-settings .npc-state-v3-portrait-card-head small{display:none}
+  .npc-state-v3-settings .npc-state-v3-portrait-settings-body{gap:8px!important}
+  .npc-state-v3-settings .npc-state-v3-portrait-card{gap:8px;padding:8px}
+  .npc-state-v3-settings .npc-state-v3-portrait-settings .npc-state-v3-portrait-control-row,
+  .npc-state-v3-settings .npc-state-v3-portrait-name-field{padding:8px}
 }
