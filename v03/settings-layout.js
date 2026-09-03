@@ -140,7 +140,7 @@ function ensurePortrait(drawer) {
     if (!section) return null;
     section.classList.add('npc-state-v3-settings-card', 'npc-state-v3-portrait-group');
     const label = section.querySelector('summary b');
-    if (label) label.textContent = 'Portraits';
+    if (label && label.textContent !== 'Portraits') label.textContent = 'Portraits';
     return section;
 }
 
