@@ -1,7 +1,6 @@
 export const RELATIONSHIP_HISTORY_DEFAULT = 8;
 export const RELATIONSHIP_HISTORY_MIN = 1;
-export const RELATIONSHIP_HISTORY_MAX = 8;
-export const RELATIONSHIP_HISTORY_STORAGE_MAX = 24;
+export const RELATIONSHIP_HISTORY_MAX = 24;
 
 export function normalizeRelationshipHistoryLimit(value) {
     const number = Math.round(Number(value));
