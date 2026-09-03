@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { runSharedQuietGeneration, sharedQuietGenerationStatus } from '../v03/shared-generation-queue.js';
+import {
+    runSharedQuietGeneration,
+    setSharedQuietGenerationBlocked,
+    sharedQuietGenerationStatus,
+} from '../v03/shared-generation-queue.js';
 
 const indexSource = readFileSync(new URL('../v03/index.js', import.meta.url), 'utf8');
 
@@ -33,6 +37,22 @@ test('shared quiet generation queue serializes overlapping extension calls', asy
     assert.equal(maxActive, 1);
     assert.deepEqual(order, ['first:start', 'first:end', 'second:start', 'second:end']);
     assert.equal(sharedQuietGenerationStatus().queuedCount, 0);
+});
+
+test('shared external blocker holds queued work until reconciliation releases it', async () => {
+    setSharedQuietGenerationBlocked('inventory-block', true);
+    let started = false;
+    const pending = runSharedQuietGeneration('npc-state', async () => {
+        started = true;
+        return 7;
+    });
+    await delay(10);
+    assert.equal(started, false);
+    assert.deepEqual(sharedQuietGenerationStatus().blockers, ['inventory-block']);
+    setSharedQuietGenerationBlocked('inventory-block', false);
+    assert.equal(await pending, 7);
+    assert.equal(started, true);
+    assert.deepEqual(sharedQuietGenerationStatus().blockers, []);
 });
 
 test('a failed hidden generation does not poison later queued work', async () => {
