@@ -102,16 +102,16 @@ function relationshipAxis(label, value, axis) {
 }
 
 function relationshipHistoryHtml(npc = {}) {
-    const rows = Array.isArray(npc.relationshipHistory) ? npc.relationshipHistory.slice(-8).reverse() : [];
+    const rows = Array.isArray(npc.relationshipHistory) ? npc.relationshipHistory.slice(-24).reverse() : [];
     if (!rows.length) return '<p class="npc-state-muted">No relationship change history yet.</p>';
-    return `<ol class="npc-state-v3-history-list">${rows.map(event => {
+    return `<ol class="npc-state-v3-history-list">${rows.map((event, index) => {
         const delta = Object.entries(event?.delta || {})
             .filter(([, value]) => Number(value))
             .map(([key, value]) => `${key} ${Number(value) > 0 ? '+' : ''}${Number(value)}`)
             .join(', ');
         const impact = escapeHtml(event?.impact || 'ordinary');
         const reason = String(event?.reason || '').trim();
-        return `<li><div><b>${impact}</b><span>${escapeHtml(delta || 'no score change')}</span></div>${reason ? `<p>${escapeHtml(reason)}</p>` : ''}</li>`;
+        return `<li${index >= 8 ? ' hidden' : ''}><div><b>${impact}</b><span>${escapeHtml(delta || 'no score change')}</span></div>${reason ? `<p>${escapeHtml(reason)}</p>` : ''}</li>`;
     }).join('')}</ol>`;
 }
 
