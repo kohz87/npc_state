@@ -1,4 +1,4 @@
-/* NPC State v0.3.0 - clean runtime */
+/* NPC State v0.3.1 - clean runtime */
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../../script.js';
 import { createBundleManagementUi } from './bundle-ui.js';
@@ -13,7 +13,7 @@ import {
     normalizePortraitPromptSettings,
 } from './portrait-prompt.js';
 import { createPortraitPromptUi } from './portrait-ui.js';
-import { DEFAULT_RELATIONSHIP_CAPS, NPC_STATE_VERSION } from './schema.js';
+import { DEFAULT_RELATIONSHIP_CAPS, DOSSIER_LIMIT_DEFAULTS, NPC_STATE_VERSION, normalizeDossierLimits } from './schema.js';
 import { createStaleManagementUi } from './stale-ui.js';
 import { createNpcStateUi } from './ui.js';
 
@@ -54,6 +54,7 @@ const V3_DEFAULTS = Object.freeze({
     portraitPreset: DEFAULT_PORTRAIT_PRESET,
     portraitPositivePrompt: DEFAULT_PORTRAIT_POSITIVE_PROMPT,
     portraitNegativePrompt: DEFAULT_PORTRAIT_NEGATIVE_PROMPT,
+    dossierLimits: { ...DOSSIER_LIMIT_DEFAULTS },
     relationshipCaps: { ...DEFAULT_RELATIONSHIP_CAPS },
     relationshipCriteria: DEFAULT_RELATIONSHIP_CRITERIA,
     memoryCriteria: DEFAULT_MEMORY_CRITERIA,
@@ -85,6 +86,7 @@ function getSettings() {
     settings.injectBudgetTokens = Math.max(256, Math.min(8000, Math.round(Number(settings.injectBudgetTokens) || 1800)));
     settings.staleArchiveAfter = Math.max(1, Math.min(9999, Math.round(Number(settings.staleArchiveAfter) || 30)));
     settings.staleDeleteAfter = Math.max(settings.staleArchiveAfter + 1, Math.min(10000, Math.round(Number(settings.staleDeleteAfter) || 50)));
+    settings.dossierLimits = normalizeDossierLimits(settings.dossierLimits);
     const portrait = normalizePortraitPromptSettings(settings);
     settings.portraitPromptMode = portrait.portraitPromptMode;
     settings.portraitPreset = structuredClone(portrait.portraitPreset);
