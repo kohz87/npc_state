@@ -226,12 +226,26 @@ function scheduleApply() {
     });
 }
 
+function mutationTouchesSettings(records = []) {
+    const panel = globalThis.document?.getElementById?.(PANEL_ID) || null;
+    for (const record of records) {
+        const target = record?.target;
+        if (panel && (target === panel || panel.contains?.(target))) return true;
+        for (const node of record?.addedNodes || []) {
+            if (node?.id === PANEL_ID || node?.querySelector?.(`#${PANEL_ID}`)) return true;
+        }
+    }
+    return false;
+}
+
 export function startSettingsLayoutCoordinator() {
     if (started || !globalThis.document?.addEventListener) return false;
     started = true;
     scheduleApply();
     if (typeof globalThis.MutationObserver === 'function' && globalThis.document.body) {
-        observer = new globalThis.MutationObserver(scheduleApply);
+        observer = new globalThis.MutationObserver(records => {
+            if (mutationTouchesSettings(records)) scheduleApply();
+        });
         observer.observe(globalThis.document.body, { childList: true, subtree: true });
     }
     return true;
