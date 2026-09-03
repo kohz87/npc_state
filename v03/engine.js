@@ -17,6 +17,11 @@ import {
     normalizeState,
 } from './schema.js';
 import {
+    normalizeRelationshipHistoryLimit,
+    relationshipAxisIndependencePrompt,
+    trimStateRelationshipHistory,
+} from './relationship-policy.js';
+import {
     applyScanResult,
     buildScanPrompt,
     buildTargetedRefreshPrompt,
@@ -192,7 +197,8 @@ export function createNpcStateEngine(adapters = {}) {
             if (!exchange) return { ok: false, reason: 'not-assistant-message' };
             const startEpoch = epoch(chatKey);
             const startFingerprint = fingerprintMessage(chat[messageId] || {});
-            const prompt = buildScanPrompt({
+            const relationshipHistoryLimit = normalizeRelationshipHistoryLimit(settings.relationshipHistoryLimit);
+            const prompt = `${buildScanPrompt({
                 state,
                 chat,
                 assistantMessageId: messageId,
@@ -200,7 +206,7 @@ export function createNpcStateEngine(adapters = {}) {
                 relationshipCriteria: settings.relationshipCriteria,
                 memoryCriteria: settings.memoryCriteria,
                 dossierLimits: settings.dossierLimits,
-            });
+            })}\n\n${relationshipAxisIndependencePrompt()}`;
             const parsed = await invokeJson(prompt, manual ? 'manual-current-cast' : 'automatic-current-cast');
             const liveCtx = getContext();
             const liveChat = liveCtx.chat || [];
@@ -215,6 +221,7 @@ export function createNpcStateEngine(adapters = {}) {
                 relationshipCaps: settings.relationshipCaps || DEFAULT_RELATIONSHIP_CAPS,
                 dossierLimits: settings.dossierLimits,
             });
+            applied.state = trimStateRelationshipHistory(applied.state, relationshipHistoryLimit);
             const referencedNpcIds = referencedNpcIdsFromExchange(applied.state, exchange);
             const stale = applyStaleLifecycle(applied.state, {
                 settings,
@@ -265,6 +272,7 @@ export function createNpcStateEngine(adapters = {}) {
             const startEpoch = epoch(chatKey);
             const startFingerprint = fingerprintMessage(chat[messageId] || {});
             const settings = getSettings();
+            const relationshipHistoryLimit = normalizeRelationshipHistoryLimit(settings.relationshipHistoryLimit);
             const prompt = buildTargetedRefreshPrompt({
                 npc,
                 chat,
@@ -288,6 +296,7 @@ export function createNpcStateEngine(adapters = {}) {
                 relationshipCaps: settings.relationshipCaps || DEFAULT_RELATIONSHIP_CAPS,
                 dossierLimits: settings.dossierLimits,
             });
+            applied.state = trimStateRelationshipHistory(applied.state, relationshipHistoryLimit);
             const committed = recordCheckpoint(applied.state, liveChat, messageId, 'targeted-refresh');
             const persisted = await persist(chatKey, committed);
             return { ok: true, npcId: npc.id, state: structuredClone(persisted) };
@@ -354,8 +363,9 @@ export function createNpcStateEngine(adapters = {}) {
                         impact: 'manual', delta, evidence: '', reason: 'Manual dossier adjustment by player.',
                         sourceMessageId: latestAssistantMessageId(getContext().chat || []), turn: Number.isInteger(state.turn) ? state.turn : null, at: Date.now(),
                     };
+                    const relationshipHistoryLimit = normalizeRelationshipHistoryLimit(getSettings().relationshipHistoryLimit);
                     nextRaw.lastRelationshipChange = event;
-                    nextRaw.relationshipHistory = [...(current.relationshipHistory || []), event].slice(-24);
+                    nextRaw.relationshipHistory = [...(current.relationshipHistory || []), event].slice(-relationshipHistoryLimit);
                 }
             }
             const next = normalizeNpc(nextRaw);

@@ -43,6 +43,8 @@ if (!document.querySelector('link[data-npc-state-settings-responsive]')) {
 await import('./v03/index.js');
 const { startSettingsLayoutCoordinator } = await import('./v03/settings-layout.js');
 startSettingsLayoutCoordinator();
+const { startRelationshipHistoryUi } = await import('./v03/relationship-history-ui.js');
+startRelationshipHistoryUi();
 const { startManualOperationFeedback } = await import('./v03/manual-operation-feedback.js');
 startManualOperationFeedback();
 const { startEditorTopLayerBridge } = await import('./v03/editor-top-layer.js');
