@@ -19,7 +19,7 @@ test('archived dossiers can remain durable while strict presence is always false
 test('normalization preserves only explicit current v0.3 state fields', () => {
     const state = normalizeState({ chatKey: 'x', npcs: [], pendingBackfills: [{ npcId: 'x' }] }, 'x');
     assert.equal(state.schemaVersion, 1);
-    assert.equal(state.appVersion, '0.3.1');
+    assert.equal(state.appVersion, '0.3.2');
     assert.equal('pendingBackfills' in state, false, 'legacy runtime queues are not part of the v0.3 schema');
 });
 
