@@ -87,7 +87,7 @@ test('manual scan shows persistent progress and restores the button when the eng
     }
 });
 
-test('dossier refresh progress names the selected NPC', async () => {
+test('dossier refresh progress names the NPC and restores the transient target-handler disable', async () => {
     const previousDocument = globalThis.document;
     const previousNpcState = globalThis.NPCState;
     const previousToastr = globalThis.toastr;
@@ -112,11 +112,21 @@ test('dossier refresh progress names the selected NPC', async () => {
         stopManualOperationFeedback();
         startManualOperationFeedback();
         const button = fakeButton('refresh', 'astra');
+        // ui.js disables Refresh in its target listener before this bubble-phase
+        // observer runs. Feedback must not mistake that transient state for the
+        // button's pre-click state.
+        button.disabled = true;
         clickHandler({ target: button });
         assert.equal(infoMessage, 'NPC State: refreshing Astra dossier...');
         assert.match(button.innerHTML, /Refreshing\.\.\./);
+        assert.equal(button.disabled, true);
+
+        await sleep(90);
         busy = false;
-        await sleep(170);
+        await sleep(150);
+
+        assert.equal(button.disabled, false);
+        assert.equal(button.getAttribute('aria-busy'), null);
     } finally {
         stopManualOperationFeedback();
         globalThis.document = previousDocument;
