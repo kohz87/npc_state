@@ -33,11 +33,13 @@ function unsafeState() {
 
 test('prebaseline tail deletion is classified as recoverable truncation', () => {
     const state = unsafeState();
+    const previousHead = [...state.branchHeadLineage];
     const surviving = originalChat().slice(0, 2);
     const result = reconcileToCurrentBranch(state, surviving);
     assert.equal(result.unsafeDivergence, true);
     assert.equal(result.state.branchSafety.status, 'rebase-required');
     assert.equal(result.state.branchSafety.kind, 'prebaseline-truncation');
+    assert.deepEqual(result.state.branchHeadLineage, previousHead, 'unsafe state preserves pre-deletion lineage until an explicit rebase');
 });
 
 test('prebaseline rewritten history is classified separately', () => {
@@ -79,7 +81,9 @@ test('explicit rebase preserves durable dossiers while resetting timeline-local 
     assert.equal(astra.lastInteractionMessageId, null);
     assert.equal(astra.lastActivityMessageId, null);
     assert.equal(astra.relationshipHistory[0].sourceMessageId, null);
+    assert.equal(astra.relationshipHistory[0].turn, null);
     assert.equal(astra.lastRelationshipChange.sourceMessageId, null);
+    assert.equal(astra.lastRelationshipChange.turn, null);
     assert.equal(rebased.socialGraph[0].sourceMessageId, null);
     assert.equal(astra.lastActivityTurn, 0, 'one turn of prior inactivity is preserved on the shorter surviving timeline');
 });
@@ -92,4 +96,5 @@ test('engine and recovery UI wire an explicit rebase plus forced manual rescan',
     assert.match(engine, /manual: rebase === true, force: true/);
     assert.match(ui, /reconcile\?\.\(\{ rebase: true, rescan: true \}\)/);
     assert.match(ui, /Facts learned only from deleted messages may remain/);
+    assert.match(ui, /timeline rebased successfully, but the latest exchange scan failed/);
 });
