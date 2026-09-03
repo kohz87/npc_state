@@ -33,6 +33,8 @@ if (!document.getElementById('npc_state_v3_editor_flex_fix')) {
     document.head.appendChild(style);
 }
 await import('./v03/index.js');
+const { startManualOperationFeedback } = await import('./v03/manual-operation-feedback.js');
+startManualOperationFeedback();
 const { startEditorTopLayerBridge } = await import('./v03/editor-top-layer.js');
 startEditorTopLayerBridge();
 const { startPortraitAttachmentBridge } = await import('./v03/portrait-attachment.js');
