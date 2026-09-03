@@ -47,6 +47,13 @@ test('primary actions expose full and compact labels without changing button ids
     assert.match(layout, /npc-state-v3-action-compact/);
 });
 
+test('settings observer filters unrelated body mutations before scheduling layout work', () => {
+    assert.match(layout, /function mutationTouchesSettings\(records = \[\]\)/);
+    assert.match(layout, /panel\.contains\?\.\(target\)/);
+    assert.match(layout, /node\?\.id === PANEL_ID/);
+    assert.match(layout, /if \(mutationTouchesSettings\(records\)\) scheduleApply\(\)/);
+});
+
 test('responsive density is container-driven for desktop tablet and phone', () => {
     assert.match(css, /container-type:inline-size/);
     assert.match(css, /@container \(max-width:899px\)/);
