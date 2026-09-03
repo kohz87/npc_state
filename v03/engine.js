@@ -31,7 +31,7 @@ import {
 } from './stale.js';
 import { readV3PointerHint, readV3Sidecar, writeV3Sidecar } from './storage.js';
 
-const SYSTEM_PROMPT = 'Return only valid JSON for the NPC State v0.3 structured scanner. Obey the supplied schema and evidence rules exactly.';
+const SYSTEM_PROMPT = 'Return only valid JSON for the NPC State v0.3.1 structured scanner. Obey the supplied schema and evidence rules exactly.';
 
 function latestAssistantMessageId(chat = []) {
     for (let i = chat.length - 1; i >= 0; i -= 1) {
@@ -199,6 +199,7 @@ export function createNpcStateEngine(adapters = {}) {
                 scanDepth: settings.scanDepth,
                 relationshipCriteria: settings.relationshipCriteria,
                 memoryCriteria: settings.memoryCriteria,
+                dossierLimits: settings.dossierLimits,
             });
             const parsed = await invokeJson(prompt, manual ? 'manual-current-cast' : 'automatic-current-cast');
             const liveCtx = getContext();
@@ -212,6 +213,7 @@ export function createNpcStateEngine(adapters = {}) {
                 sourceMessageId: messageId,
                 turn: working.turn,
                 relationshipCaps: settings.relationshipCaps || DEFAULT_RELATIONSHIP_CAPS,
+                dossierLimits: settings.dossierLimits,
             });
             const referencedNpcIds = referencedNpcIdsFromExchange(applied.state, exchange);
             const stale = applyStaleLifecycle(applied.state, {
@@ -269,6 +271,7 @@ export function createNpcStateEngine(adapters = {}) {
                 assistantMessageId: messageId,
                 scanDepth: settings.scanDepth,
                 memoryCriteria: settings.memoryCriteria,
+                dossierLimits: settings.dossierLimits,
             });
             const parsed = await invokeJson(prompt, `targeted-${npc.id}`);
             const liveChat = getContext().chat || [];
@@ -283,6 +286,7 @@ export function createNpcStateEngine(adapters = {}) {
                 applyRelationship: false,
                 allowHistoricalProfilePatches: true,
                 relationshipCaps: settings.relationshipCaps || DEFAULT_RELATIONSHIP_CAPS,
+                dossierLimits: settings.dossierLimits,
             });
             const committed = recordCheckpoint(applied.state, liveChat, messageId, 'targeted-refresh');
             const persisted = await persist(chatKey, committed);

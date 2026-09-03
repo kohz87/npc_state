@@ -1,4 +1,4 @@
-export const NPC_STATE_VERSION = '0.3.0';
+export const NPC_STATE_VERSION = '0.3.1';
 export const NPC_STATE_SCHEMA_VERSION = 1;
 export const RELATIONSHIP_AXES = Object.freeze(['trust', 'affection', 'desire', 'tension']);
 export const STABLE_PROFILE_FIELDS = Object.freeze([
@@ -9,7 +9,20 @@ export const DEFAULT_RELATIONSHIP = Object.freeze({ trust: 0, affection: 0, desi
 export const DEFAULT_RELATIONSHIP_CAPS = Object.freeze({ ordinary: 1, meaningful: 2, major: 5, extreme: 10 });
 export const MEMORY_LIMIT = 5;
 export const KEY_RELATIONSHIP_LIMIT = 12;
+export const MANNERISM_LIMIT = 8;
 export const BEHAVIOR_PROFILE_LIMIT = 8;
+export const DOSSIER_LIMIT_DEFAULTS = Object.freeze({
+    memories: MEMORY_LIMIT,
+    keyRelationships: KEY_RELATIONSHIP_LIMIT,
+    mannerisms: MANNERISM_LIMIT,
+    behaviorProfile: BEHAVIOR_PROFILE_LIMIT,
+});
+export const DOSSIER_LIMIT_MAXIMUMS = Object.freeze({
+    memories: 20,
+    keyRelationships: 30,
+    mannerisms: 16,
+    behaviorProfile: 16,
+});
 export const CHECKPOINT_LIMIT = 48;
 
 function text(value, max = 1200) {
@@ -75,6 +88,16 @@ export function normalizeApparentAge(value) {
     return `~${matches[0]}`;
 }
 
+export function normalizeDossierLimits(value = {}) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    return Object.fromEntries(Object.keys(DOSSIER_LIMIT_DEFAULTS).map(key => {
+        const number = Math.round(Number(source[key]));
+        const fallback = DOSSIER_LIMIT_DEFAULTS[key];
+        const maximum = DOSSIER_LIMIT_MAXIMUMS[key];
+        return [key, Number.isFinite(number) ? Math.max(1, Math.min(maximum, number)) : fallback];
+    }));
+}
+
 export function makeNpcId(name = 'npc', nonce = '') {
     const slug = text(name, 60).normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').toLocaleLowerCase().slice(0, 36) || 'npc';
     const seed = `${name}\0${nonce || `${Date.now()}-${Math.random()}`}`;
@@ -128,12 +151,12 @@ export function normalizeNpc(input = {}, options = {}) {
         apparentAge: normalizeApparentAge(input.apparentAge),
         appearance: text(input.appearance, 1800),
         personality: text(input.personality, 1200),
-        behaviorProfile: list(input.behaviorProfile, BEHAVIOR_PROFILE_LIMIT, 360),
+        behaviorProfile: list(input.behaviorProfile, DOSSIER_LIMIT_MAXIMUMS.behaviorProfile, 360),
         speech: text(input.speech, 900),
-        mannerisms: list(input.mannerisms, 8, 280),
+        mannerisms: list(input.mannerisms, DOSSIER_LIMIT_MAXIMUMS.mannerisms, 280),
         background: text(input.background, 1600),
-        keyRelationships: list(input.keyRelationships, KEY_RELATIONSHIP_LIMIT, 500),
-        memories: list(input.memories, MEMORY_LIMIT, 700),
+        keyRelationships: list(input.keyRelationships, DOSSIER_LIMIT_MAXIMUMS.keyRelationships, 500),
+        memories: list(input.memories, DOSSIER_LIMIT_MAXIMUMS.memories, 700),
         relationship: normalizeRelationship(input.relationship || DEFAULT_RELATIONSHIP),
         relationshipSummary: text(input.relationshipSummary, 1000),
         relationshipHistory,

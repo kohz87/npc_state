@@ -1,4 +1,4 @@
-# NPC State v0.3.0
+# NPC State v0.3.1
 
 NPC State v0.3 is the current SillyTavern narrated-NPC dossier tracker. The repository root is now v0.3-only. The complete v0.2.x line is frozen under [`legacy/v0.2.x/`](legacy/v0.2.x/) for reference and recovery, and no legacy runtime file is loaded by the root extension manifest or bootstrap.
 
@@ -10,7 +10,7 @@ Use the repository URL in SillyTavern's **Extensions -> Install Extension** flow
 https://github.com/kohz87/npc_state
 ```
 
-SillyTavern installs the repository's default branch. `main` is the supported v0.3 line, so a normal install or Extension Manager update uses the root `manifest.json` (`0.3.0`) and `bootstrap.js`, which load only `v03/index.js` and `v03/style.css`.
+SillyTavern installs the repository's default branch. `main` is the supported v0.3 line, so a normal install or Extension Manager update uses the root `manifest.json` (`0.3.1`) and `bootstrap.js`, which load only the supported v0.3 runtime.
 
 ## What changed
 
@@ -33,6 +33,11 @@ Off-screen world-active NPCs may receive grounded live-state updates such as loc
 - One batch model call for the normal current-cast scan, rather than an automatic per-NPC backfill forest.
 - Relationship deltas use current-exchange evidence only. Older context can recover stable profile facts and durable memories, but cannot replay relationship changes.
 - Strict final-scene physical presence controls inline cards and generation injection.
+- Important memories, key relationships, mannerisms, and behavioral profile are bounded **evolving collections** rather than append-only logs. The scanner preserves an untouched collection, but when canon changes it may rewrite, merge, retire, reorder, or replace entries to keep the strongest current set.
+- Dossier Evolution settings control the working caps for those four collections. Defaults remain 5 important memories, 12 key relationships, 8 mannerisms, and 8 behavioral-profile entries, with guarded configurable ceilings of 20, 30, 16, and 16 respectively.
+- Lowering a working cap does not destructively trim stored dossier data during ordinary normalization. The lower cap takes effect when that collection is next deliberately curated by the scanner or manually saved; raising a cap can genuinely persist additional entries up to the storage safety ceiling.
+- The player/persona has one dedicated relationship channel: trust, affection, desire, tension, relationship summary, and current-exchange relationship change. `keyRelationships` and social edges are reserved for non-player ties.
+- Apparent age is canonicalized to one approximate numeric value such as `~25`; vague decade bands or ranges are not stored as apparent age.
 - When the latest assistant message contains a Megumin master block, the same present-NPC roster mounts as an **NPC State** tab inside that block. If Megumin is absent or its tab hosts are unavailable, NPC State keeps its normal standalone inline roster.
 - The Megumin bridge is UI-only. NPC State does not depend on Megumin-owned state, persistence, scanning, or dossier logic; generated World State text remains ordinary chat context for the normal v0.3 scanner.
 - Stale NPC lifecycle is based on **narrative assistant turns**, not scan count. Re-running a scan on the same assistant message cannot age a dossier.
@@ -51,11 +56,12 @@ Off-screen world-active NPCs may receive grounded live-state updates such as loc
 - Cross-chat bundle imports clear source-chat message IDs, preserve relative stale age by rebasing `lastActivityTurn`, and never import source live presence.
 - Portrait prompt support is settings-only and local. It stores a named library of reusable positive/negative preset pairs, one default preset selection, shared positive/negative prompt templates, and Natural/Tags/Hybrid formatting for the dossier-derived `{{character}}` placeholder.
 - Existing single portrait-preset settings become the first named `Default` preset automatically. Saving the portrait settings materializes the named preset library without losing the prior positive or negative text.
-- The canonical dossier **More** menu exposes **Generate image prompt**, which opens a per-NPC positive/negative prompt composer. Any saved preset can be chosen there without changing the configured default preset.
+- The canonical dossier **More** menu exposes manual **Attach/Change/Remove portrait** controls plus **Generate image prompt**. Prompt generation opens a per-NPC positive/negative prompt composer; portrait attachment remains local and does not require an image API.
 - Portrait prompt preview/copy does not call an image API, generate images, create queues, or add portrait lifecycle state.
 - The canonical Dossier Library is portrait-first: the selected NPC receives the dominant portrait hero while the full cast remains accessible through a searchable horizontal portrait rail at the bottom of the viewer.
 - The Dossier Library has no permanent cast sidebar. Present, world-active, ordinary off-screen, and archived dossiers remain in the same library and are visually distinguished in the cast rail.
 - Desktop and landscape tablet keep the portrait pane visible while the dossier document scrolls independently. Portrait tablet and phone layouts stack the portrait hero over a single readable document column while retaining the bottom cast rail.
+- The dossier editor uses the browser top layer on supported clients so tablet/mobile editing is not trapped behind SillyTavern stacking contexts. Small-screen editing is top-anchored and scrollable while desktop retains the centered editor.
 - Current state, player relationship, personality, appearance, behavior, speech, mannerisms, memories, key relationships, background, and relationship history are rendered as distinct visual blocks rather than one continuous text document.
 - One canonical dossier detail surface is used by the library, settings roster, stale review, and inline present cards.
 - Background/model operations never save editor DOM state. Editor saves are identity-bound and use an optimistic `updatedAt` guard so a stale form cannot overwrite newer scan data.
@@ -232,7 +238,7 @@ Nothing under `legacy/` is imported by the supported extension runtime.
 
 ## Current rewrite scope
 
-The v0.3.0 rewrite now covers the durable core and planned management surfaces: persistence, migration, current-cast scanning, relationship/memory reconciliation, strict presence, branch checkpoints, prompt injection, the portrait-first responsive canonical dossier library and bottom cast rail, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, validated portable bundle import/export for full-chat and selected-NPC workflows, and lightweight named positive/negative portrait-preset composition with local preview/copy and a per-dossier prompt dialog.
+The v0.3.1 rewrite now covers the durable core and planned management surfaces: persistence, migration, current-cast scanning, relationship/memory reconciliation, configurable self-curating dossier collections, strict presence, branch checkpoints, prompt injection, the portrait-first responsive canonical dossier library and bottom cast rail, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, validated portable bundle import/export for full-chat and selected-NPC workflows, and lightweight named positive/negative portrait-preset composition with local preview/copy and a per-dossier prompt dialog.
 
 Automatic portrait generation and image-provider integration remain intentionally outside the v0.3 scope.
 

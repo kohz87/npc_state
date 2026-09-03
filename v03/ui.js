@@ -1,5 +1,5 @@
 import { castRailHtml, dossierHtml, filterDossierNpcs } from './dossier-view.js';
-import { findNpcByReference } from './schema.js';
+import { findNpcByReference, normalizeDossierLimits } from './schema.js';
 
 const SETTINGS_ID = 'npc_state_settings';
 const LIBRARY_ID = 'npc_state_v3_library_overlay';
@@ -88,7 +88,7 @@ export function createNpcStateUi(adapters = {}) {
 
     function settingsHtml() {
         return `<div id="${SETTINGS_ID}" class="extension_container npc-state-extension npc-state-v3-settings">
-          <div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>NPC State <span class="npc-state-version">v0.3.0</span></b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
+          <div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>NPC State <span class="npc-state-version">v0.3.1</span></b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
           <div class="inline-drawer-content npc-state-drawer">
             <div class="npc-state-intro">v0.3 uses one current-exchange scanner transaction. Exchange participation, strict final physical presence, and off-screen world activity are independent signals. Existing v0.2 sidecars are imported once into a separate v0.3 file and never rewritten.</div>
             <div class="npc-state-settings-grid">
@@ -99,6 +99,15 @@ export function createNpcStateUi(adapters = {}) {
               <label class="npc-state-setting-row"><span><b>Injection budget</b><small>Approximate token budget.</small></span><input id="npc_state_v3_inject_budget" class="text_pole npc-state-number" type="number" min="256" max="8000" step="100"></label>
               <label class="npc-state-setting-row"><span><b>Rescan changed branches</b><small>Restores the best v0.3 checkpoint and rescans the surviving latest exchange.</small></span><input id="npc_state_v3_branch_rescan" type="checkbox"></label>
             </div>
+            <details class="npc-state-v3-dossier-evolution"><summary><b>Dossier evolution</b></summary>
+              <div class="npc-state-intro">Working caps for living dossier collections. The scanner may merge, rewrite, retire, reorder, or replace entries to keep the strongest current set. Lowering a cap does not immediately delete existing entries; it applies when that collection is next curated or manually saved.</div>
+              <div class="npc-state-settings-grid">
+                <label class="npc-state-setting-row"><span><b>Important memories</b><small>Durable events and facts retained for future scenes.</small></span><input id="npc_state_v3_limit_memories" class="text_pole npc-state-number" type="number" min="1" max="20"></label>
+                <label class="npc-state-setting-row"><span><b>Key relationships</b><small>Important non-player relationships retained in the dossier.</small></span><input id="npc_state_v3_limit_key_relationships" class="text_pole npc-state-number" type="number" min="1" max="30"></label>
+                <label class="npc-state-setting-row"><span><b>Mannerisms</b><small>Current recurring gestures, habits, and tells.</small></span><input id="npc_state_v3_limit_mannerisms" class="text_pole npc-state-number" type="number" min="1" max="16"></label>
+                <label class="npc-state-setting-row"><span><b>Behavioral profile</b><small>Current durable behavioral tendencies and patterns.</small></span><input id="npc_state_v3_limit_behavior" class="text_pole npc-state-number" type="number" min="1" max="16"></label>
+              </div>
+            </details>
             <details><summary><b>Relationship evidence rubric</b></summary><textarea id="npc_state_v3_relationship_criteria" class="text_pole npc-state-rubric-textarea" rows="8"></textarea></details>
             <details><summary><b>Important memory rubric</b></summary><textarea id="npc_state_v3_memory_criteria" class="text_pole npc-state-rubric-textarea" rows="7"></textarea></details>
             <div id="npc_state_v3_main_actions" class="npc-state-actions"><button id="npc_state_v3_scan_now" class="menu_button"><i class="fa-solid fa-wand-magic-sparkles"></i> Scan current cast</button><button id="npc_state_v3_library" class="menu_button"><i class="fa-solid fa-address-book"></i> Dossier Library</button><button id="npc_state_v3_add" class="menu_button"><i class="fa-solid fa-user-plus"></i> Add NPC</button></div>
@@ -108,6 +117,7 @@ export function createNpcStateUi(adapters = {}) {
 
     function syncSettings() {
         const settings = getSettings();
+        const limits = normalizeDossierLimits(settings.dossierLimits);
         const panel = document.getElementById(SETTINGS_ID);
         if (!panel) return;
         panel.querySelector('#npc_state_v3_enabled').checked = settings.enabled !== false;
@@ -116,6 +126,10 @@ export function createNpcStateUi(adapters = {}) {
         panel.querySelector('#npc_state_v3_inject').checked = settings.inject !== false;
         panel.querySelector('#npc_state_v3_inject_budget').value = settings.injectBudgetTokens;
         panel.querySelector('#npc_state_v3_branch_rescan').checked = settings.branchRescan !== false;
+        panel.querySelector('#npc_state_v3_limit_memories').value = limits.memories;
+        panel.querySelector('#npc_state_v3_limit_key_relationships').value = limits.keyRelationships;
+        panel.querySelector('#npc_state_v3_limit_mannerisms').value = limits.mannerisms;
+        panel.querySelector('#npc_state_v3_limit_behavior').value = limits.behaviorProfile;
         panel.querySelector('#npc_state_v3_relationship_criteria').value = settings.relationshipCriteria || '';
         panel.querySelector('#npc_state_v3_memory_criteria').value = settings.memoryCriteria || '';
     }
@@ -124,10 +138,20 @@ export function createNpcStateUi(adapters = {}) {
         const bindCheck = (selector, key) => panel.querySelector(selector)?.addEventListener('change', event => {
             getSettings()[key] = Boolean(event.target.checked); persistSettings(); onSettingsChanged();
         });
+        const bindLimit = (selector, key) => panel.querySelector(selector)?.addEventListener('change', event => {
+            const settings = getSettings();
+            settings.dossierLimits = normalizeDossierLimits({ ...(settings.dossierLimits || {}), [key]: Number(event.target.value) });
+            event.target.value = settings.dossierLimits[key];
+            persistSettings();
+        });
         bindCheck('#npc_state_v3_enabled', 'enabled');
         bindCheck('#npc_state_v3_auto', 'autoScan');
         bindCheck('#npc_state_v3_inject', 'inject');
         bindCheck('#npc_state_v3_branch_rescan', 'branchRescan');
+        bindLimit('#npc_state_v3_limit_memories', 'memories');
+        bindLimit('#npc_state_v3_limit_key_relationships', 'keyRelationships');
+        bindLimit('#npc_state_v3_limit_mannerisms', 'mannerisms');
+        bindLimit('#npc_state_v3_limit_behavior', 'behaviorProfile');
         panel.querySelector('#npc_state_v3_scan_depth')?.addEventListener('change', event => {
             getSettings().scanDepth = Math.max(2, Math.min(30, Math.round(Number(event.target.value) || 8))); event.target.value = getSettings().scanDepth; persistSettings();
         });
@@ -366,11 +390,12 @@ export function createNpcStateUi(adapters = {}) {
         }
         const value = fieldId => overlay.querySelector(`#${fieldId}`)?.value ?? '';
         const clamp = fieldId => Math.max(-100, Math.min(100, Math.round(Number(value(fieldId)) || 0)));
+        const limits = normalizeDossierLimits(getSettings().dossierLimits);
         const stableFields = ['name', 'role', 'species', 'age', 'apparentAge', 'personality', 'behaviorProfile', 'speech', 'appearance', 'background', 'mannerisms', 'keyRelationships'];
         const patch = {
             name: value('npc_state_v3_edit_name').trim(), role: value('npc_state_v3_edit_role'), species: value('npc_state_v3_edit_species'), age: value('npc_state_v3_edit_age'), apparentAge: value('npc_state_v3_edit_apparent_age'),
-            personality: value('npc_state_v3_edit_personality'), behaviorProfile: splitLines(value('npc_state_v3_edit_behavior'), 8), speech: value('npc_state_v3_edit_speech'), appearance: value('npc_state_v3_edit_appearance'), background: value('npc_state_v3_edit_background'), mannerisms: splitLines(value('npc_state_v3_edit_mannerisms'), 8), keyRelationships: splitLines(value('npc_state_v3_edit_key_relationships'), 12),
-            mood: value('npc_state_v3_edit_mood'), location: value('npc_state_v3_edit_location'), goal: value('npc_state_v3_edit_goal'), status: value('npc_state_v3_edit_status'), relationshipSummary: value('npc_state_v3_edit_relationship_summary'), memories: splitLines(value('npc_state_v3_edit_memories'), 5),
+            personality: value('npc_state_v3_edit_personality'), behaviorProfile: splitLines(value('npc_state_v3_edit_behavior'), limits.behaviorProfile), speech: value('npc_state_v3_edit_speech'), appearance: value('npc_state_v3_edit_appearance'), background: value('npc_state_v3_edit_background'), mannerisms: splitLines(value('npc_state_v3_edit_mannerisms'), limits.mannerisms), keyRelationships: splitLines(value('npc_state_v3_edit_key_relationships'), limits.keyRelationships),
+            mood: value('npc_state_v3_edit_mood'), location: value('npc_state_v3_edit_location'), goal: value('npc_state_v3_edit_goal'), status: value('npc_state_v3_edit_status'), relationshipSummary: value('npc_state_v3_edit_relationship_summary'), memories: splitLines(value('npc_state_v3_edit_memories'), limits.memories),
             relationship: { trust: clamp('npc_state_v3_edit_trust'), affection: clamp('npc_state_v3_edit_affection'), desire: clamp('npc_state_v3_edit_desire'), tension: clamp('npc_state_v3_edit_tension') },
             manualProfileFields: overlay.querySelector('#npc_state_v3_edit_lock')?.checked ? stableFields : [], retentionProtected: Boolean(overlay.querySelector('#npc_state_v3_edit_retention')?.checked), minor: Boolean(overlay.querySelector('#npc_state_v3_edit_minor')?.checked),
         };

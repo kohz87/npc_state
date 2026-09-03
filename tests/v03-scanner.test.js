@@ -162,7 +162,7 @@ test('player references are removed from keyRelationships while the player meter
         npcs: [{
             id: 'a',
             name: 'Astra',
-            keyRelationships: ['Lucien Valentine - player character', 'Neri - rival'],
+            keyRelationships: ['Mira - sister', 'Lucien Valentine - player character', 'Neri - rival'],
             relationshipSummary: 'Astra increasingly trusts Lucien.',
             relationshipChange: { impact: 'ordinary', delta: { trust: 1 }, evidence: 'Lucien kept his promise.', reason: 'Promise fulfilled.' },
         }],
@@ -183,4 +183,144 @@ test('player-reference detector recognizes persona names and explicit player lab
     assert.equal(keyRelationshipReferencesPlayer('Lucien Valentine - trusted ally', 'Lucien Valentine'), true);
     assert.equal(keyRelationshipReferencesPlayer('The player character - rescuer', 'Lucien Valentine'), true);
     assert.equal(keyRelationshipReferencesPlayer('Mira - sister', 'Lucien Valentine'), false);
+});
+
+test('scanner prompt exposes configured caps and authoritative replacement semantics', () => {
+    const state = stateWith({
+        id: 'a', name: 'Astra',
+        behaviorProfile: ['Old behavior'], mannerisms: ['Old mannerism'], keyRelationships: ['Mira - sister'], memories: ['Old memory'],
+    });
+    const chat = [
+        { is_user: true, name: 'Lucien', mes: 'I speak to Astra.' },
+        { is_user: false, name: 'Narrator', mes: 'Astra answers.' },
+    ];
+    const prompt = buildScanPrompt({
+        state,
+        chat,
+        assistantMessageId: 1,
+        dossierLimits: { behaviorProfile: 3, mannerisms: 4, keyRelationships: 7, memories: 6 },
+    });
+    assert.match(prompt, /DOSSIER COLLECTION LIMITS: behaviorProfile=3, mannerisms=4, keyRelationships=7, memories=6/);
+    assert.match(prompt, /use null when nothing materially changed/);
+    assert.match(prompt, /COMPLETE authoritative replacement set/);
+    assert.match(prompt, /rewrite, merge, retire, reorder, or displace/i);
+    assert.match(prompt, /"behaviorProfile":null/);
+    assert.match(prompt, /"mannerisms":null/);
+    assert.match(prompt, /"keyRelationships":null/);
+    assert.match(prompt, /"memories":null/);
+    assert.match(prompt, /"behaviorProfile":\["Old behavior"\]/, 'existing behavior must be shown so the model can curate it');
+    assert.match(prompt, /"mannerisms":\["Old mannerism"\]/);
+});
+
+test('evolving collections replace obsolete entries instead of stacking historical versions', () => {
+    const state = stateWith({
+        id: 'a',
+        name: 'Astra',
+        behaviorProfile: ['Avoids eye contact'],
+        mannerisms: ['Twists sleeve when nervous'],
+        keyRelationships: ['Mira - travelling companion'],
+        memories: ['A small early favor'],
+    });
+    const applied = applyScanResult(state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{
+            id: 'a', name: 'Astra',
+            behaviorProfile: ['Maintains eye contact with trusted people'],
+            mannerisms: ['Twists her sleeve only when badly frightened'],
+            keyRelationships: ['Mira - estranged former confidante'],
+            memories: ['Lucien saved her life during the bridge collapse'],
+        }],
+        socialEdges: [],
+    }, {
+        sourceMessageId: 20,
+        turn: 8,
+        dossierLimits: { behaviorProfile: 8, mannerisms: 8, keyRelationships: 12, memories: 5 },
+    });
+    const npc = applied.state.npcs[0];
+    assert.deepEqual(npc.behaviorProfile, ['Maintains eye contact with trusted people']);
+    assert.deepEqual(npc.mannerisms, ['Twists her sleeve only when badly frightened']);
+    assert.deepEqual(npc.keyRelationships, ['Mira - estranged former confidante']);
+    assert.deepEqual(npc.memories, ['Lucien saved her life during the bridge collapse']);
+});
+
+test('null or omitted collection patches preserve existing entries even above a lowered working cap', () => {
+    const memories = Array.from({ length: 8 }, (_, i) => `memory ${i + 1}`);
+    const state = stateWith({
+        id: 'a', name: 'Astra',
+        behaviorProfile: ['steady', 'watchful', 'patient'],
+        mannerisms: ['one', 'two', 'three'],
+        keyRelationships: ['Mira - sister', 'Neri - rival'],
+        memories,
+    });
+    const applied = applyScanResult(state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{ id: 'a', name: 'Astra', memories: null, mannerisms: null }],
+        socialEdges: [],
+    }, {
+        sourceMessageId: 21,
+        turn: 9,
+        dossierLimits: { behaviorProfile: 1, mannerisms: 1, keyRelationships: 1, memories: 5 },
+    });
+    const npc = applied.state.npcs[0];
+    assert.deepEqual(npc.memories, memories, 'lowering the working cap must not destructively trim an untouched collection');
+    assert.deepEqual(npc.behaviorProfile, ['steady', 'watchful', 'patient']);
+    assert.deepEqual(npc.mannerisms, ['one', 'two', 'three']);
+    assert.deepEqual(npc.keyRelationships, ['Mira - sister', 'Neri - rival']);
+});
+
+test('authoritative replacement arrays obey the configured working cap', () => {
+    const state = stateWith({ id: 'a', name: 'Astra', memories: ['old'] });
+    const replacement = Array.from({ length: 7 }, (_, i) => `new memory ${i + 1}`);
+    const applied = applyScanResult(state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{ id: 'a', name: 'Astra', memories: replacement }], socialEdges: [],
+    }, { sourceMessageId: 22, turn: 10, dossierLimits: { memories: 3 } });
+    assert.deepEqual(applied.state.npcs[0].memories, replacement.slice(0, 3));
+});
+
+test('an explicit empty replacement clears evolving collections', () => {
+    const state = stateWith({
+        id: 'a', name: 'Astra',
+        behaviorProfile: ['old behavior'],
+        mannerisms: ['old mannerism'],
+        keyRelationships: ['Mira - sister'],
+        memories: ['old memory'],
+    });
+    const applied = applyScanResult(state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{ id: 'a', name: 'Astra', behaviorProfile: [], mannerisms: [], keyRelationships: [], memories: [] }],
+        socialEdges: [],
+    }, { sourceMessageId: 23, turn: 11 });
+    const npc = applied.state.npcs[0];
+    assert.deepEqual(npc.behaviorProfile, []);
+    assert.deepEqual(npc.mannerisms, []);
+    assert.deepEqual(npc.keyRelationships, []);
+    assert.deepEqual(npc.memories, []);
+});
+
+test('manual stable-profile locks protect curated stable collections while memories remain dynamic', () => {
+    const state = stateWith({
+        id: 'a', name: 'Astra',
+        behaviorProfile: ['locked behavior'],
+        mannerisms: ['locked mannerism'],
+        keyRelationships: ['Mira - sister'],
+        memories: ['old memory'],
+        manualProfileFields: ['behaviorProfile', 'mannerisms', 'keyRelationships'],
+    });
+    const applied = applyScanResult(state, {
+        exchangeActiveNpcIds: ['Astra'], finalPresentNpcIds: ['Astra'], worldActiveNpcIds: [],
+        npcs: [{
+            id: 'a', name: 'Astra',
+            behaviorProfile: ['scanner behavior'],
+            mannerisms: ['scanner mannerism'],
+            keyRelationships: ['Neri - rival'],
+            memories: ['new durable memory'],
+        }],
+        socialEdges: [],
+    }, { sourceMessageId: 24, turn: 12 });
+    const npc = applied.state.npcs[0];
+    assert.deepEqual(npc.behaviorProfile, ['locked behavior']);
+    assert.deepEqual(npc.mannerisms, ['locked mannerism']);
+    assert.deepEqual(npc.keyRelationships, ['Mira - sister']);
+    assert.deepEqual(npc.memories, ['new durable memory']);
 });

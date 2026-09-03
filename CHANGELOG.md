@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.1
+
+- Added configurable **Dossier Evolution** working caps for Important memories, Key relationships, Mannerisms, and Behavioral profile. Defaults remain 5 / 12 / 8 / 8, with guarded maximums of 20 / 30 / 16 / 16.
+- Separated user working caps from higher schema storage ceilings so increasing a limit genuinely persists more entries, while lowering a limit does not immediately destructively truncate untouched dossier data.
+- Reworked the four bounded dossier collections from append-only accumulation into self-curating canonical sets. Scanner `null` means preserve the current collection; an array is the complete authoritative replacement and may merge, rewrite, retire, reorder, clear, or displace entries as canon evolves.
+- Updated the scanner prompt to include each collection's current contents and configured cap so still-relevant older facts can survive curation even when the latest exchange does not repeat them.
+- Updated targeted dossier refresh to use the same curated-replacement semantics without replaying player relationship deltas or changing global physical presence.
+- Manual dossier editing now obeys the configured working caps instead of hardcoded 5 / 12 / 8 / 8 limits.
+- Canonicalized apparent age to one numeric approximation such as `~25`; vague decade bands and ranges are rejected rather than stored as apparent age.
+- Reserved Trust / Affection / Desire / Tension plus Relationship Summary for NPC-to-player state. Key relationships and social edges are non-player ties, and unlocked legacy player duplicates are cleaned during scan/refresh.
+- Restored manual **Attach portrait**, **Change portrait**, and **Remove portrait** controls in the canonical dossier More menu while retaining the local image-prompt workflow.
+- Moved the dossier editor into the browser top layer on supported clients, resolving mobile/tablet clipping and host stacking-context failures while retaining the direct editor Save/Cancel flow.
+- Hardened the Megumin/Inventory shared tab integration so NPC State can recreate a missing Present NPC holder after host rebuilds and recover across extension load-order changes.
+
 ## v0.3.0
 
 - Rebuilt NPC State around a clean v0.3 runtime instead of extending the v0.2 compatibility stack.
