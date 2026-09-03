@@ -14,6 +14,7 @@ import {
 } from './portrait-prompt.js';
 import { createPortraitPromptUi } from './portrait-ui.js';
 import { DEFAULT_RELATIONSHIP_CAPS, DOSSIER_LIMIT_DEFAULTS, NPC_STATE_VERSION, normalizeDossierLimits } from './schema.js';
+import { runSharedQuietGeneration } from './shared-generation-queue.js';
 import { createStaleManagementUi } from './stale-ui.js';
 import { createNpcStateUi } from './ui.js';
 
@@ -131,13 +132,13 @@ function notify(kind, message) {
 async function generateJson({ systemPrompt, prompt, responseLength }) {
     const ctx = getContext();
     if (typeof ctx.generateRaw !== 'function') throw new Error('SillyTavern generateRaw() is unavailable.');
-    return ctx.generateRaw({
+    return runSharedQuietGeneration('npc-state-scan', () => ctx.generateRaw({
         systemPrompt,
         prompt,
         quietToLoud: false,
         instructOverride: true,
         responseLength,
-    });
+    }));
 }
 
 function updateInjection() {
@@ -262,6 +263,16 @@ async function settledBranchReconcile() {
     }
 }
 
+async function runAutomaticScan(messageId) {
+    try {
+        const result = await engine.scan(messageId, { manual: false });
+        if (result?.ok || result?.discarded) refreshSurfaces();
+    } catch (error) {
+        console.error('[NPC State v0.3] automatic scan failed safely', error);
+        notify('error', `automatic scan failed without committing partial state. ${error?.message || error}`);
+    }
+}
+
 function registerEvents() {
     if (eventsRegistered) return;
     const ctx = getContext();
@@ -275,14 +286,11 @@ function registerEvents() {
         if (key && key !== 'no-chat') engine.invalidate(key);
     });
 
-    if (events.MESSAGE_RECEIVED) source.on(events.MESSAGE_RECEIVED, async messageId => {
-        try {
-            const result = await engine.scan(messageId, { manual: false });
-            if (result?.ok || result?.discarded) refreshSurfaces();
-        } catch (error) {
-            console.error('[NPC State v0.3] automatic scan failed safely', error);
-            notify('error', `automatic scan failed without committing partial state. ${error?.message || error}`);
-        }
+    if (events.MESSAGE_RECEIVED) source.on(events.MESSAGE_RECEIVED, messageId => {
+        // Background bookkeeping must not hold SillyTavern's awaited event bus open.
+        // This also lets peer post-response processors finish and release any shared
+        // hidden-generation barrier before NPC State reaches generateRaw().
+        void runAutomaticScan(messageId);
     });
 
     const load = async () => {
