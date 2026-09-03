@@ -67,3 +67,10 @@ test('NPC State generateRaw adapter participates in the shared quiet queue', () 
     assert.match(indexSource, /runSharedQuietGeneration\('npc-state-scan'/);
     assert.match(indexSource, /ctx\.generateRaw\(\{/);
 });
+
+test('automatic MESSAGE_RECEIVED scans do not block peer extension listeners', () => {
+    assert.match(indexSource, /async function runAutomaticScan\(messageId\)/);
+    assert.match(indexSource, /source\.on\(events\.MESSAGE_RECEIVED, messageId => \{/);
+    assert.match(indexSource, /void runAutomaticScan\(messageId\)/);
+    assert.doesNotMatch(indexSource, /source\.on\(events\.MESSAGE_RECEIVED, async messageId =>/);
+});
