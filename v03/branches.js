@@ -66,8 +66,8 @@ export function rebaseToCurrentChat(state, chat = []) {
         } else {
             rebased.lastActivityTurn = currentTurn;
         }
-        if (rebased.lastRelationshipChange) rebased.lastRelationshipChange = { ...rebased.lastRelationshipChange, sourceMessageId: null };
-        rebased.relationshipHistory = (rebased.relationshipHistory || []).map(event => ({ ...event, sourceMessageId: null }));
+        if (rebased.lastRelationshipChange) rebased.lastRelationshipChange = { ...rebased.lastRelationshipChange, sourceMessageId: null, turn: null };
+        rebased.relationshipHistory = (rebased.relationshipHistory || []).map(event => ({ ...event, sourceMessageId: null, turn: null }));
         return rebased;
     });
     next.socialGraph = (next.socialGraph || []).map(edge => ({ ...edge, sourceMessageId: null }));
@@ -179,7 +179,6 @@ function failClosedPrebaselineDivergence(state, chat) {
         targetNpcIds: [],
     };
     next.lastScannedMessageId = null;
-    next.branchHeadLineage = chatLineage(chat);
     next.branchSafety = {
         status: 'rebase-required',
         kind,
