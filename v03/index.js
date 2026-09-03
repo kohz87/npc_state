@@ -1,4 +1,4 @@
-/* NPC State v0.3.1 - clean runtime */
+/* NPC State v0.3.2 - clean runtime */
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { extension_prompt_types, extension_prompt_roles, getRequestHeaders } from '../../../../../script.js';
 import { createBundleManagementUi } from './bundle-ui.js';
@@ -231,7 +231,7 @@ async function hydrateActiveChat({ reconcile = true } = {}) {
         if (getChatKey() !== key) return null;
         if (reconcile) {
             const branch = await engine.reconcileBranch({ rescan: false });
-            if (branch?.unsafeDivergence) notify('warning', 'this chat diverged before its first v0.3 branch baseline. Live injection and model scans are paused because v0.2 branch checkpoints are intentionally not imported. Return to the original baseline branch to restore safe tracking.');
+            if (branch?.unsafeDivergence) notify('warning', 'timeline rebase required. Durable dossiers are intact; accept the current surviving timeline from NPC State settings or return to the original baseline branch.');
         }
         if (getChatKey() !== key) return null;
         refreshSurfaces();
@@ -254,7 +254,7 @@ async function settledBranchReconcile() {
         await sleep(90);
         if (getChatKey() !== key) return;
         const result = await engine.reconcileBranch({ rescan: true });
-        if (result?.unsafeDivergence) notify('warning', 'branch change predates the v0.3 baseline; live injection and model scans are paused rather than trusting stale legacy timeline data.');
+        if (result?.unsafeDivergence) notify('warning', 'timeline rebase required. Durable dossiers are intact; open NPC State settings and choose Rebase to current chat to accept the surviving timeline.');
         if (result?.rescan?.discarded) return;
         refreshSurfaces();
     } catch (error) {

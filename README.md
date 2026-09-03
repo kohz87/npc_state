@@ -1,4 +1,4 @@
-# NPC State v0.3.1
+# NPC State v0.3.2
 
 NPC State v0.3 is the current SillyTavern narrated-NPC dossier tracker. The repository root is now v0.3-only. The complete v0.2.x line is frozen under [`legacy/v0.2.x/`](legacy/v0.2.x/) for reference and recovery, and no legacy runtime file is loaded by the root extension manifest or bootstrap.
 
@@ -10,7 +10,7 @@ Use the repository URL in SillyTavern's **Extensions -> Install Extension** flow
 https://github.com/kohz87/npc_state
 ```
 
-SillyTavern installs the repository's default branch. `main` is the supported v0.3 line, so a normal install or Extension Manager update uses the root `manifest.json` (`0.3.1`) and `bootstrap.js`, which load only the supported v0.3 runtime.
+SillyTavern installs the repository's default branch. `main` is the supported v0.3 line, so a normal install or Extension Manager update uses the root `manifest.json` (`0.3.2`) and `bootstrap.js`, which load only the supported v0.3 runtime.
 
 ## What changed
 
@@ -199,7 +199,7 @@ The original v0.2 sidecar is never rewritten by v0.3.
 
 The first v0.3 load establishes a v0.3 branch baseline. Branch edits after that point can restore from v0.3 checkpoints.
 
-If a chat is changed to a branch that diverges **before** that first v0.3 baseline, v0.3 cannot truthfully reconstruct the missing v0.2 branch history because those old checkpoints are intentionally not imported. It therefore fails closed: strict live presence is cleared and model scanning/injection are paused instead of trusting potentially stale timeline data. Returning to the original baseline branch restores normal v0.3 tracking.
+If a chat is changed or truncated **before** the oldest recoverable v0.3 checkpoint, NPC State cannot truthfully reconstruct the removed timeline. v0.3.2 therefore pauses strict live presence, scanning, and injection but keeps durable dossiers intact and marks the chat **Timeline rebase required**. Returning to a compatible branch restores checkpoint recovery automatically. If the surviving chat is intentionally the new canon, **Rebase to current chat** preserves durable dossiers, portraits, relationships, memories, manual locks, archives, social ties, tombstones, and relative stale age while clearing chat-local message references, live presence, and incompatible branch checkpoints before establishing a fresh baseline and force-scanning the latest surviving assistant exchange. Facts learned only from deleted messages may remain until later scans revise them or they are edited manually.
 
 ## Repository layout
 
@@ -238,7 +238,7 @@ Nothing under `legacy/` is imported by the supported extension runtime.
 
 ## Current rewrite scope
 
-The v0.3.1 rewrite now covers the durable core and planned management surfaces: persistence, migration, current-cast scanning, relationship/memory reconciliation, configurable self-curating dossier collections, strict presence, branch checkpoints, prompt injection, the portrait-first responsive canonical dossier library and bottom cast rail, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, validated portable bundle import/export for full-chat and selected-NPC workflows, and lightweight named positive/negative portrait-preset composition with local preview/copy and a per-dossier prompt dialog.
+The v0.3.2 rewrite now covers the durable core and planned management surfaces: persistence, migration, current-cast scanning, relationship/memory reconciliation, configurable self-curating dossier collections, strict presence, branch checkpoints, prompt injection, the portrait-first responsive canonical dossier library and bottom cast rail, manual editing, archive/restore/delete, inline present cards, a UI-only Megumin master-block/tab mount, narrative-turn stale NPC lifecycle management with manual review controls, validated portable bundle import/export for full-chat and selected-NPC workflows, and lightweight named positive/negative portrait-preset composition with local preview/copy and a per-dossier prompt dialog.
 
 Automatic portrait generation and image-provider integration remain intentionally outside the v0.3 scope.
 

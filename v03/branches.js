@@ -29,6 +29,64 @@ export function lineageIsPrefix(prefix = [], current = []) {
     return true;
 }
 
+export function branchDivergenceKind(state = {}, chat = []) {
+    const currentLineage = chatLineage(chat);
+    const previousLineage = Array.isArray(state?.branchHeadLineage) ? state.branchHeadLineage : [];
+    return lineageIsPrefix(currentLineage, previousLineage) ? 'prebaseline-truncation' : 'prebaseline-rewrite';
+}
+
+function narrativeTurnFromLineage(lineage = []) {
+    return (Array.isArray(lineage) ? lineage : []).reduce((count, value) => count + (String(value || '').startsWith('a:') ? 1 : 0), 0);
+}
+
+function latestKnownNarrativeTurn(state = {}) {
+    const turns = [narrativeTurnFromLineage(state?.branchHeadLineage || []), narrativeTurnFromLineage(state?.branchBase?.lineage || [])];
+    for (const checkpoint of state?.checkpoints || []) turns.push(narrativeTurnFromLineage(checkpoint?.lineage || []));
+    return Math.max(0, ...turns);
+}
+
+export function rebaseToCurrentChat(state, chat = []) {
+    const source = normalizeState(state, state?.chatKey || '');
+    const currentLineage = chatLineage(chat);
+    const currentTurn = narrativeTurnFromLineage(currentLineage);
+    const sourceTurn = latestKnownNarrativeTurn(source);
+    const next = normalizeState(source, source.chatKey);
+
+    next.npcs = next.npcs.map(npc => {
+        const rebased = structuredClone(npc);
+        rebased.present = false;
+        rebased.worldActive = false;
+        rebased.firstSeenMessageId = null;
+        rebased.lastSeenMessageId = null;
+        rebased.lastInteractionMessageId = null;
+        rebased.lastActivityMessageId = null;
+        if (Number.isInteger(rebased.lastActivityTurn)) {
+            const inactiveAge = Math.max(0, sourceTurn - rebased.lastActivityTurn);
+            rebased.lastActivityTurn = Math.max(0, currentTurn - inactiveAge);
+        } else {
+            rebased.lastActivityTurn = currentTurn;
+        }
+        if (rebased.lastRelationshipChange) rebased.lastRelationshipChange = { ...rebased.lastRelationshipChange, sourceMessageId: null, turn: null };
+        rebased.relationshipHistory = (rebased.relationshipHistory || []).map(event => ({ ...event, sourceMessageId: null, turn: null }));
+        return rebased;
+    });
+    next.socialGraph = (next.socialGraph || []).map(edge => ({ ...edge, sourceMessageId: null }));
+    next.lastObservation = {
+        messageId: null,
+        exchangeActiveNpcIds: [],
+        finalPresentNpcIds: [],
+        worldActiveNpcIds: [],
+        targetNpcIds: [],
+    };
+    next.lastScannedMessageId = null;
+    next.checkpoints = [];
+    next.branchBase = null;
+    next.branchHeadLineage = [];
+    next.branchSafety = { status: 'safe', kind: '', reason: '' };
+    next.updatedAt = Date.now();
+    return ensureBranchBase(normalizeState(next, source.chatKey), chat);
+}
+
 function arraysEqual(a = [], b = []) {
     return a.length === b.length && a.every((value, index) => value === b[index]);
 }
@@ -108,6 +166,7 @@ function preserveTombstones(restored, current) {
 
 function failClosedPrebaselineDivergence(state, chat) {
     const next = normalizeState(state, state?.chatKey || '');
+    const kind = next.branchSafety?.kind || branchDivergenceKind(next, chat);
     for (const npc of next.npcs) {
         npc.present = false;
         npc.worldActive = false;
@@ -120,10 +179,12 @@ function failClosedPrebaselineDivergence(state, chat) {
         targetNpcIds: [],
     };
     next.lastScannedMessageId = null;
-    next.branchHeadLineage = chatLineage(chat);
     next.branchSafety = {
-        status: 'prebaseline-diverged',
-        reason: 'The current chat diverges before the first v0.3 branch baseline. Legacy branch history was intentionally not imported, so live NPC injection is paused rather than trusting stale timeline state.',
+        status: 'rebase-required',
+        kind,
+        reason: kind === 'prebaseline-truncation'
+            ? 'The chat was truncated before NPC State\'s oldest recoverable checkpoint. Durable dossiers remain intact, but the current timeline must be explicitly rebased before live scanning resumes.'
+            : 'The chat was rewritten before NPC State\'s oldest recoverable checkpoint. Durable dossiers remain intact, but the current timeline must be explicitly rebased before live scanning resumes.',
     };
     next.updatedAt = Date.now();
     return next;
@@ -146,7 +207,7 @@ export function reconcileToCurrentBranch(state, chat) {
     restored.checkpoints = structuredClone(normalized.checkpoints || []);
     restored.branchBase = structuredClone(normalized.branchBase || null);
     restored.branchHeadLineage = currentLineage;
-    restored.branchSafety = { status: 'safe', reason: '' };
+    restored.branchSafety = { status: 'safe', kind: '', reason: '' };
     restored.updatedAt = Date.now();
     return { changed: true, unsafeDivergence: false, state: restored, checkpoint };
 }
